@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 function getTheme() {
   if (typeof window === 'undefined') return 'light';
@@ -23,7 +24,129 @@ export default function App() {
   const [profileImage, setProfileImage] = useState(null);
   const [isEditingImage, setIsEditingImage] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [buyBundle, setBuyBundle] = useState(null);
+  const [recipientNumber, setRecipientNumber] = useState('');
+  const [cart, setCart] = useState([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartPosition, setCartPosition] = useState(() => {
+    if (typeof window === 'undefined') return { x: 24, y: 80 };
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    return { x: Math.max(16, (w - 320) / 2), y: Math.max(16, (h - 400) / 2) };
+  });
+  const cartDragRef = useRef({ startX: 0, startY: 0, startLeft: 0, startTop: 0 });
+  const [cartButtonPosition, setCartButtonPosition] = useState(null);
+  const cartButtonRef = useRef(null);
+  const cartButtonDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const fileInputRef = useRef(null);
+
+  const addToCart = () => {
+    if (!buyBundle) return;
+    setCart((prev) => [...prev, { id: Date.now(), bundle: buyBundle, recipientNumber: recipientNumber.trim() || '—' }]);
+    setBuyBundle(null);
+    setRecipientNumber('');
+  };
+
+  const removeFromCart = (id) => {
+    setCart((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const clampCartPosition = (x, y) => {
+    const w = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const h = typeof window !== 'undefined' ? window.innerHeight : 600;
+    const panelW = 320;
+    const panelH = 400;
+    return {
+      x: Math.max(0, Math.min(w - panelW, x)),
+      y: Math.max(0, Math.min(h - 120, y)),
+    };
+  };
+
+  const handleCartDragStart = (e) => {
+    if (e.target.closest('button')) return;
+    if (e.cancelable) e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    cartDragRef.current = {
+      startX: clientX,
+      startY: clientY,
+      startLeft: cartPosition.x,
+      startTop: cartPosition.y,
+    };
+    const onMove = (ev) => {
+      if (ev.cancelable) ev.preventDefault();
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const { startX, startY, startLeft, startTop } = cartDragRef.current;
+      setCartPosition(clampCartPosition(startLeft + cx - startX, startTop + cy - startY));
+    };
+    const onEnd = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  };
+
+  const clampCartButtonPosition = (x, y) => {
+    const w = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const h = typeof window !== 'undefined' ? window.innerHeight : 600;
+    const size = 56;
+    return {
+      x: Math.max(0, Math.min(w - size, x)),
+      y: Math.max(0, Math.min(h - size, y)),
+    };
+  };
+
+  const handleCartButtonDragStart = (e) => {
+    if (e.cancelable) e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    let startLeft = cartButtonPosition?.x;
+    let startTop = cartButtonPosition?.y;
+    if (startLeft == null || startTop == null) {
+      const el = cartButtonRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+        setCartButtonPosition({ x: startLeft, y: startTop });
+      } else return;
+    }
+    cartButtonDragRef.current = { didMove: false, startX: clientX, startY: clientY, startLeft, startTop };
+    const onMove = (ev) => {
+      if (ev.cancelable) ev.preventDefault();
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const { startX, startY, startLeft: sl, startTop: st } = cartButtonDragRef.current;
+      const dx = cx - startX;
+      const dy = cy - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) cartButtonDragRef.current.didMove = true;
+      setCartButtonPosition(clampCartButtonPosition(sl + dx, st + dy));
+    };
+    const onEnd = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  };
+
+  const handleCartButtonClick = () => {
+    if (cartButtonDragRef.current.didMove) {
+      cartButtonDragRef.current.didMove = false;
+      return;
+    }
+    setCartOpen(true);
+  };
 
   useEffect(() => {
     const savedImage = localStorage.getItem('profileImage');
@@ -483,6 +606,59 @@ export default function App() {
         </div>
       </div>
 
+      {/* Buy bundle modal: summary + recipient details */}
+      {buyBundle && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setBuyBundle(null); setRecipientNumber(''); }} aria-hidden="true" />
+          <div className={`relative w-full max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto ${isDark ? 'bg-slate-900' : 'bg-slate-50'}`}>
+            {/* Top card: purchase summary */}
+            <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}>
+              <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
+              <div className="relative z-10 flex justify-between items-start mb-4">
+                <div>
+                  <p className="text-sm font-medium opacity-90">MTN</p>
+                  <h3 className="text-xl sm:text-2xl font-bold">{buyBundle.size}</h3>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium opacity-90">Price</p>
+                  <p className="text-lg sm:text-xl font-bold">¢ {buyBundle.price}</p>
+                </div>
+              </div>
+              <button type="button" className="w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-amber-800 font-semibold text-base transition-colors shadow-lg">
+                Buy
+              </button>
+            </div>
+            {/* Bottom card: recipient details */}
+            <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-slate-800 border-amber-500/30' : 'bg-white border-amber-400'}`}>
+              <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white' : 'text-slate-700'}`}>Recipient number</label>
+              <input
+                type="tel"
+                value={recipientNumber}
+                onChange={(e) => setRecipientNumber(e.target.value)}
+                placeholder="e.g. 024 000 0000"
+                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-slate-900 border-slate-600 text-white placeholder:text-slate-400' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+              />
+              <div className="flex gap-3 mt-5 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setBuyBundle(null); setRecipientNumber(''); }}
+                  className={`px-5 py-2.5 rounded-xl font-medium text-base transition-colors ${isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={addToCart}
+                  className="px-5 py-2.5 rounded-xl font-medium text-base bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                >
+                  Add to cart
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden max-w-md mx-auto w-full pb-20 sm:pb-24 px-3 sm:px-4 md:max-w-none md:mx-0 md:px-6 lg:px-8 ${sidebarOpen ? 'md:ml-72' : ''}`}>
         <header
           className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl ${sidebarOpen ? 'md:left-72' : ''} ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
@@ -556,12 +732,12 @@ export default function App() {
               </button>
             </div>
 
-            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-white text-black' : 'bg-black text-white'}`}>
+            <div className="rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 bg-black text-white">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
                 {['Wallet Balance', "Today's Orders", "Today's Amount", "Today's Bundle"].map((label, i) => (
-                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} ${isDark ? 'border-black/10' : 'border-white/10'}`}>
-                    <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mx-auto mb-3 ${isDark ? 'bg-slate-200' : 'bg-white/10'}`}>
-                      <Svg.Wallet stroke={isDark ? '#000000' : '#ffffff'} />
+                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} border-white/10`}>
+                    <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mx-auto mb-3 bg-white/10">
+                      <Svg.Wallet stroke="#ffffff" />
                     </div>
                     <p className="text-sm font-medium opacity-80">{label}</p>
                     <p className="text-lg sm:text-xl font-bold">{i === 0 ? '¢ 3.90' : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
@@ -604,7 +780,7 @@ export default function App() {
                         <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
                       </div>
                     </div>
-                    <button className="mt-auto w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-slate-800 font-semibold text-base transition-colors shadow-lg">
+                    <button type="button" onClick={() => setBuyBundle(bundle)} className="mt-auto w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-slate-800 font-semibold text-base transition-colors shadow-lg">
                       Buy
                     </button>
                   </div>
@@ -729,13 +905,92 @@ export default function App() {
           </>
         )}
 
+        </main>
+
+      {/* Cart FAB - portaled so it can be dragged anywhere on the viewport */}
+      {typeof document !== 'undefined' && createPortal(
         <button
-          className="fixed bottom-16 sm:bottom-24 right-3 sm:right-6 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform z-30"
-          style={{ bottom: 'max(4rem, calc(env(safe-area-inset-bottom) + 3rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+          ref={cartButtonRef}
+          onClick={handleCartButtonClick}
+          onMouseDown={handleCartButtonDragStart}
+          onTouchStart={handleCartButtonDragStart}
+          className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-grab active:cursor-grabbing"
+          style={{
+            position: 'fixed',
+            zIndex: 99998,
+            ...(cartButtonPosition
+              ? { left: cartButtonPosition.x, top: cartButtonPosition.y, right: 'auto', bottom: 'auto' }
+              : { bottom: 'max(4rem, calc(env(safe-area-inset-bottom) + 3rem))', right: 'max(0.75rem, env(safe-area-inset-right))', left: 'auto', top: 'auto' }
+            ),
+          }}
+          aria-label="Cart"
         >
-          <Svg.Cart stroke="currentColor" />
-        </button>
-      </main>
+          <Svg.Cart stroke="currentColor" className="pointer-events-none" />
+          {cart.length > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center pointer-events-none">
+              {cart.length > 9 ? '9+' : cart.length}
+            </span>
+          )}
+        </button>,
+        document.body
+      )}
+
+      {/* Floating cart panel - rendered in portal so it's truly fixed and draggable */}
+      {cartOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          className={`w-[320px] max-w-[90vw] max-h-[80vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col select-none ${isDark ? 'bg-slate-900 border border-white/10' : 'bg-white border border-slate-200'}`}
+          style={{
+            position: 'fixed',
+            left: cartPosition.x,
+            top: cartPosition.y,
+            right: 'auto',
+            bottom: 'auto',
+            zIndex: 99999,
+          }}
+        >
+          <div
+            className={`flex items-center justify-between p-3 border-b cursor-grab active:cursor-grabbing ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+            onMouseDown={handleCartDragStart}
+            onTouchStart={(e) => { if (!e.target.closest('button') && e.cancelable) e.preventDefault(); handleCartDragStart(e); }}
+          >
+            <h2 className={`text-base font-semibold pointer-events-none ${isDark ? 'text-white' : 'text-slate-900'}`}>Cart ({cart.length})</h2>
+            <button type="button" onClick={() => setCartOpen(false)} className={`p-2 rounded-lg shrink-0 cursor-pointer ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`} aria-label="Close cart">
+              <Svg.Close stroke={stroke} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 min-h-0">
+            {cart.length === 0 ? (
+              <p className={`text-center py-6 text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your cart is empty</p>
+            ) : (
+              <ul className="space-y-2">
+                {cart.map((item) => (
+                  <li key={item.id} className={`flex items-center justify-between gap-2 p-2.5 rounded-xl text-sm ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
+                    <div className="min-w-0">
+                      <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>MTN {item.bundle.size}</p>
+                      <p className={`text-xs truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
+                      <p className={`text-xs font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>¢ {item.bundle.price}</p>
+                    </div>
+                    <button type="button" onClick={() => removeFromCart(item.id)} className={`px-2 py-1 rounded-lg shrink-0 text-xs font-medium ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {cart.length > 0 && (
+            <div className={`p-3 border-t shrink-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+              <p className={`text-xs mb-2 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                Total: <span className="font-bold">¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)}</span>
+              </p>
+              <button type="button" className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm transition-colors">
+                Checkout
+              </button>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
