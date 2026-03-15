@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { api } from './api';
 
 function getTheme() {
   if (typeof window === 'undefined') return 'light';
@@ -14,10 +15,9 @@ function getTheme() {
 
 export default function App() {
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
-  const [isSignedIn, setIsSignedIn] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('dataplus_signed_in') === 'true';
-  });
+  const [token, setToken] = useState(() => (typeof window !== 'undefined' ? api.getToken() : null));
+  const [user, setUser] = useState(null);
+  const [isSignedIn, setIsSignedIn] = useState(!!token);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -36,6 +36,8 @@ export default function App() {
   const [confirmError, setConfirmError] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
   const [topUpAmount, setTopUpAmount] = useState('');
+  const [transactions, setTransactions] = useState([]);
+  const [topUpError, setTopUpError] = useState(null);
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
     const w = window.innerWidth;
@@ -47,6 +49,40 @@ export default function App() {
   const cartButtonRef = useRef(null);
   const cartButtonDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const fileInputRef = useRef(null);
+
+  const fetchWallet = () => {
+    if (!api.getToken()) return;
+    api.getWallet().then((d) => setWalletBalance(d.balance)).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!token) {
+      setIsSignedIn(false);
+      setUser(null);
+      setWalletBalance(0);
+      return;
+    }
+    api.me()
+      .then((u) => {
+        setUser(u);
+        setIsSignedIn(true);
+        fetchWallet();
+      })
+      .catch(() => {
+        api.setToken(null);
+        setToken(null);
+        setIsSignedIn(false);
+        setUser(null);
+        setWalletBalance(0);
+        localStorage.removeItem('dataplus_signed_in');
+      });
+  }, [token]);
+
+  useEffect(() => {
+    if (currentPage === 'topup' && api.getToken()) {
+      api.getTransactions().then(setTransactions).catch(() => setTransactions([]));
+    }
+  }, [currentPage]);
 
   const addToCart = () => {
     if (!buyBundle) return;
@@ -503,7 +539,17 @@ export default function App() {
 
       {!isSignedIn ? (
         <div className="flex-1 flex flex-col w-full min-h-full">
-          <SignInPage isDark={isDark} onSignIn={() => { setIsSignedIn(true); localStorage.setItem('dataplus_signed_in', 'true'); }} />
+          <SignInPage
+            isDark={isDark}
+            onSignIn={(result) => {
+              api.setToken(result.token);
+              setToken(result.token);
+              setUser(result.user);
+              setIsSignedIn(true);
+              localStorage.setItem('dataplus_signed_in', 'true');
+              fetchWallet();
+            }}
+          />
         </div>
       ) : (
         <>
@@ -626,7 +672,15 @@ export default function App() {
           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <button
               type="button"
-              onClick={() => { setIsSignedIn(false); setProfileOpen(false); localStorage.removeItem('dataplus_signed_in'); }}
+              onClick={() => {
+                api.setToken(null);
+                setToken(null);
+                setUser(null);
+                setIsSignedIn(false);
+                setProfileOpen(false);
+                setWalletBalance(0);
+                localStorage.removeItem('dataplus_signed_in');
+              }}
               className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
             >
               <Svg.LogOut /> Sign Out
@@ -862,8 +916,23 @@ export default function App() {
                 onChange={(e) => setTopUpAmount(e.target.value)}
                 className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
               />
+              {topUpError && <p className="text-sm text-red-500 mt-2">{topUpError}</p>}
               <button
                 type="button"
+                onClick={async () => {
+                  const amt = parseFloat(topUpAmount);
+                  if (!Number.isFinite(amt) || amt <= 0) return;
+                  setTopUpError(null);
+                  try {
+                    const data = await api.topUp(amt);
+                    setWalletBalance(data.balance);
+                    setTopUpAmount('');
+                    const list = await api.getTransactions();
+                    setTransactions(list);
+                  } catch (err) {
+                    setTopUpError(err.message || 'Top-up failed');
+                  }
+                }}
                 className="w-full mt-4 py-3 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
               >
                 Top Up
@@ -879,10 +948,26 @@ export default function App() {
 
             <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <h3 className={`text-base font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Recent transactions</h3>
-              <div className={`py-8 text-center rounded-xl border border-dashed ${isDark ? 'border-white/10 text-white/40' : 'border-slate-200 text-slate-400'}`}>
-                <p className="text-sm">No transactions yet</p>
-                <p className="text-xs mt-1">Your top-ups and payments will appear here</p>
-              </div>
+              {transactions.length > 0 ? (
+                <ul className="space-y-2">
+                  {transactions.map((t) => (
+                    <li key={t.id} className={`flex justify-between items-center gap-2 py-2 border-b last:border-b-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                      <div className="min-w-0">
+                        <span className={`text-sm font-medium ${t.amount >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {t.amount >= 0 ? '+' : ''}¢ {Math.abs(t.amount).toFixed(2)}
+                        </span>
+                        <span className={`text-xs block ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{t.type}{t.reference ? ` · ${t.reference}` : ''}</span>
+                      </div>
+                      <span className={`text-xs flex-shrink-0 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className={`py-8 text-center rounded-xl border border-dashed ${isDark ? 'border-white/10 text-white/40' : 'border-slate-200 text-slate-400'}`}>
+                  <p className="text-sm">No transactions yet</p>
+                  <p className="text-xs mt-1">Your top-ups and payments will appear here</p>
+                </div>
+              )}
             </div>
           </>
         ) : (
@@ -1099,17 +1184,22 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   const total = cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0);
                   if (walletBalance < total) {
                     setConfirmError(`Insufficient balance. You have ¢ ${walletBalance.toFixed(2)} but the total is ¢ ${total.toFixed(2)}. Top up your wallet or remove items from the cart.`);
                     return;
                   }
                   setConfirmError(null);
-                  setWalletBalance((b) => Math.max(0, b - total));
-                  setConfirmCheckoutOpen(false);
-                  setCartOpen(false);
-                  setCart([]);
+                  try {
+                    const data = await api.createOrders(cart);
+                    setWalletBalance(data.balance);
+                    setConfirmCheckoutOpen(false);
+                    setCartOpen(false);
+                    setCart([]);
+                  } catch (err) {
+                    setConfirmError(err.message || 'Payment failed. Try again.');
+                  }
                 }}
                 className="flex-1 py-2.5 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors border border-transparent"
               >
@@ -1124,10 +1214,6 @@ export default function App() {
     </div>
   );
 }
-
-// Demo credentials (replace with real auth later). Only this pair is allowed to sign in.
-const DEMO_LOGIN_EMAIL = 'demo@dataplus.com';
-const DEMO_LOGIN_PASSWORD = 'Demo123!';
 
 const EyeIcon = ({ className }) => (
   <svg xmlns="http://www.w3.org/2000/svg" className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1151,13 +1237,14 @@ function SignInPage({ isDark, onSignIn }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
   const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
 
   const clearError = () => setError('');
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError('');
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
@@ -1184,11 +1271,18 @@ function SignInPage({ isDark, onSignIn }) {
         setError('Passwords do not match. Please try again.');
         return;
       }
-      onSignIn();
+      setLoading(true);
+      try {
+        const result = await api.register({ email: trimmedEmail, password: trimmedPassword, fullName: trimmedName });
+        onSignIn(result);
+      } catch (err) {
+        setError(err.message || 'Registration failed.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
-    // Sign in: require credentials and check against demo account
     if (!trimmedEmail) {
       setError('Please enter your email or phone.');
       return;
@@ -1197,11 +1291,15 @@ function SignInPage({ isDark, onSignIn }) {
       setError('Please enter your password.');
       return;
     }
-    if (trimmedEmail !== DEMO_LOGIN_EMAIL || trimmedPassword !== DEMO_LOGIN_PASSWORD) {
-      setError('Invalid email or password. No account found with these details. Please try again or register.');
-      return;
+    setLoading(true);
+    try {
+      const result = await api.login({ email: trimmedEmail, password: trimmedPassword });
+      onSignIn(result);
+    } catch (err) {
+      setError(err.message || 'Invalid email or password. Please try again or register.');
+    } finally {
+      setLoading(false);
     }
-    onSignIn();
   };
 
   return (
@@ -1276,9 +1374,10 @@ function SignInPage({ isDark, onSignIn }) {
         <button
           type="button"
           onClick={handleSubmit}
-          className={`w-full py-3 rounded-xl font-semibold transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+          disabled={loading}
+          className={`w-full py-3 rounded-xl font-semibold transition-colors disabled:opacity-60 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
         >
-          {isRegister ? 'Register' : 'Sign In'}
+          {loading ? (isRegister ? 'Registering…' : 'Signing in…') : (isRegister ? 'Register' : 'Sign In')}
         </button>
         {isRegister && (
           <p className={`text-center text-sm pt-4 mt-2 border-t ${isDark ? 'border-white/10 text-white/60' : 'border-slate-200 text-slate-500'}`}>
