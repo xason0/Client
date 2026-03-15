@@ -137,25 +137,25 @@ export default function App() {
       >
         <button
           onClick={() => handleMenuSelect(id)}
-                className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-all text-base ${
+                className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all duration-200 text-base border ${
             isSelected
               ? isDark
-                ? 'bg-white/10 text-white'
-                : 'bg-slate-200 text-slate-900'
+                ? 'bg-white/10 text-white border-white/20 shadow-[0_0_16px_rgba(255,255,255,0.08)]'
+                : 'bg-slate-200 text-slate-900 border-slate-300'
               : isDark
-                ? 'bg-black hover:bg-white/10 text-white border border-white/10'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
+                ? 'bg-white/5 hover:bg-white/10 text-white border-white/10 hover:border-white/20'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
                 }`}
               >
                 <div
-            className={`w-11 h-11 rounded-lg flex items-center justify-center ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-all ${
               isSelected
                 ? isDark
-                  ? 'bg-white/15'
-                  : 'bg-slate-300'
+                  ? 'bg-white/15 border-white/20'
+                  : 'bg-slate-300 border-slate-300'
                 : isDark
-                  ? 'bg-white/10'
-                  : 'bg-slate-200'
+                  ? 'bg-white/10 border-white/10'
+                  : 'bg-slate-200 border-slate-200'
             }`}
           >
             {icon}
@@ -331,8 +331,8 @@ export default function App() {
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
 
       {(sidebarOpen || profileOpen) && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 md:hidden"
+          <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 md:hidden"
           onClick={() => {
             setSidebarOpen(false);
             setProfileOpen(false);
@@ -341,31 +341,36 @@ export default function App() {
       )}
 
       <div
-        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black' : 'bg-white'} ${isDark ? 'border-r border-white/10' : 'border-r border-slate-200'}`}
+        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 rounded-r-3xl shadow-xl ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black border-r border-white/10' : 'bg-white border-r border-slate-200'}`}
       >
-        <div className="p-6 h-full overflow-y-auto no-scrollbar">
-          <button
-            onClick={toggleSidebar}
-            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
-          >
-            <Svg.Close stroke={stroke} />
-          </button>
+        <div className="p-4 pt-5 h-full overflow-y-auto no-scrollbar flex flex-col items-stretch">
+          {/* Close X - icon-drift style */}
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={toggleSidebar}
+              className={`flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-200 hover:scale-105 active:scale-95 ${isDark ? 'bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-100 border-slate-200 hover:border-slate-300'}`}
+              aria-label="Close menu"
+            >
+              <Svg.Close stroke={stroke} />
+            </button>
+          </div>
+          <div className={`w-10 h-px mx-auto mb-4 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
 
-          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-100'}`}>
+          <div className={`rounded-2xl p-5 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100'}`}>
             <div className="flex flex-col items-center">
               <img
                 src="https://files.catbox.moe/l3islw.jpg"
                 alt="Datafy Hub Logo"
-                className="w-24 h-24 object-cover rounded-full mb-4"
+                className="w-20 h-20 object-cover rounded-full mb-3"
               />
-              <h2 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
-              <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
+              <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
             </div>
           </div>
 
-          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-100'}`}>
-            <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
+          <div className={`rounded-2xl p-4 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden border ${isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'}`}>
                 {profileImage ? (
                   <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
@@ -380,8 +385,8 @@ export default function App() {
             </div>
           </div>
 
-          <p className={`text-base mb-3 font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>MENU</p>
-          <nav className="space-y-2">
+          <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
+          <nav className="space-y-1.5">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
             <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />
             <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />
@@ -394,13 +399,13 @@ export default function App() {
                   handleMenuSelect('orders');
                   toggleOrders();
                 }}
-                className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all ${
+                className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all duration-200 border ${
                   selectedMenu === 'orders'
-                    ? isDark ? 'bg-white/10 text-white' : 'bg-slate-200 text-slate-900'
-                    : isDark ? 'bg-black hover:bg-white/10 text-white border border-white/10' : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
+                    ? isDark ? 'bg-white/10 text-white border-white/20 shadow-[0_0_16px_rgba(255,255,255,0.08)]' : 'bg-slate-200 text-slate-900 border-slate-300'
+                    : isDark ? 'bg-white/5 hover:bg-white/10 text-white border-white/10 hover:border-white/20' : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
                 }`}
               >
-                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-white/15' : 'bg-slate-300') : isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${selectedMenu === 'orders' ? (isDark ? 'bg-white/15 border-white/20' : 'bg-slate-300 border-slate-300') : isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'}`}>
                   <Svg.Clock stroke={stroke} />
                 </div>
                 <span className="flex-1 text-left">Orders</span>
@@ -417,13 +422,13 @@ export default function App() {
             <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
           </nav>
 
-          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <button
               onClick={toggleTheme}
-              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-black hover:bg-white/10 border border-white/10' : 'bg-slate-100 hover:bg-slate-200'}`}
+              className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all duration-200 border ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'}`}
               aria-label="Toggle theme"
             >
-              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'}`}>
                 {isDark ? <Svg.Sun /> : <Svg.Moon />}
               </div>
               <span className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{isDark ? 'Light mode' : 'Dark mode'}</span>
