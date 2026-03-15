@@ -1237,15 +1237,17 @@ function SignInPage({ isDark, onSignIn }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
   const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
 
-  const clearError = () => setError('');
+  const clearError = () => { setError(''); setSuccess(''); };
 
   const handleSubmit = async () => {
     setError('');
+    setSuccess('');
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
 
@@ -1273,8 +1275,11 @@ function SignInPage({ isDark, onSignIn }) {
       }
       setLoading(true);
       try {
-        const result = await api.register({ email: trimmedEmail, password: trimmedPassword, fullName: trimmedName });
-        onSignIn(result);
+        await api.register({ email: trimmedEmail, password: trimmedPassword, fullName: trimmedName });
+        setSuccess('Account created. Please sign in.');
+        setMode('signin');
+        setPassword('');
+        setConfirmPassword('');
       } catch (err) {
         setError(err.message || 'Registration failed.');
       } finally {
@@ -1365,6 +1370,11 @@ function SignInPage({ isDark, onSignIn }) {
               {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
             </button>
           </div>
+        )}
+        {success && (
+          <p className="text-sm text-green-600 dark:text-green-400 text-center" role="status">
+            {success}
+          </p>
         )}
         {error && (
           <p className="text-sm text-red-500 text-center" role="alert">
