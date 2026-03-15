@@ -556,12 +556,12 @@ export default function App() {
               </button>
             </div>
 
-            <div className="rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 bg-yellow-500 text-black">
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-white text-black' : 'bg-black text-white'}`}>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
                 {['Wallet Balance', "Today's Orders", "Today's Amount", "Today's Bundle"].map((label, i) => (
-                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b border-black/10 md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r md:border-black/10' : ''}`}>
-                    <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black flex items-center justify-center mx-auto mb-3">
-                      <Svg.Wallet stroke="#ffffff" />
+                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} ${isDark ? 'border-black/10' : 'border-white/10'}`}>
+                    <div className={`w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mx-auto mb-3 ${isDark ? 'bg-slate-200' : 'bg-white/10'}`}>
+                      <Svg.Wallet stroke={isDark ? '#000000' : '#ffffff'} />
                     </div>
                     <p className="text-sm font-medium opacity-80">{label}</p>
                     <p className="text-lg sm:text-xl font-bold">{i === 0 ? '¢ 3.90' : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
