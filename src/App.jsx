@@ -341,7 +341,7 @@ export default function App() {
       )}
 
       <div
-        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950/90' : 'bg-white/90'} backdrop-blur-xl ${isDark ? 'border-r border-neutral-800/50' : 'border-r border-slate-200/50'}`}
+        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950' : 'bg-white'} ${isDark ? 'border-r border-neutral-800/50' : 'border-r border-slate-200/50'}`}
       >
         <div className="p-6 h-full overflow-y-auto no-scrollbar">
           <button
