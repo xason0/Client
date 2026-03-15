@@ -565,8 +565,10 @@ export default function App() {
         />
       )}
 
-      <div
-        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 rounded-r-3xl shadow-xl ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black border-r border-white/10' : 'bg-white border-r border-slate-200'}`}
+      {/* Layout: on mobile = full-width main + overlay sidebar; on md+ = sidebar | main (flex row, main fills rest) */}
+      <div className="flex-1 flex min-h-0 flex-col md:flex-row">
+      <aside
+        className={`fixed md:relative top-0 left-0 h-full w-72 flex-shrink-0 z-[60] md:z-50 transition-transform duration-300 rounded-r-3xl md:rounded-r-none shadow-xl md:shadow-none ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${isDark ? 'bg-black border-r border-white/10' : 'bg-white border-r border-slate-200'}`}
       >
         <div className="p-4 pt-5 h-full overflow-y-auto no-scrollbar flex flex-col items-stretch">
           {/* Datafy Hub: circle + details in line with close button, no card */}
@@ -639,57 +641,36 @@ export default function App() {
             </button>
           </div>
         </div>
-      </div>
+      </aside>
 
-      <div
-        className={`fixed top-12 right-3 sm:top-16 sm:right-6 z-50 w-56 sm:w-60 rounded-xl transition-all duration-300 overflow-hidden ${profileOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'} ${isDark ? 'bg-black/40 border border-white/20' : 'bg-white/50 border border-slate-200/60'} backdrop-blur-xl shadow-2xl`}
-        style={{ top: 'max(3rem, calc(env(safe-area-inset-top) + 2.5rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
-      >
-        <div className="p-4">
-          <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
-              {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
-              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
-            </div>
-          </div>
-          <nav className="space-y-0.5">
-            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-              <Svg.User stroke="currentColor" /> <span>Profile</span>
-            </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-              <Svg.File /> <span>My Orders</span>
-            </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-              <Svg.Dollar /> <span>Transactions</span>
-            </a>
-            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('wallet'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
-              <Svg.Card /> <span>My Wallet</span>
-            </a>
-          </nav>
-          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-            <button
-              type="button"
-              onClick={() => {
-                api.setToken(null);
-                setToken(null);
-                setUser(null);
-                setIsSignedIn(false);
-                setProfileOpen(false);
-                setWalletBalance(0);
-                localStorage.removeItem('dataplus_signed_in');
-              }}
-              className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
-            >
-              <Svg.LogOut /> Sign Out
-            </button>
-          </div>
-        </div>
-      </div>
+      <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full min-w-0 pb-20 sm:pb-24 px-3 sm:px-4 md:px-6 lg:px-8`}>
+        <header
+          className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl md:left-72 ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
+          style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
+        >
+          <button
+            onClick={toggleSidebar}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            aria-label="Toggle sidebar"
+          >
+            <Svg.Menu stroke={stroke} width={24} height={24} />
+          </button>
+          <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈
+          </h1>
+          <button
+            onClick={toggleProfile}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            aria-label="Toggle profile"
+          >
+            {profileImage ? (
+              <img src={profileImage} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Svg.User stroke={stroke} width={24} height={24} />
+            )}
+          </button>
+        </header>
 
-      {/* Buy bundle modal: summary + recipient details */}
       {buyBundle && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setBuyBundle(null); setRecipientNumber(''); }} aria-hidden="true" />
@@ -741,34 +722,6 @@ export default function App() {
           </div>
         </div>
       )}
-
-      <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden max-w-md mx-auto w-full pb-20 sm:pb-24 px-3 sm:px-4 md:max-w-none md:mx-0 md:px-6 lg:px-8 ${sidebarOpen ? 'md:ml-72' : ''}`}>
-        <header
-          className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl ${sidebarOpen ? 'md:left-72' : ''} ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
-          style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
-        >
-          <button
-            onClick={toggleSidebar}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
-            aria-label="Toggle sidebar"
-          >
-            <Svg.Menu stroke={stroke} width={24} height={24} />
-          </button>
-          <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈
-          </h1>
-          <button
-            onClick={toggleProfile}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
-            aria-label="Toggle profile"
-          >
-            {profileImage ? (
-              <img src={profileImage} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <Svg.User stroke={stroke} width={24} height={24} />
-            )}
-          </button>
-        </header>
 
         {currentPage === 'dashboard' ? (
           <>
@@ -1088,6 +1041,56 @@ export default function App() {
         )}
 
         </main>
+      </div>
+
+      {/* Profile dropdown - fixed overlay */}
+      <div
+        className={`fixed top-12 right-3 sm:top-16 sm:right-6 z-50 w-56 sm:w-60 rounded-xl transition-all duration-300 overflow-hidden ${profileOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'} ${isDark ? 'bg-black/40 border border-white/20' : 'bg-white/50 border border-slate-200/60'} backdrop-blur-xl shadow-2xl`}
+        style={{ top: 'max(3rem, calc(env(safe-area-inset-top) + 2.5rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+      >
+        <div className="p-4">
+          <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
+              {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
+            </div>
+          </div>
+          <nav className="space-y-0.5">
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.User stroke="currentColor" /> <span>Profile</span>
+            </a>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.File /> <span>My Orders</span>
+            </a>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.Dollar /> <span>Transactions</span>
+            </a>
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('wallet'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.Card /> <span>My Wallet</span>
+            </a>
+          </nav>
+          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+            <button
+              type="button"
+              onClick={() => {
+                api.setToken(null);
+                setToken(null);
+                setUser(null);
+                setIsSignedIn(false);
+                setProfileOpen(false);
+                setWalletBalance(0);
+                localStorage.removeItem('dataplus_signed_in');
+              }}
+              className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
+            >
+              <Svg.LogOut /> Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Cart FAB - portaled so it can be dragged anywhere on the viewport */}
       {typeof document !== 'undefined' && createPortal(
