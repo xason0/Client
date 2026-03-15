@@ -330,31 +330,6 @@ export default function App() {
 
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
 
-      <button
-        onClick={toggleSidebar}
-        className={`fixed top-3 left-3 sm:top-6 sm:left-6 z-50 w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all duration-300 ${sidebarOpen ? 'md:left-72' : 'md:left-6'} ${isDark ? 'bg-neutral-900/80' : 'bg-white/80'} backdrop-blur-md shadow-lg`}
-        style={{
-          top: 'max(0.75rem, env(safe-area-inset-top))',
-          ...(isDesktop && sidebarOpen ? { left: '18rem' } : !isDesktop ? { left: 'max(0.75rem, env(safe-area-inset-left))' } : {}),
-        }}
-        aria-label="Toggle sidebar"
-      >
-        <Svg.Menu stroke={stroke} />
-      </button>
-
-      <button
-        onClick={toggleProfile}
-        className={`fixed top-3 right-3 sm:top-6 sm:right-6 z-50 w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all duration-300 ${isDark ? 'bg-neutral-900/80' : 'bg-white/80'} backdrop-blur-md shadow-lg`}
-        style={{ top: 'max(0.75rem, env(safe-area-inset-top))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
-        aria-label="Toggle profile"
-      >
-        {profileImage ? (
-          <img src={profileImage} alt="Profile" className="w-full h-full rounded-lg object-cover" />
-        ) : (
-          <Svg.User stroke={stroke} />
-        )}
-      </button>
-
       {(sidebarOpen || profileOpen) && (
         <div
           className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 md:hidden"
@@ -494,9 +469,29 @@ export default function App() {
       </div>
 
       <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden max-w-md mx-auto w-full pb-20 sm:pb-24 px-3 sm:px-4 md:max-w-none md:mx-0 md:px-6 lg:px-8 ${sidebarOpen ? 'md:ml-72' : ''}`}>
-        <div className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${scrolled ? (isDark ? 'bg-black/80 backdrop-blur-xl' : 'bg-white/80 backdrop-blur-xl') : (isDark ? 'bg-black' : 'bg-white')} ${scrolled ? 'shadow-lg' : ''} ${sidebarOpen ? 'md:left-72' : ''}`} style={{ paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}>
-          <div className="max-w-md mx-auto px-3 sm:px-4 py-4 sm:py-5 md:max-w-none md:mx-0 md:px-6 md:py-5" />
-        </div>
+        <header
+          className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl ${sidebarOpen ? 'md:left-72' : ''} ${isDark ? 'bg-black/40' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
+          style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
+        >
+          <button
+            onClick={toggleSidebar}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
+            aria-label="Toggle sidebar"
+          >
+            <Svg.Menu stroke={stroke} />
+          </button>
+          <button
+            onClick={toggleProfile}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
+            aria-label="Toggle profile"
+          >
+            {profileImage ? (
+              <img src={profileImage} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <Svg.User stroke={stroke} />
+            )}
+          </button>
+        </header>
 
         {currentPage === 'dashboard' ? (
           <>
