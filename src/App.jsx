@@ -981,13 +981,13 @@ export default function App() {
                     </button>
                   </div>
                 )}
-                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
                 <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
               </div>
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
                 {[
-                  ['Full Name', 'James Owusu'],
-                  ['Email Address', 'leoagain0700@gmail.com'],
+                  ['Full Name', user?.full_name || '—'],
+                  ['Email Address', user?.email || '—'],
                   ['Agent ID', 'DF-4398'],
                   ['Account Status', 'Active'],
                   ['Member Since', 'Nov 08, 2025'],
@@ -1054,7 +1054,7 @@ export default function App() {
               {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
               <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
             </div>
           </div>
