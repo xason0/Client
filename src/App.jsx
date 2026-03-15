@@ -366,46 +366,28 @@ export default function App() {
         className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 rounded-r-3xl shadow-xl ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black border-r border-white/10' : 'bg-white border-r border-slate-200'}`}
       >
         <div className="p-4 pt-5 h-full overflow-y-auto no-scrollbar flex flex-col items-stretch">
-          {/* Close X - icon-drift style */}
-          <div className="flex justify-end mb-2">
+          {/* Datafy Hub: circle + details in line with close button, no card */}
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <img
+                src="https://files.catbox.moe/l3islw.jpg"
+                alt="Datafy Hub Logo"
+                className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover flex-shrink-0 border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+              />
+              <div className="min-w-0">
+                <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
+                <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
+              </div>
+            </div>
             <button
               onClick={toggleSidebar}
-              className={`flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-200 hover:scale-105 active:scale-95 ${isDark ? 'bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-100 border-slate-200 hover:border-slate-300'}`}
+              className={`flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-200 hover:scale-105 active:scale-95 flex-shrink-0 ${isDark ? 'bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-100 border-slate-200 hover:border-slate-300'}`}
               aria-label="Close menu"
             >
               <Svg.Close stroke={stroke} />
             </button>
           </div>
           <div className={`w-10 h-px mx-auto mb-4 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
-
-          <div className={`rounded-2xl p-5 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100'}`}>
-            <div className="flex flex-col items-center">
-              <img
-                src="https://files.catbox.moe/l3islw.jpg"
-                alt="Datafy Hub Logo"
-                className="w-20 h-20 object-cover rounded-full mb-3"
-              />
-              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
-              <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
-            </div>
-          </div>
-
-          <div className={`rounded-2xl p-4 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100'}`}>
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden border ${isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'}`}>
-                {profileImage ? (
-                  <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  <Svg.User stroke={stroke} />
-                )}
-              </div>
-              <div className="flex-1">
-                <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
-                <p className={`text-sm ${isDark ? 'text-yellow-500' : 'text-yellow-600'}`}>DF-4398</p>
-                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-white/10 text-yellow-500 border border-white/10' : 'bg-slate-200 text-yellow-600'}`}>Agent</span>
-              </div>
-            </div>
-          </div>
 
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
           <nav className="space-y-1.5">
@@ -499,20 +481,20 @@ export default function App() {
         >
           <button
             onClick={toggleSidebar}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle sidebar"
           >
-            <Svg.Menu stroke={stroke} />
+            <Svg.Menu stroke={stroke} width={24} height={24} />
           </button>
           <button
             onClick={toggleProfile}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle profile"
           >
             {profileImage ? (
               <img src={profileImage} alt="" className="w-full h-full object-cover" />
             ) : (
-              <Svg.User stroke={stroke} />
+              <Svg.User stroke={stroke} width={24} height={24} />
             )}
           </button>
         </header>
