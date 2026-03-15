@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export default function App() {
-  const [theme, setTheme] = useState('dark');
-  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const [theme, setTheme] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -16,37 +17,22 @@ export default function App() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('theme');
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    setSystemPrefersDark(systemDark);
-
-    if (saved) {
-      setTheme(saved);
-    } else {
-      setTheme(systemDark ? 'dark' : 'light');
-    }
-
     const savedImage = localStorage.getItem('profileImage');
-    if (savedImage) {
-      setProfileImage(savedImage);
-    }
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e) => {
-      setSystemPrefersDark(e.matches);
-      if (!localStorage.getItem('theme')) {
-        setTheme(e.matches ? 'dark' : 'light');
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    if (savedImage) setProfileImage(savedImage);
   }, []);
 
+  // Follow system light/dark preference automatically
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const dark = mq.matches;
+      setTheme(dark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -66,7 +52,6 @@ export default function App() {
     return () => mq.removeEventListener('change', handle);
   }, []);
 
-  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
@@ -421,19 +406,6 @@ export default function App() {
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
             <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
           </nav>
-
-          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-            <button
-              onClick={toggleTheme}
-              className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all duration-200 border ${isDark ? 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'}`}
-              aria-label="Toggle theme"
-            >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${isDark ? 'bg-white/10 border-white/10' : 'bg-slate-200 border-slate-200'}`}>
-                {isDark ? <Svg.Sun /> : <Svg.Moon />}
-              </div>
-              <span className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{isDark ? 'Light mode' : 'Dark mode'}</span>
-            </button>
-          </div>
         </div>
       </div>
 
