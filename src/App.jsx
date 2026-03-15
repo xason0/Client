@@ -608,9 +608,9 @@ export default function App() {
 
       {/* Buy bundle modal: summary + recipient details */}
       {buyBundle && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setBuyBundle(null); setRecipientNumber(''); }} aria-hidden="true" />
-          <div className={`relative w-full max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto ${isDark ? 'bg-slate-900' : 'bg-slate-50'}`}>
+          <div className={`relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto ${isDark ? 'bg-black' : 'bg-slate-50'}`}>
             {/* Top card: purchase summary */}
             <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}>
               <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
@@ -629,20 +629,20 @@ export default function App() {
               </button>
             </div>
             {/* Bottom card: recipient details */}
-            <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-slate-800 border-amber-500/30' : 'bg-white border-amber-400'}`}>
+            <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-amber-400'}`}>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white' : 'text-slate-700'}`}>Recipient number</label>
               <input
                 type="tel"
                 value={recipientNumber}
                 onChange={(e) => setRecipientNumber(e.target.value)}
                 placeholder="e.g. 024 000 0000"
-                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-slate-900 border-slate-600 text-white placeholder:text-slate-400' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
               />
               <div className="flex gap-3 mt-5 justify-end">
                 <button
                   type="button"
                   onClick={() => { setBuyBundle(null); setRecipientNumber(''); }}
-                  className={`px-5 py-2.5 rounded-xl font-medium text-base transition-colors ${isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                  className={`px-5 py-2.5 rounded-xl font-medium text-base transition-colors ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
                 >
                   Cancel
                 </button>
@@ -935,61 +935,49 @@ export default function App() {
         document.body
       )}
 
-      {/* Floating cart panel - rendered in portal so it's truly fixed and draggable */}
-      {cartOpen && typeof document !== 'undefined' && createPortal(
-        <div
-          className={`w-[320px] max-w-[90vw] max-h-[80vh] rounded-2xl overflow-hidden shadow-2xl flex flex-col select-none ${isDark ? 'bg-slate-900 border border-white/10' : 'bg-white border border-slate-200'}`}
-          style={{
-            position: 'fixed',
-            left: cartPosition.x,
-            top: cartPosition.y,
-            right: 'auto',
-            bottom: 'auto',
-            zIndex: 99999,
-          }}
-        >
-          <div
-            className={`flex items-center justify-between p-3 border-b cursor-grab active:cursor-grabbing ${isDark ? 'border-white/10' : 'border-slate-200'}`}
-            onMouseDown={handleCartDragStart}
-            onTouchStart={(e) => { if (!e.target.closest('button') && e.cancelable) e.preventDefault(); handleCartDragStart(e); }}
-          >
-            <h2 className={`text-base font-semibold pointer-events-none ${isDark ? 'text-white' : 'text-slate-900'}`}>Cart ({cart.length})</h2>
-            <button type="button" onClick={() => setCartOpen(false)} className={`p-2 rounded-lg shrink-0 cursor-pointer ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`} aria-label="Close cart">
-              <Svg.Close stroke={stroke} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 min-h-0">
-            {cart.length === 0 ? (
-              <p className={`text-center py-6 text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your cart is empty</p>
-            ) : (
-              <ul className="space-y-2">
-                {cart.map((item) => (
-                  <li key={item.id} className={`flex items-center justify-between gap-2 p-2.5 rounded-xl text-sm ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
-                    <div className="min-w-0">
-                      <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>MTN {item.bundle.size}</p>
-                      <p className={`text-xs truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
-                      <p className={`text-xs font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>¢ {item.bundle.price}</p>
-                    </div>
-                    <button type="button" onClick={() => removeFromCart(item.id)} className={`px-2 py-1 rounded-lg shrink-0 text-xs font-medium ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`}>
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          {cart.length > 0 && (
-            <div className={`p-3 border-t shrink-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-              <p className={`text-xs mb-2 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-                Total: <span className="font-bold">¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)}</span>
-              </p>
-              <button type="button" className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-sm transition-colors">
-                Checkout
+      {/* Cart dialog - centered modal like the buy dialog */}
+      {cartOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setCartOpen(false)} aria-hidden="true" />
+          <div className={`relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col ${isDark ? 'bg-black' : 'bg-slate-50'}`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Cart ({cart.length})</h2>
+              <button type="button" onClick={() => setCartOpen(false)} className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`} aria-label="Close cart">
+                <Svg.Close stroke={stroke} />
               </button>
             </div>
-          )}
-        </div>,
-        document.body
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              {cart.length === 0 ? (
+                <p className={`text-center py-8 text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your cart is empty</p>
+              ) : (
+                <ul className="space-y-3">
+                  {cart.map((item) => (
+                    <li key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
+                      <div className="min-w-0">
+                        <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>MTN {item.bundle.size}</p>
+                        <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
+                        <p className={`text-sm font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>¢ {item.bundle.price}</p>
+                      </div>
+                      <button type="button" onClick={() => removeFromCart(item.id)} className={`px-2 py-1.5 rounded-lg shrink-0 text-sm font-medium ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`}>
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {cart.length > 0 && (
+              <div className={`p-4 border-t shrink-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  Total: <span className="font-bold">¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)}</span>
+                </p>
+                <button type="button" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors">
+                  Checkout
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
