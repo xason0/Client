@@ -140,10 +140,10 @@ export default function App() {
                 className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-all text-base ${
             isSelected
               ? isDark
-                ? 'bg-neutral-800 text-white'
+                ? 'bg-white/10 text-white'
                 : 'bg-slate-200 text-slate-900'
               : isDark
-                ? 'bg-neutral-900 hover:bg-neutral-800 text-white'
+                ? 'bg-black hover:bg-white/10 text-white border border-white/10'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
                 }`}
               >
@@ -151,10 +151,10 @@ export default function App() {
             className={`w-11 h-11 rounded-lg flex items-center justify-center ${
               isSelected
                 ? isDark
-                  ? 'bg-neutral-700'
+                  ? 'bg-white/15'
                   : 'bg-slate-300'
                 : isDark
-                  ? 'bg-neutral-800'
+                  ? 'bg-white/10'
                   : 'bg-slate-200'
             }`}
           >
@@ -341,17 +341,17 @@ export default function App() {
       )}
 
       <div
-        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950' : 'bg-white'} ${isDark ? 'border-r border-neutral-800' : 'border-r border-slate-200'}`}
+        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-black' : 'bg-white'} ${isDark ? 'border-r border-white/10' : 'border-r border-slate-200'}`}
       >
         <div className="p-6 h-full overflow-y-auto no-scrollbar">
           <button
             onClick={toggleSidebar}
-            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
+            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
           >
             <Svg.Close stroke={stroke} />
           </button>
 
-          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-neutral-900' : 'bg-slate-100'}`}>
+          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-100'}`}>
             <div className="flex flex-col items-center">
               <img
                 src="https://files.catbox.moe/l3islw.jpg"
@@ -359,13 +359,13 @@ export default function App() {
                 className="w-24 h-24 object-cover rounded-full mb-4"
               />
               <h2 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
-              <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent Console</p>
+              <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
             </div>
           </div>
 
-          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-100'}`}>
+          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-100'}`}>
             <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
                 {profileImage ? (
                   <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
@@ -375,12 +375,12 @@ export default function App() {
               <div className="flex-1">
                 <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
                 <p className={`text-sm ${isDark ? 'text-yellow-500' : 'text-yellow-600'}`}>DF-4398</p>
-                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-neutral-800 text-yellow-500' : 'bg-slate-200 text-yellow-600'}`}>Agent</span>
+                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-white/10 text-yellow-500 border border-white/10' : 'bg-slate-200 text-yellow-600'}`}>Agent</span>
               </div>
             </div>
           </div>
 
-          <p className={`text-base mb-3 font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>MENU</p>
+          <p className={`text-base mb-3 font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>MENU</p>
           <nav className="space-y-2">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
             <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />
@@ -396,20 +396,20 @@ export default function App() {
                 }}
                 className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all ${
                   selectedMenu === 'orders'
-                    ? isDark ? 'bg-neutral-800 text-white' : 'bg-slate-200 text-slate-900'
-                    : isDark ? 'bg-neutral-900 hover:bg-neutral-800 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
+                    ? isDark ? 'bg-white/10 text-white' : 'bg-slate-200 text-slate-900'
+                    : isDark ? 'bg-black hover:bg-white/10 text-white border border-white/10' : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
                 }`}
               >
-                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-neutral-700' : 'bg-slate-300') : isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
+                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-white/15' : 'bg-slate-300') : isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
                   <Svg.Clock stroke={stroke} />
                 </div>
                 <span className="flex-1 text-left">Orders</span>
                 <Svg.ChevronDown stroke={stroke} className={`transition-transform ${ordersExpanded ? 'rotate-180' : ''}`} />
               </button>
               {ordersExpanded && (
-                <div className={`px-3 pb-3 space-y-1 ${isDark ? 'text-neutral-300' : 'text-slate-600'}`}>
-                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-neutral-800' : 'bg-slate-200') : ''}`}>Pending Orders</a>
-                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-neutral-800' : 'bg-slate-200') : ''}`}>Completed Orders</a>
+                <div className={`px-3 pb-3 space-y-1 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Pending Orders</a>
+                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Completed Orders</a>
                 </div>
               )}
             </div>
@@ -417,13 +417,13 @@ export default function App() {
             <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
           </nav>
 
-          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-neutral-800' : 'border-slate-200'}`}>
+          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <button
               onClick={toggleTheme}
-              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-neutral-900 hover:bg-neutral-800' : 'bg-slate-100 hover:bg-slate-200'}`}
+              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-black hover:bg-white/10 border border-white/10' : 'bg-slate-100 hover:bg-slate-200'}`}
               aria-label="Toggle theme"
             >
-              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
+              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-white/10' : 'bg-slate-200'}`}>
                 {isDark ? <Svg.Sun /> : <Svg.Moon />}
               </div>
               <span className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{isDark ? 'Light mode' : 'Dark mode'}</span>
@@ -433,34 +433,34 @@ export default function App() {
       </div>
 
       <div
-        className={`fixed top-12 right-3 sm:top-16 sm:right-6 z-50 w-56 sm:w-60 rounded-xl transition-all duration-300 overflow-hidden ${profileOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'} ${isDark ? 'bg-neutral-900/95 border border-neutral-800' : 'bg-white border border-slate-200'} backdrop-blur-xl shadow-2xl`}
+        className={`fixed top-12 right-3 sm:top-16 sm:right-6 z-50 w-56 sm:w-60 rounded-xl transition-all duration-300 overflow-hidden ${profileOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'} ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'} backdrop-blur-xl shadow-2xl`}
         style={{ top: 'max(3rem, calc(env(safe-area-inset-top) + 2.5rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
       >
         <div className="p-4">
-          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-neutral-700/30">
+          <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
               {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
-              <p className={`text-sm truncate ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent</p>
+              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
             </div>
           </div>
           <nav className="space-y-0.5">
-            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.User stroke="currentColor" /> <span>Profile</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.File /> <span>My Orders</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.Dollar /> <span>Transactions</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.Card /> <span>My Wallet</span>
             </a>
           </nav>
-          <div className="mt-4 pt-4 border-t border-neutral-700/30">
+          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <button className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium">
               <Svg.LogOut /> Sign Out
             </button>
@@ -470,19 +470,19 @@ export default function App() {
 
       <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden max-w-md mx-auto w-full pb-20 sm:pb-24 px-3 sm:px-4 md:max-w-none md:mx-0 md:px-6 lg:px-8 ${sidebarOpen ? 'md:ml-72' : ''}`}>
         <header
-          className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl ${sidebarOpen ? 'md:left-72' : ''} ${isDark ? 'bg-black/40' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
+          className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl ${sidebarOpen ? 'md:left-72' : ''} ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
           style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
         >
           <button
             onClick={toggleSidebar}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle sidebar"
           >
             <Svg.Menu stroke={stroke} />
           </button>
           <button
             onClick={toggleProfile}
-            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
+            className={`w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle profile"
           >
             {profileImage ? (
@@ -498,7 +498,7 @@ export default function App() {
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-neutral-900' : 'bg-white'}`}>
+                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
                     <Svg.Home stroke={stroke} />
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
@@ -510,28 +510,28 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-800 text-white'}`}>
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-800 text-white'}`}>
               <div className="flex justify-between mb-5 sm:mb-6 gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl bg-neutral-800 flex items-center justify-center flex-shrink-0">
+                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${isDark ? 'bg-white/10' : 'bg-neutral-800'}`}>
                     <Svg.Wallet stroke="#ffffff" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-neutral-400 text-sm">Balance</p>
+                    <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Balance</p>
                     <p className="text-xl sm:text-3xl font-bold truncate">¢ 3.90</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl bg-neutral-800 flex items-center justify-center flex-shrink-0">
+                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${isDark ? 'bg-white/10' : 'bg-neutral-800'}`}>
                     <Svg.Cart stroke="#ffffff" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-neutral-400 text-sm">Today's Spent</p>
+                    <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Today's Spent</p>
                     <p className="text-xl sm:text-3xl font-bold truncate">¢ 0.00</p>
                   </div>
                 </div>
               </div>
-              <button className="w-full py-3 sm:py-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2 font-medium text-base">
+              <button className={`w-full py-3 sm:py-4 rounded-xl transition-colors flex items-center justify-center gap-2 font-medium text-base ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-neutral-800 hover:bg-neutral-700'}`}>
                 <Svg.Plus /> Top Up Wallet
               </button>
             </div>
@@ -550,16 +550,16 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`flex p-1.5 rounded-xl mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-200'}`}>
+            <div className={`flex p-1.5 rounded-xl mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-200'}`}>
               <button
                 onClick={() => setActiveTab('mtn')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? 'bg-yellow-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-700'}`}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? 'bg-yellow-600 text-white shadow-lg' : 'text-white/60 hover:text-white/90'}`}
               >
                 MTN
               </button>
               <button
                 onClick={() => setActiveTab('telecel')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'telecel' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-700'}`}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'telecel' ? 'bg-purple-600 text-white shadow-lg' : 'text-white/60 hover:text-white/90'}`}
               >
                 Telecel
               </button>
@@ -590,7 +590,7 @@ export default function App() {
             <div className="pt-14 sm:pt-20 pb-5 sm:pb-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-neutral-900' : 'bg-white'}`}>
+                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
                     <Svg.User stroke={stroke} />
                   </div>
                   <h1 className="text-2xl sm:text-3xl font-bold">Profile</h1>
@@ -604,13 +604,13 @@ export default function App() {
 
             <div className="mb-5 sm:mb-6">
               <h2 className={`text-2xl sm:text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>My Profile</h2>
-              <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Manage your account settings and preferences</p>
+              <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Manage your account settings and preferences</p>
             </div>
 
-            <div className={`rounded-xl sm:rounded-2xl overflow-hidden mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
-              <div className="p-5 sm:p-6 border-b border-neutral-800/50">
+            <div className={`rounded-xl sm:rounded-2xl overflow-hidden mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+              <div className={`p-5 sm:p-6 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                 <h3 className={`text-xl font-semibold mb-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>Profile Information</h3>
-                <p className={`text-sm ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Update your account's profile information and email address.</p>
+                <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Update your account's profile information and email address.</p>
               </div>
               <div className="p-5 sm:p-6 flex flex-col items-center">
                 <div className="relative mb-4 group">
@@ -638,13 +638,13 @@ export default function App() {
                         Remove
                       </button>
                     )}
-                    <button onClick={() => setIsEditingImage(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-neutral-800 hover:bg-neutral-700 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`}>
+                    <button onClick={() => setIsEditingImage(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`}>
                       Cancel
                     </button>
                   </div>
                 )}
                 <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
-                <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent</p>
+                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
               </div>
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
                 {[
@@ -655,7 +655,7 @@ export default function App() {
                   ['Member Since', 'Nov 08, 2025'],
                 ].map(([label, value], i) => (
                   <div key={i}>
-                    <p className={`text-sm font-medium mb-1.5 ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>{label}</p>
+                    <p className={`text-sm font-medium mb-1.5 ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{label}</p>
                     <p className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
                   </div>
                 ))}
@@ -663,7 +663,7 @@ export default function App() {
                   <button className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors flex items-center justify-center gap-2">
                     <Svg.Edit stroke="currentColor" /> EDIT PROFILE
                   </button>
-                  <button className={`w-full py-3.5 rounded-xl font-semibold text-base transition-colors flex items-center justify-center gap-2 ${isDark ? 'bg-neutral-800 hover:bg-neutral-700 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
+                  <button className={`w-full py-3.5 rounded-xl font-semibold text-base transition-colors flex items-center justify-center gap-2 ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
                     <Svg.Link /> CHANGE PASSWORD
                   </button>
                 </div>
@@ -671,30 +671,30 @@ export default function App() {
             </div>
 
             <div className="space-y-4 pb-16 sm:pb-20">
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
                 <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
                   <Svg.Chart />
                 </div>
                 <div className="min-w-0">
-                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Total Orders</p>
+                  <p className={`text-sm font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Total Orders</p>
                   <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
                 </div>
               </div>
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
                 <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
                   <Svg.Dollar stroke="currentColor" />
                 </div>
                 <div className="min-w-0">
-                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Wallet Balance</p>
+                  <p className={`text-sm font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Wallet Balance</p>
                   <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢3.90</p>
                 </div>
               </div>
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
                 <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 shrink-0">
                   <Svg.Chart />
                 </div>
                 <div className="min-w-0">
-                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Total Spent</p>
+                  <p className={`text-sm font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Total Spent</p>
                   <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢0.00</p>
                 </div>
               </div>
