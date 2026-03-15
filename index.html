@@ -3,6 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <script>
+      (function() {
+        var stored = localStorage.getItem('theme');
+        var t;
+        if (stored === 'dark' || stored === 'light') t = stored;
+        else try { t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { t = 'light'; }
+        document.documentElement.setAttribute('data-theme', t);
+        window.__INITIAL_THEME__ = t;
+      })();
+    </script>
     <meta name="theme-color" content="#000000" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

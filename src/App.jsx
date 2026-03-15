@@ -1,7 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+
+function getTheme() {
+  if (typeof window === 'undefined') return 'light';
+  const s = localStorage.getItem('theme');
+  if (s === 'dark' || s === 'light') return s;
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch (_) {
+    return window.__INITIAL_THEME__ || 'light';
+  }
+}
 
 export default function App() {
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -19,21 +30,15 @@ export default function App() {
     if (savedImage) setProfileImage(savedImage);
   }, []);
 
-  // Resolve theme on mount from localStorage or system preference; listen for system changes
+  // Apply theme before first paint and subscribe to system preference
+  useLayoutEffect(() => {
+    const resolved = getTheme();
+    setTheme(resolved);
+    document.documentElement.setAttribute('data-theme', resolved);
+  }, []);
+
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const stored = localStorage.getItem('theme');
-      if (stored === 'dark' || stored === 'light') {
-        setTheme(stored);
-        document.documentElement.setAttribute('data-theme', stored);
-        return;
-      }
-      const next = mq.matches ? 'dark' : 'light';
-      setTheme(next);
-      document.documentElement.setAttribute('data-theme', next);
-    };
-    apply();
     const handleSystemChange = () => {
       if (localStorage.getItem('theme')) return;
       const next = mq.matches ? 'dark' : 'light';
@@ -70,12 +75,10 @@ export default function App() {
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      localStorage.setItem('theme', next);
-      document.documentElement.setAttribute('data-theme', next);
-      return next;
-    });
+    const next = theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme', next);
+    document.documentElement.setAttribute('data-theme', next);
+    setTheme(next);
   };
 
   const handleMenuSelect = (menu) => {
