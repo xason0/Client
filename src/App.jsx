@@ -37,16 +37,28 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', resolved);
   }, []);
 
+  // When system dark/light mode changes, always follow it and clear any manual override
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleSystemChange = () => {
-      if (localStorage.getItem('theme')) return;
+    const applySystemTheme = () => {
       const next = mq.matches ? 'dark' : 'light';
+      localStorage.removeItem('theme');
       setTheme(next);
       document.documentElement.setAttribute('data-theme', next);
     };
-    mq.addEventListener('change', handleSystemChange);
-    return () => mq.removeEventListener('change', handleSystemChange);
+    mq.addEventListener('change', applySystemTheme);
+    return () => mq.removeEventListener('change', applySystemTheme);
+  }, []);
+
+  // When user returns to the tab, re-sync theme (in case system changed while tab was in background)
+  useEffect(() => {
+    const onVisible = () => {
+      const resolved = getTheme();
+      setTheme(resolved);
+      document.documentElement.setAttribute('data-theme', resolved);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   useEffect(() => {
