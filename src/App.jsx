@@ -348,6 +348,15 @@ export default function App() {
           100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
         }
         .status-dot { animation: pulse-ray 2s infinite; }
+        @keyframes gradient-flow {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 200% 50%; }
+        }
+        .balance-card-live {
+          background: linear-gradient(90deg, #8b5cf6, #d946ef, #06b6d4, #8b5cf6);
+          background-size: 200% 100%;
+          animation: gradient-flow 2.5s ease infinite;
+        }
       `}</style>
 
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
@@ -516,7 +525,9 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-800 text-white'}`}>
+            <div
+              className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 text-white balance-card-live ${isDark ? 'border border-white/10' : ''}`}
+            >
               <div className="flex justify-between mb-5 sm:mb-6 gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${isDark ? 'bg-white/10' : 'bg-neutral-800'}`}>
