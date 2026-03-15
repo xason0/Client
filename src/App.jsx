@@ -14,6 +14,7 @@ function getTheme() {
 
 export default function App() {
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
+  const [isSignedIn, setIsSignedIn] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -31,6 +32,7 @@ export default function App() {
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
   const [confirmError, setConfirmError] = useState(null);
   const [walletBalance, setWalletBalance] = useState(0);
+  const [topUpAmount, setTopUpAmount] = useState('');
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
     const w = window.innerWidth;
@@ -226,6 +228,9 @@ export default function App() {
       setProfileOpen(false);
     } else if (menu === 'dashboard') {
       setCurrentPage('dashboard');
+      setProfileOpen(false);
+    } else if (menu === 'wallet' || menu === 'topup') {
+      setCurrentPage('topup');
       setProfileOpen(false);
     }
   };
@@ -493,6 +498,12 @@ export default function App() {
         }
       `}</style>
 
+      {!isSignedIn ? (
+        <div className="flex-1 flex flex-col w-full min-h-full">
+          <SignInPage isDark={isDark} onSignIn={() => setIsSignedIn(true)} />
+        </div>
+      ) : (
+        <>
       <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
 
       {(sidebarOpen || profileOpen) && (
@@ -605,12 +616,16 @@ export default function App() {
             <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.Dollar /> <span>Transactions</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('wallet'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.Card /> <span>My Wallet</span>
             </a>
           </nav>
           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-            <button className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium">
+            <button
+              type="button"
+              onClick={() => { setIsSignedIn(false); setProfileOpen(false); }}
+              className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
+            >
               <Svg.LogOut /> Sign Out
             </button>
           </div>
@@ -738,7 +753,11 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              <button className={`w-full py-3 sm:py-4 rounded-xl transition-colors flex items-center justify-center gap-2 font-medium text-base ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-neutral-800 hover:bg-neutral-700'}`}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('topup')}
+                className={`w-full py-3 sm:py-4 rounded-xl transition-colors flex items-center justify-center gap-2 font-medium text-base ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-neutral-800 hover:bg-neutral-700'}`}
+              >
                 <Svg.Plus /> Top Up Wallet
               </button>
             </div>
@@ -797,6 +816,70 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          </>
+        ) : currentPage === 'topup' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage('dashboard')}
+                className={`flex items-center gap-2 mb-4 text-sm font-medium ${isDark ? 'text-white/70 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
+                aria-label="Back to dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+                Back
+              </button>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                    <Svg.Wallet stroke={stroke} />
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold">Top Up Wallet</h1>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative w-2.5 h-2.5 rounded-full bg-green-500" />
+                  <span className="text-sm font-medium text-green-600 dark:text-green-400">Open now</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 mb-5 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
+              <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Up Wallet</h2>
+              <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+                Enter an amount and continue to Paystack to complete your payment.
+              </p>
+              <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value)}
+                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+              />
+              <button
+                type="button"
+                className="w-full mt-4 py-3 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+              >
+                Top Up
+              </button>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 mb-5 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-sm font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Current Balance</span>
+                <span className={`text-xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>¢ {walletBalance.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
+              <h3 className={`text-base font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Recent transactions</h3>
+              <div className={`py-8 text-center rounded-xl border border-dashed ${isDark ? 'border-white/10 text-white/40' : 'border-slate-200 text-slate-400'}`}>
+                <p className="text-sm">No transactions yet</p>
+                <p className="text-xs mt-1">Your top-ups and payments will appear here</p>
+              </div>
             </div>
           </>
         ) : (
@@ -1033,6 +1116,149 @@ export default function App() {
           </div>
         </div>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Demo credentials (replace with real auth later). Only this pair is allowed to sign in.
+const DEMO_LOGIN_EMAIL = 'demo@dataplus.com';
+const DEMO_LOGIN_PASSWORD = 'Demo123!';
+
+function SignInPage({ isDark, onSignIn }) {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'register'
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
+  const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'}`;
+  const isRegister = mode === 'register';
+
+  const clearError = () => setError('');
+
+  const handleSubmit = () => {
+    setError('');
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (isRegister) {
+      const trimmedName = fullName.trim();
+      if (!trimmedName) {
+        setError('Please enter your full name.');
+        return;
+      }
+      if (!trimmedEmail) {
+        setError('Please enter your email or phone.');
+        return;
+      }
+      if (!trimmedPassword) {
+        setError('Please enter a password.');
+        return;
+      }
+      if (trimmedPassword.length < 6) {
+        setError('Password must be at least 6 characters.');
+        return;
+      }
+      if (trimmedPassword !== confirmPassword.trim()) {
+        setError('Passwords do not match. Please try again.');
+        return;
+      }
+      onSignIn();
+      return;
+    }
+
+    // Sign in: require credentials and check against demo account
+    if (!trimmedEmail) {
+      setError('Please enter your email or phone.');
+      return;
+    }
+    if (!trimmedPassword) {
+      setError('Please enter your password.');
+      return;
+    }
+    if (trimmedEmail !== DEMO_LOGIN_EMAIL || trimmedPassword !== DEMO_LOGIN_PASSWORD) {
+      setError('Invalid email or password. No account found with these details. Please try again or register.');
+      return;
+    }
+    onSignIn();
+  };
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center min-h-full w-full p-6">
+      <img
+        src="https://files.catbox.moe/l3islw.jpg"
+        alt="DataPlus"
+        className={`w-20 h-20 rounded-full object-cover border mb-6 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+      />
+      <h1 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h1>
+      <p className={`text-sm mb-8 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+        {isRegister ? 'Create an account' : 'Sign in to your account'}
+      </p>
+      <div className="w-full max-w-sm space-y-4">
+        {isRegister && (
+          <input
+            type="text"
+            placeholder="Full name"
+            value={fullName}
+            onChange={(e) => { setFullName(e.target.value); clearError(); }}
+            className={inputClass}
+          />
+        )}
+        <input
+          type="email"
+          placeholder="Email or phone"
+          value={email}
+          onChange={(e) => { setEmail(e.target.value); clearError(); }}
+          className={inputClass}
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); clearError(); }}
+          className={inputClass}
+        />
+        {isRegister && (
+          <input
+            type="password"
+            placeholder="Confirm password"
+            value={confirmPassword}
+            onChange={(e) => { setConfirmPassword(e.target.value); clearError(); }}
+            className={inputClass}
+          />
+        )}
+        {error && (
+          <p className="text-sm text-red-500 text-center" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors"
+        >
+          {isRegister ? 'Register' : 'Sign In'}
+        </button>
+        {isRegister && (
+          <p className={`text-center text-sm pt-4 mt-2 border-t ${isDark ? 'border-white/10 text-white/60' : 'border-slate-200 text-slate-500'}`}>
+            Already have an account?{' '}
+            <button type="button" onClick={() => { setMode('signin'); setError(''); }} className={linkClass}>
+              Login
+            </button>
+          </p>
+        )}
+        {!isRegister && (
+          <p className={`text-center text-sm pt-2 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+            Don&apos;t have an account?{' '}
+            <button type="button" onClick={() => { setMode('register'); setError(''); }} className={linkClass}>
+              Register
+            </button>
+          </p>
+        )}
+      </div>
     </div>
   );
 }
