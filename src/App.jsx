@@ -380,11 +380,11 @@ export default function App() {
             <div className="flex items-center gap-4 min-w-0 flex-1">
               <img
                 src="https://files.catbox.moe/l3islw.jpg"
-                alt="Datafy Hub Logo"
+                alt="DataPlus"
                 className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover flex-shrink-0 border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
               />
               <div className="min-w-0">
-                <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
+                <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h2>
                 <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
               </div>
             </div>
@@ -490,14 +490,17 @@ export default function App() {
         >
           <button
             onClick={toggleSidebar}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle sidebar"
           >
             <Svg.Menu stroke={stroke} width={24} height={24} />
           </button>
+          <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈
+          </h1>
           <button
             onClick={toggleProfile}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle profile"
           >
             {profileImage ? (
