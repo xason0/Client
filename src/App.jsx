@@ -1,0 +1,719 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+export default function App() {
+  const [theme, setTheme] = useState('dark');
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [ordersExpanded, setOrdersExpanded] = useState(false);
+  const [selectedMenu, setSelectedMenu] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('mtn');
+  const [scrolled, setScrolled] = useState(false);
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [profileImage, setProfileImage] = useState(null);
+  const [isEditingImage, setIsEditingImage] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setSystemPrefersDark(systemDark);
+
+    if (saved) {
+      setTheme(saved);
+    } else {
+      setTheme(systemDark ? 'dark' : 'light');
+    }
+
+    const savedImage = localStorage.getItem('profileImage');
+    if (savedImage) {
+      setProfileImage(savedImage);
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e) => {
+      setSystemPrefersDark(e.matches);
+      if (!localStorage.getItem('theme')) {
+        setTheme(e.matches ? 'dark' : 'light');
+      }
+    };
+
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Desktop: show sidebar by default and track viewport
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handle = () => {
+      setIsDesktop(mq.matches);
+      if (mq.matches) setSidebarOpen(true);
+    };
+    handle();
+    mq.addEventListener('change', handle);
+    return () => mq.removeEventListener('change', handle);
+  }, []);
+
+  const toggleTheme = () => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  const toggleSidebar = () => setSidebarOpen((prev) => !prev);
+  const toggleProfile = () => setProfileOpen((prev) => !prev);
+  const toggleOrders = () => setOrdersExpanded((prev) => !prev);
+
+  const handleMenuSelect = (menu) => {
+    setSelectedMenu(menu);
+    if (menu === 'profile-page') {
+      setCurrentPage('profile');
+      setProfileOpen(false);
+    } else if (menu === 'dashboard') {
+      setCurrentPage('dashboard');
+      setProfileOpen(false);
+    }
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result;
+        setProfileImage(base64String);
+        localStorage.setItem('profileImage', base64String);
+        setIsEditingImage(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setProfileImage(null);
+    localStorage.removeItem('profileImage');
+    setIsEditingImage(false);
+  };
+
+  const triggerFileInput = () => fileInputRef.current?.click();
+
+  const isDark = theme === 'dark';
+
+  const bundles = [
+    { size: '1 GB', price: '4.20' },
+    { size: '2 GB', price: '8.40' },
+    { size: '3 GB', price: '12.30' },
+    { size: '4 GB', price: '16.20' },
+    { size: '5 GB', price: '20.50' },
+    { size: '6 GB', price: '25.00' },
+    { size: '7 GB', price: '28.80' },
+    { size: '8 GB', price: '33.00' },
+    { size: '10 GB', price: '41.00' },
+    { size: '15 GB', price: '61.00' },
+    { size: '20 GB', price: '80.00' },
+    { size: '25 GB', price: '98.00' },
+    { size: '30 GB', price: '118.00' },
+    { size: '40 GB', price: '154.00' },
+    { size: '50 GB', price: '193.00' },
+  ];
+
+  const MenuItem = ({ id, icon, label, hasSubmenu = false }) => {
+    const isSelected = selectedMenu === id;
+    return (
+      <div
+        className={`rounded-xl transition-all ${isSelected ? 'p-[2px]' : ''}`}
+        style={
+          isSelected
+            ? { background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)' }
+            : {}
+        }
+      >
+        <button
+          onClick={() => handleMenuSelect(id)}
+                className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-all text-base ${
+                  isSelected
+                    ? isDark
+                      ? 'bg-neutral-900/90 text-white'
+                      : 'bg-white/90 text-slate-900'
+                    : isDark
+                      ? 'bg-neutral-900/50 hover:bg-neutral-800/70 text-white'
+                      : 'bg-white/50 hover:bg-slate-100/70 text-slate-900 border border-slate-200/50'
+                }`}
+              >
+                <div
+            className={`w-11 h-11 rounded-lg flex items-center justify-center ${
+              isSelected
+                ? isDark
+                  ? 'bg-neutral-800/80'
+                  : 'bg-slate-100/80'
+                : isDark
+                  ? 'bg-neutral-800/50'
+                  : 'bg-slate-100/50'
+            }`}
+          >
+            {icon}
+          </div>
+          <span className="flex-1 text-left">{label}</span>
+          {hasSubmenu && (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke={isDark ? '#ffffff' : '#000000'}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${ordersExpanded ? 'rotate-180' : ''}`}
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          )}
+        </button>
+      </div>
+    );
+  };
+
+  const Svg = {
+    Menu: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+        <path d="M3 9h18M15 21V9" />
+      </svg>
+    ),
+    User: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
+      </svg>
+    ),
+    Sun: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <circle cx="12" cy="12" r="5" />
+        <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+      </svg>
+    ),
+    Moon: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    ),
+    Close: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M18 6L6 18M6 6l12 12" />
+      </svg>
+    ),
+    Grid: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <rect x="3" y="3" width="7" height="7" />
+        <rect x="14" y="3" width="7" height="7" />
+        <rect x="14" y="14" width="7" height="7" />
+        <rect x="3" y="14" width="7" height="7" />
+      </svg>
+    ),
+    Phone: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <rect x="5" y="2" width="14" height="20" rx="2" />
+        <path d="M12 18h.01" />
+      </svg>
+    ),
+    ChevronDown: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className} {...props}>
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    ),
+    Clock: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 6v6l4 2" />
+      </svg>
+    ),
+    Message: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      </svg>
+    ),
+    Wallet: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+        <line x1="1" y1="10" x2="23" y2="10" />
+      </svg>
+    ),
+    Cart: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <circle cx="9" cy="21" r="1" />
+        <circle cx="20" cy="21" r="1" />
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+      </svg>
+    ),
+    Home: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        <polyline points="9 22 9 12 15 12 15 22" />
+      </svg>
+    ),
+    Plus: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="16" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+      </svg>
+    ),
+    File: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70" {...props}>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+      </svg>
+    ),
+    Dollar: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70" {...props}>
+        <line x1="12" y1="1" x2="12" y2="23" />
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+      </svg>
+    ),
+    Card: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70" {...props}>
+        <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+        <line x1="1" y1="10" x2="23" y2="10" />
+      </svg>
+    ),
+    LogOut: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
+    ),
+    Edit: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+      </svg>
+    ),
+    Link: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+      </svg>
+    ),
+    Chart: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+        <polyline points="17 6 23 6 23 12" />
+      </svg>
+    ),
+  };
+
+  const stroke = isDark ? '#ffffff' : '#000000';
+
+  return (
+    <div className={`h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`} style={{ minHeight: '100dvh' }}>
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes pulse-ray {
+          0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+          50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+        .status-dot { animation: pulse-ray 2s infinite; }
+      `}</style>
+
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+
+      <button
+        onClick={toggleSidebar}
+        className={`fixed top-3 left-3 sm:top-6 sm:left-6 z-50 w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all duration-300 ${sidebarOpen ? 'md:left-72' : 'md:left-6'} ${isDark ? 'bg-neutral-900/80' : 'bg-white/80'} backdrop-blur-md shadow-lg`}
+        style={{
+          top: 'max(0.75rem, env(safe-area-inset-top))',
+          ...(isDesktop && sidebarOpen ? { left: '18rem' } : !isDesktop ? { left: 'max(0.75rem, env(safe-area-inset-left))' } : {}),
+        }}
+        aria-label="Toggle sidebar"
+      >
+        <Svg.Menu stroke={stroke} />
+      </button>
+
+      <button
+        onClick={toggleProfile}
+        className={`fixed top-3 right-3 sm:top-6 sm:right-6 z-50 w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all duration-300 ${isDark ? 'bg-neutral-900/80' : 'bg-white/80'} backdrop-blur-md shadow-lg`}
+        style={{ top: 'max(0.75rem, env(safe-area-inset-top))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+        aria-label="Toggle profile"
+      >
+        {profileImage ? (
+          <img src={profileImage} alt="Profile" className="w-full h-full rounded-lg object-cover" />
+        ) : (
+          <Svg.User stroke={stroke} />
+        )}
+      </button>
+
+      {(sidebarOpen || profileOpen) && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 md:hidden"
+          onClick={() => {
+            setSidebarOpen(false);
+            setProfileOpen(false);
+          }}
+        />
+      )}
+
+      <div
+        className={`fixed top-0 left-0 h-full w-72 z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950/90' : 'bg-white/90'} backdrop-blur-xl ${isDark ? 'border-r border-neutral-800/50' : 'border-r border-slate-200/50'}`}
+      >
+        <div className="p-6 h-full overflow-y-auto no-scrollbar">
+          <button
+            onClick={toggleSidebar}
+            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-neutral-900/50' : 'hover:bg-slate-100/50'} backdrop-blur-sm`}
+          >
+            <Svg.Close stroke={stroke} />
+          </button>
+
+          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-neutral-900/60' : 'bg-slate-100/60'} backdrop-blur-md`}>
+            <div className="flex flex-col items-center">
+              <img
+                src="https://files.catbox.moe/l3islw.jpg"
+                alt="Datafy Hub Logo"
+                className="w-24 h-24 object-cover rounded-full mb-4"
+              />
+              <h2 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Datafy Hub</h2>
+              <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent Console</p>
+            </div>
+          </div>
+
+          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-neutral-900/60' : 'bg-slate-100/60'} backdrop-blur-md`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-neutral-800/60' : 'bg-slate-200/60'} backdrop-blur-sm`}>
+                {profileImage ? (
+                  <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <Svg.User stroke={stroke} />
+                )}
+              </div>
+              <div className="flex-1">
+                <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+                <p className={`text-sm ${isDark ? 'text-yellow-500' : 'text-yellow-600'}`}>DF-4398</p>
+                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-neutral-800/60 text-yellow-500' : 'bg-slate-200/60 text-yellow-600'} backdrop-blur-sm`}>Agent</span>
+              </div>
+            </div>
+          </div>
+
+          <p className={`text-base mb-3 font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>MENU</p>
+          <nav className="space-y-2">
+            <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
+            <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />
+            <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />
+            <div
+              className={`rounded-xl transition-all ${selectedMenu === 'orders' ? 'p-[2px]' : ''}`}
+              style={selectedMenu === 'orders' ? { background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #a855f7)' } : {}}
+            >
+              <button
+                onClick={() => {
+                  handleMenuSelect('orders');
+                  toggleOrders();
+                }}
+                className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all ${
+                  selectedMenu === 'orders'
+                    ? isDark ? 'bg-neutral-900/90 text-white' : 'bg-white/90 text-slate-900'
+                    : isDark ? 'bg-neutral-900/50 hover:bg-neutral-800/70 text-white' : 'bg-white/50 hover:bg-slate-100/70 text-slate-900 border border-slate-200/50'
+                }`}
+              >
+                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-neutral-800/80' : 'bg-slate-100/80') : isDark ? 'bg-neutral-800/50' : 'bg-slate-100/50'}`}>
+                  <Svg.Clock stroke={stroke} />
+                </div>
+                <span className="flex-1 text-left">Orders</span>
+                <Svg.ChevronDown stroke={stroke} className={`transition-transform ${ordersExpanded ? 'rotate-180' : ''}`} />
+              </button>
+              {ordersExpanded && (
+                <div className={`px-3 pb-3 space-y-1 ${isDark ? 'text-neutral-300' : 'text-slate-600'}`}>
+                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800/50' : 'hover:bg-slate-100/50'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-neutral-800/70' : 'bg-slate-100/70') : ''}`}>Pending Orders</a>
+                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800/50' : 'hover:bg-slate-100/50'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-neutral-800/70' : 'bg-slate-100/70') : ''}`}>Completed Orders</a>
+                </div>
+              )}
+            </div>
+            <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
+            <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
+          </nav>
+
+          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-neutral-800/50' : 'border-slate-200/50'}`}>
+            <button
+              onClick={toggleTheme}
+              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-neutral-900/50 hover:bg-neutral-800/70' : 'bg-slate-100/50 hover:bg-slate-200/70'}`}
+              aria-label="Toggle theme"
+            >
+              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-neutral-800/60' : 'bg-slate-200/60'}`}>
+                {isDark ? <Svg.Sun /> : <Svg.Moon />}
+              </div>
+              <span className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{isDark ? 'Light mode' : 'Dark mode'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={`fixed top-12 right-3 sm:top-16 sm:right-6 z-50 w-56 sm:w-60 rounded-xl transition-all duration-300 overflow-hidden ${profileOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'} ${isDark ? 'bg-neutral-900/95 border border-neutral-800' : 'bg-white border border-slate-200'} backdrop-blur-xl shadow-2xl`}
+        style={{ top: 'max(3rem, calc(env(safe-area-inset-top) + 2.5rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+      >
+        <div className="p-4">
+          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-neutral-700/30">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
+              {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+              <p className={`text-sm truncate ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent</p>
+            </div>
+          </div>
+          <nav className="space-y-0.5">
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.User stroke="currentColor" /> <span>Profile</span>
+            </a>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.File /> <span>My Orders</span>
+            </a>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.Dollar /> <span>Transactions</span>
+            </a>
+            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-neutral-300 hover:bg-neutral-800 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+              <Svg.Card /> <span>My Wallet</span>
+            </a>
+          </nav>
+          <div className="mt-4 pt-4 border-t border-neutral-700/30">
+            <button className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium">
+              <Svg.LogOut /> Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden max-w-md mx-auto w-full pb-20 sm:pb-24 px-3 sm:px-4 md:max-w-none md:mx-0 md:px-6 lg:px-8 ${sidebarOpen ? 'md:ml-72' : ''}`}>
+        <div className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${scrolled ? (isDark ? 'bg-black/80 backdrop-blur-xl' : 'bg-white/80 backdrop-blur-xl') : (isDark ? 'bg-black' : 'bg-white')} ${scrolled ? 'shadow-lg' : ''} ${sidebarOpen ? 'md:left-72' : ''}`} style={{ paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}>
+          <div className="max-w-md mx-auto px-3 sm:px-4 py-4 sm:py-5 md:max-w-none md:mx-0 md:px-6 md:py-5" />
+        </div>
+
+        {currentPage === 'dashboard' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-neutral-900' : 'bg-white'}`}>
+                    <Svg.Home stroke={stroke} />
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
+                </div>
+                <div className="relative w-4 h-4 flex items-center justify-center">
+                  <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
+                  <div className="relative w-3 h-3 rounded-full bg-green-400" />
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-800 text-white'}`}>
+              <div className="flex justify-between mb-5 sm:mb-6 gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl bg-neutral-800 flex items-center justify-center flex-shrink-0">
+                    <Svg.Wallet stroke="#ffffff" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-neutral-400 text-sm">Balance</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ 3.90</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl bg-neutral-800 flex items-center justify-center flex-shrink-0">
+                    <Svg.Cart stroke="#ffffff" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-neutral-400 text-sm">Today's Spent</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ 0.00</p>
+                  </div>
+                </div>
+              </div>
+              <button className="w-full py-3 sm:py-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2 font-medium text-base">
+                <Svg.Plus /> Top Up Wallet
+              </button>
+            </div>
+
+            <div className="rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 bg-yellow-500 text-black">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+                {['Wallet Balance', "Today's Orders", "Today's Amount", "Today's Bundle"].map((label, i) => (
+                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b border-black/10 md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r md:border-black/10' : ''}`}>
+                    <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full bg-black flex items-center justify-center mx-auto mb-3">
+                      <Svg.Wallet stroke="#ffffff" />
+                    </div>
+                    <p className="text-sm font-medium opacity-80">{label}</p>
+                    <p className="text-lg sm:text-xl font-bold">{i === 0 ? '¢ 3.90' : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={`flex p-1.5 rounded-xl mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-200'}`}>
+              <button
+                onClick={() => setActiveTab('mtn')}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? 'bg-yellow-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-700'}`}
+              >
+                MTN
+              </button>
+              <button
+                onClick={() => setActiveTab('telecel')}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'telecel' ? 'bg-purple-600 text-white shadow-lg' : 'text-neutral-500 hover:text-neutral-700'}`}
+              >
+                Telecel
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 pb-16 sm:pb-20">
+              {bundles.map((bundle, index) => (
+                <div key={index} className="rounded-xl sm:rounded-2xl p-5 sm:p-6 bg-yellow-500 text-black relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform">
+                  <div className="flex justify-between items-start mb-4 gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium opacity-70">MTN</p>
+                      <h3 className="text-xl sm:text-2xl font-bold">{bundle.size}</h3>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-sm font-medium opacity-70">Price</p>
+                      <p className="text-lg sm:text-xl font-bold">¢ {bundle.price}</p>
+                    </div>
+                  </div>
+                  <button className="w-full py-3 sm:py-4 rounded-xl bg-white/90 hover:bg-white text-yellow-700 font-semibold text-base transition-colors shadow-sm">
+                    Buy
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="pt-14 sm:pt-20 pb-5 sm:pb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-neutral-900' : 'bg-white'}`}>
+                    <Svg.User stroke={stroke} />
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold">Profile</h1>
+                </div>
+                <div className="relative w-4 h-4 flex items-center justify-center">
+                  <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
+                  <div className="relative w-3 h-3 rounded-full bg-green-400" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-5 sm:mb-6">
+              <h2 className={`text-2xl sm:text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>My Profile</h2>
+              <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Manage your account settings and preferences</p>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl overflow-hidden mb-5 sm:mb-6 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+              <div className="p-5 sm:p-6 border-b border-neutral-800/50">
+                <h3 className={`text-xl font-semibold mb-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>Profile Information</h3>
+                <p className={`text-sm ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Update your account's profile information and email address.</p>
+              </div>
+              <div className="p-5 sm:p-6 flex flex-col items-center">
+                <div className="relative mb-4 group">
+                  <div
+                    className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg overflow-hidden cursor-pointer"
+                    onClick={triggerFileInput}
+                  >
+                    {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
+                  </div>
+                  <div
+                    className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    onClick={() => setIsEditingImage(!isEditingImage)}
+                  >
+                    <Svg.Edit />
+                  </div>
+                  <div className="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-2 border-white rounded-full" />
+                </div>
+                {isEditingImage && (
+                  <div className="flex gap-3 mb-4">
+                    <button onClick={triggerFileInput} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors">
+                      Upload Photo
+                    </button>
+                    {profileImage && (
+                      <button onClick={handleRemoveImage} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors">
+                        Remove
+                      </button>
+                    )}
+                    <button onClick={() => setIsEditingImage(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-neutral-800 hover:bg-neutral-700 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
+                <p className={`text-base ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Agent</p>
+              </div>
+              <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
+                {[
+                  ['Full Name', 'James Owusu'],
+                  ['Email Address', 'leoagain0700@gmail.com'],
+                  ['Agent ID', 'DF-4398'],
+                  ['Account Status', 'Active'],
+                  ['Member Since', 'Nov 08, 2025'],
+                ].map(([label, value], i) => (
+                  <div key={i}>
+                    <p className={`text-sm font-medium mb-1.5 ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>{label}</p>
+                    <p className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
+                  </div>
+                ))}
+                <div className="pt-5 space-y-3">
+                  <button className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors flex items-center justify-center gap-2">
+                    <Svg.Edit stroke="currentColor" /> EDIT PROFILE
+                  </button>
+                  <button className={`w-full py-3.5 rounded-xl font-semibold text-base transition-colors flex items-center justify-center gap-2 ${isDark ? 'bg-neutral-800 hover:bg-neutral-700 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
+                    <Svg.Link /> CHANGE PASSWORD
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4 pb-16 sm:pb-20">
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                  <Svg.Chart />
+                </div>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Total Orders</p>
+                  <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
+                </div>
+              </div>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-green-100 flex items-center justify-center text-green-600 shrink-0">
+                  <Svg.Dollar stroke="currentColor" />
+                </div>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Wallet Balance</p>
+                  <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢3.90</p>
+                </div>
+              </div>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-neutral-900 border border-neutral-800' : 'bg-white border border-slate-200'}`}>
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 shrink-0">
+                  <Svg.Chart />
+                </div>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium ${isDark ? 'text-neutral-400' : 'text-slate-500'}`}>Total Spent</p>
+                  <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢0.00</p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <button
+          className="fixed bottom-16 sm:bottom-24 right-3 sm:right-6 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform z-30"
+          style={{ bottom: 'max(4rem, calc(env(safe-area-inset-bottom) + 3rem))', right: 'max(0.75rem, env(safe-area-inset-right))' }}
+        >
+          <Svg.Cart stroke="currentColor" />
+        </button>
+      </main>
+    </div>
+  );
+}
