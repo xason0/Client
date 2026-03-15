@@ -28,6 +28,9 @@ export default function App() {
   const [recipientNumber, setRecipientNumber] = useState('');
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
+  const [confirmError, setConfirmError] = useState(null);
+  const [walletBalance, setWalletBalance] = useState(0);
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
     const w = window.innerWidth;
@@ -354,6 +357,14 @@ export default function App() {
     Close: (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
         <path d="M18 6L6 18M6 6l12 12" />
+      </svg>
+    ),
+    Trash: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <line x1="10" y1="11" x2="10" y2="17" />
+        <line x1="14" y1="11" x2="14" y2="17" />
       </svg>
     ),
     Grid: (props) => (
@@ -714,7 +725,7 @@ export default function App() {
                   </div>
                   <div className="min-w-0">
                     <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Balance</p>
-                    <p className="text-xl sm:text-3xl font-bold truncate">¢ 3.90</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {walletBalance.toFixed(2)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
@@ -740,7 +751,7 @@ export default function App() {
                       <Svg.Wallet stroke="#ffffff" />
                     </div>
                     <p className="text-sm font-medium opacity-80">{label}</p>
-                    <p className="text-lg sm:text-xl font-bold">{i === 0 ? '¢ 3.90' : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
+                    <p className="text-lg sm:text-xl font-bold">{i === 0 ? `¢ ${walletBalance.toFixed(2)}` : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
                   </div>
                 ))}
               </div>
@@ -889,7 +900,7 @@ export default function App() {
                 </div>
                 <div className="min-w-0">
                   <p className={`text-sm font-medium ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Wallet Balance</p>
-                  <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢3.90</p>
+                  <p className={`text-xl sm:text-2xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>¢{walletBalance.toFixed(2)}</p>
                 </div>
               </div>
               <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 flex items-center gap-4 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
@@ -958,8 +969,8 @@ export default function App() {
                         <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
                         <p className={`text-sm font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>¢ {item.bundle.price}</p>
                       </div>
-                      <button type="button" onClick={() => removeFromCart(item.id)} className={`px-2 py-1.5 rounded-lg shrink-0 text-sm font-medium ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`}>
-                        Remove
+                      <button type="button" onClick={() => removeFromCart(item.id)} className={`p-2 rounded-lg shrink-0 ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`} aria-label="Remove">
+                        <Svg.Trash stroke="currentColor" />
                       </button>
                     </li>
                   ))}
@@ -971,11 +982,54 @@ export default function App() {
                 <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                   Total: <span className="font-bold">¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)}</span>
                 </p>
-                <button type="button" className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors">
+                <button type="button" onClick={() => { setConfirmCheckoutOpen(true); setConfirmError(null); }} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors">
                   Checkout
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Order dialog - shown after clicking Checkout */}
+      {confirmCheckoutOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setConfirmCheckoutOpen(false); setConfirmError(null); }} aria-hidden="true" />
+          <div className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
+            <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Confirm Order</h3>
+            <p className={`text-base mb-2 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+              You are about to pay ¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)} with your wallet.
+            </p>
+            {confirmError && (
+              <p className="text-sm text-amber-500 dark:text-amber-400 mb-4 font-medium">{confirmError}</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setConfirmCheckoutOpen(false); setConfirmError(null); }}
+                className={`flex-1 py-2.5 rounded-xl font-medium transition-colors ${isDark ? 'bg-white/10 text-white hover:bg-white/20 border border-white/10' : 'bg-slate-200 text-slate-800 hover:bg-slate-300 border border-slate-200'}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const total = cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0);
+                  if (walletBalance < total) {
+                    setConfirmError(`Insufficient balance. You have ¢ ${walletBalance.toFixed(2)} but the total is ¢ ${total.toFixed(2)}. Top up your wallet or remove items from the cart.`);
+                    return;
+                  }
+                  setConfirmError(null);
+                  setWalletBalance((b) => Math.max(0, b - total));
+                  setConfirmCheckoutOpen(false);
+                  setCartOpen(false);
+                  setCart([]);
+                }}
+                className="flex-1 py-2.5 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors border border-transparent"
+              >
+                Confirm & Pay
+              </button>
+            </div>
           </div>
         </div>
       )}
