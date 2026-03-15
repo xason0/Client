@@ -676,11 +676,11 @@ export default function App() {
           </h1>
           <button
             onClick={toggleProfile}
-            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
+            className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle profile"
           >
             {profileImage ? (
-              <img src={profileImage} alt="" className="w-full h-full object-cover" />
+              <img src={profileImage} alt="" className="w-full h-full object-cover rounded-full" />
             ) : (
               <Svg.User stroke={stroke} width={24} height={24} />
             )}
