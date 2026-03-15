@@ -587,20 +587,27 @@ export default function App() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 pb-16 sm:pb-20">
               {bundles.map((bundle, index) => (
-                <div key={index} className="rounded-xl sm:rounded-2xl p-5 sm:p-6 bg-yellow-500 text-black relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform">
-                  <div className="flex justify-between items-start mb-4 gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium opacity-70">MTN</p>
-                      <h3 className="text-xl sm:text-2xl font-bold">{bundle.size}</h3>
+                <div
+                key={index}
+                className="rounded-xl sm:rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform bg-cover bg-center"
+                style={{ backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}
+              >
+                  <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
+                  <div className="relative z-10 flex flex-col h-full">
+                    <div className="flex justify-between items-start mb-4 gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">MTN</p>
+                        <h3 className="text-xl sm:text-2xl font-bold drop-shadow-md">{bundle.size}</h3>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">Price</p>
+                        <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
+                      </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-medium opacity-70">Price</p>
-                      <p className="text-lg sm:text-xl font-bold">¢ {bundle.price}</p>
-                    </div>
+                    <button className="mt-auto w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-slate-800 font-semibold text-base transition-colors shadow-lg">
+                      Buy
+                    </button>
                   </div>
-                  <button className="w-full py-3 sm:py-4 rounded-xl bg-white/90 hover:bg-white text-yellow-700 font-semibold text-base transition-colors shadow-sm">
-                    Buy
-                  </button>
                 </div>
               ))}
             </div>
