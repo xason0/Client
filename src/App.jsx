@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export default function App() {
-  const [theme, setTheme] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  );
+  const getSystemDark = () => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const getInitialTheme = () => {
+    if (typeof window === 'undefined') return 'dark';
+    const stored = localStorage.getItem('theme');
+    if (stored === 'dark' || stored === 'light') return stored;
+    return getSystemDark() ? 'dark' : 'light';
+  };
+  const [theme, setTheme] = useState(getInitialTheme);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -21,17 +26,21 @@ export default function App() {
     if (savedImage) setProfileImage(savedImage);
   }, []);
 
-  // Follow system light/dark preference automatically
+  // Sync theme to document and follow system preference when user hasn't set one
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const dark = mq.matches;
-      setTheme(dark ? 'dark' : 'light');
-      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    const handleChange = () => {
+      if (localStorage.getItem('theme')) return;
+      const next = mq.matches ? 'dark' : 'light';
+      setTheme(next);
+      document.documentElement.setAttribute('data-theme', next);
     };
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
+    mq.addEventListener('change', handleChange);
+    return () => mq.removeEventListener('change', handleChange);
   }, []);
 
   useEffect(() => {
@@ -55,6 +64,12 @@ export default function App() {
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('theme', next);
+    document.documentElement.setAttribute('data-theme', next);
+  };
 
   const handleMenuSelect = (menu) => {
     setSelectedMenu(menu);
@@ -406,6 +421,16 @@ export default function App() {
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
             <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
           </nav>
+
+          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+            <button
+              onClick={toggleTheme}
+              className={`flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-200 hover:scale-105 active:scale-95 ${isDark ? 'bg-white/10 border-white/10 hover:border-white/20' : 'bg-slate-100 border-slate-200 hover:border-slate-300'}`}
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Svg.Sun /> : <Svg.Moon />}
+            </button>
+          </div>
         </div>
       </div>
 
