@@ -26,7 +26,6 @@ export default function App() {
   const [scrolled, setScrolled] = useState(false);
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [profileImage, setProfileImage] = useState(null);
-  const [isEditingImage, setIsEditingImage] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [buyBundle, setBuyBundle] = useState(null);
   const [recipientNumber, setRecipientNumber] = useState('');
@@ -66,6 +65,7 @@ export default function App() {
       .then((u) => {
         setUser(u);
         setIsSignedIn(true);
+        if (u?.profile_avatar) setProfileImage(u.profile_avatar);
         fetchWallet();
       })
       .catch(() => {
@@ -197,6 +197,11 @@ export default function App() {
     if (savedImage) setProfileImage(savedImage);
   }, []);
 
+  // After user is loaded from api.me(), prefer VPS avatar over localStorage
+  useEffect(() => {
+    if (user?.profile_avatar) setProfileImage(user.profile_avatar);
+  }, [user?.profile_avatar]);
+
   // Apply theme before first paint and subscribe to system preference
   useLayoutEffect(() => {
     const resolved = getTheme();
@@ -271,6 +276,9 @@ export default function App() {
     } else if (menu === 'wallet' || menu === 'topup') {
       setCurrentPage('topup');
       setProfileOpen(false);
+    } else if (menu === 'my-orders') {
+      setCurrentPage('orders');
+      setProfileOpen(false);
     }
   };
 
@@ -278,20 +286,18 @@ export default function App() {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const base64String = reader.result;
         setProfileImage(base64String);
         localStorage.setItem('profileImage', base64String);
-        setIsEditingImage(false);
+        try {
+          await api.uploadProfileImage(base64String);
+        } catch (_) {
+          // keep local state and localStorage; user still sees the pic
+        }
       };
       reader.readAsDataURL(file);
     }
-  };
-
-  const handleRemoveImage = () => {
-    setProfileImage(null);
-    localStorage.removeItem('profileImage');
-    setIsEditingImage(false);
   };
 
   const triggerFileInput = () => fileInputRef.current?.click();
@@ -557,12 +563,22 @@ export default function App() {
 
       {(sidebarOpen || profileOpen) && (
           <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 md:hidden"
-          onClick={() => {
-            setSidebarOpen(false);
-            setProfileOpen(false);
-          }}
-        />
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 md:hidden flex items-start justify-start p-4"
+            onClick={() => {
+              setSidebarOpen(false);
+              setProfileOpen(false);
+            }}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSidebarOpen(false); setProfileOpen(false); } }}
+            aria-label="Close menu"
+          >
+            <span className="rounded-full bg-white/20 p-2 text-white pointer-events-none">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+              </svg>
+            </span>
+          </div>
       )}
 
       {/* Layout: on mobile = full-width main + overlay sidebar; on md+ = sidebar | main (flex row, main fills rest) */}
@@ -830,28 +846,23 @@ export default function App() {
           </>
         ) : currentPage === 'topup' ? (
           <>
-            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.Wallet stroke={stroke} />
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold truncate">Top Up Wallet</h1>
+              </div>
               <button
                 type="button"
                 onClick={() => setCurrentPage('dashboard')}
-                className={`flex items-center gap-2 mb-4 text-sm font-medium ${isDark ? 'text-white/70 hover:text-white' : 'text-slate-500 hover:text-slate-900'}`}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                 aria-label="Back to dashboard"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
-                Back
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                </svg>
               </button>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                    <Svg.Wallet stroke={stroke} />
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl font-bold">Top Up Wallet</h1>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative w-2.5 h-2.5 rounded-full bg-green-500" />
-                  <span className="text-sm font-medium text-green-600 dark:text-green-400">Open now</span>
-                </div>
-              </div>
             </div>
 
             <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 mb-5 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
@@ -862,19 +873,23 @@ export default function App() {
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
               <input
                 type="number"
-                min="0"
+                min="10"
                 step="0.01"
-                placeholder="0.00"
+                placeholder="10.00"
                 value={topUpAmount}
-                onChange={(e) => setTopUpAmount(e.target.value)}
+                onChange={(e) => { setTopUpAmount(e.target.value); setTopUpError(null); }}
                 className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
               />
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Minimum amount: GHS 10</p>
               {topUpError && <p className="text-sm text-red-500 mt-2">{topUpError}</p>}
               <button
                 type="button"
                 onClick={async () => {
                   const amt = parseFloat(topUpAmount);
-                  if (!Number.isFinite(amt) || amt <= 0) return;
+                  if (!Number.isFinite(amt) || amt < 10) {
+                    setTopUpError('Minimum amount is GHS 10');
+                    return;
+                  }
                   setTopUpError(null);
                   try {
                     const data = await api.topUp(amt);
@@ -886,7 +901,7 @@ export default function App() {
                     setTopUpError(err.message || 'Top-up failed');
                   }
                 }}
-                className="w-full mt-4 py-3 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                className={`w-full mt-4 py-3 rounded-xl font-medium transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
                 Top Up
               </button>
@@ -923,21 +938,97 @@ export default function App() {
               )}
             </div>
           </>
+        ) : currentPage === 'orders' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.Cart stroke={stroke} />
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold truncate">Orders</h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('dashboard')}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                aria-label="Back to dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4 mb-5">
+              <div className={`flex flex-wrap gap-2 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${label === 'Today' ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <div className={`flex-1 min-w-[140px] px-4 py-2.5 rounded-xl border ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <span className="text-sm">All Networks</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block ml-1 opacity-60"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+                <div className={`flex-1 min-w-[140px] px-4 py-2.5 rounded-xl border ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  <span className="text-sm">All Status</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block ml-1 opacity-60"><path d="M6 9l6 6 6-6"/></svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search recipient"
+                  className={`flex-1 min-w-[160px] px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {[
+                { label: 'Orders', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), value: '0' },
+                { label: 'Amount', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), value: '¢ 0.00' },
+                { label: 'Data (GB)', date: null, value: '0', showCart: true },
+              ].map((card) => (
+                <div key={card.label} className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-slate-100 border border-slate-200 text-slate-900'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={`text-sm font-medium opacity-90 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>{card.label}{card.date ? ` (${card.date})` : ''}</p>
+                      <p className="text-2xl sm:text-3xl font-bold mt-1">{card.value}</p>
+                    </div>
+                    {card.showCart && (
+                      <button type="button" className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${isDark ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`} aria-label="Cart">
+                        <Svg.Cart stroke={stroke} width={20} height={20} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <>
-            <div className="pt-14 sm:pt-20 pb-5 sm:pb-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
-                    <Svg.User stroke={stroke} />
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl font-bold">Profile</h1>
+            <div className="pt-14 sm:pt-20 pb-5 sm:pb-6 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.User stroke={stroke} />
                 </div>
-                <div className="relative w-4 h-4 flex items-center justify-center">
-                  <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
-                  <div className="relative w-3 h-3 rounded-full bg-green-400" />
-                </div>
+                <h1 className="text-2xl sm:text-3xl font-bold truncate">Profile</h1>
               </div>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('dashboard')}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                aria-label="Back to dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                </svg>
+              </button>
             </div>
 
             <div className="mb-5 sm:mb-6">
@@ -951,36 +1042,22 @@ export default function App() {
                 <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Update your account's profile information and email address.</p>
               </div>
               <div className="p-5 sm:p-6 flex flex-col items-center">
-                <div className="relative mb-4 group">
+                <div className="relative mb-4">
                   <div
-                    className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg overflow-hidden cursor-pointer"
+                    className="w-40 h-40 sm:w-48 sm:h-48 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg overflow-hidden cursor-pointer"
                     onClick={triggerFileInput}
                   >
                     {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
                   </div>
-                  <div
-                    className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                    onClick={() => setIsEditingImage(!isEditingImage)}
+                  <button
+                    type="button"
+                    className="absolute bottom-0 right-0 w-10 h-10 rounded-full flex items-center justify-center border-2 border-white shadow cursor-pointer bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                    onClick={(e) => { e.stopPropagation(); triggerFileInput(); }}
+                    aria-label="Add or change photo"
                   >
-                    <Svg.Edit />
-                  </div>
-                  <div className="absolute bottom-1 right-1 w-5 h-5 bg-green-500 border-2 border-white rounded-full" />
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  </button>
                 </div>
-                {isEditingImage && (
-                  <div className="flex gap-3 mb-4">
-                    <button onClick={triggerFileInput} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors">
-                      Upload Photo
-                    </button>
-                    {profileImage && (
-                      <button onClick={handleRemoveImage} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors">
-                        Remove
-                      </button>
-                    )}
-                    <button onClick={() => setIsEditingImage(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`}>
-                      Cancel
-                    </button>
-                  </div>
-                )}
                 <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
                 <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
               </div>
@@ -1062,10 +1139,10 @@ export default function App() {
             <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('profile-page'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.User stroke="currentColor" /> <span>Profile</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('my-orders'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.File /> <span>My Orders</span>
             </a>
-            <a href="#" className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
+            <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('wallet'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
               <Svg.Dollar /> <span>Transactions</span>
             </a>
             <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('wallet'); }} className={`flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors ${isDark ? 'text-white/80 hover:bg-white/10 hover:text-white' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>
@@ -1204,7 +1281,7 @@ export default function App() {
                     setConfirmError(err.message || 'Payment failed. Try again.');
                   }
                 }}
-                className="flex-1 py-2.5 rounded-xl font-medium text-white bg-emerald-600 hover:bg-emerald-700 transition-colors border border-transparent"
+                className={`flex-1 py-2.5 rounded-xl font-medium transition-colors border border-transparent ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
                 Confirm & Pay
               </button>

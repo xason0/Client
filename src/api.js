@@ -56,6 +56,17 @@ export const api = {
     return data;
   },
 
+  async uploadProfileImage(avatarDataUrlOrNull) {
+    const res = await fetch(`${API_URL}/api/profile/avatar`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ avatar: avatarDataUrlOrNull ?? null }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to save profile picture');
+    return data;
+  },
+
   async getWallet() {
     const res = await fetch(`${API_URL}/api/wallet`, { headers: headers() });
     const data = await res.json().catch(() => ({}));
