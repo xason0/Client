@@ -14,7 +14,10 @@ function getTheme() {
 
 export default function App() {
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
-  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('dataplus_signed_in') === 'true';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -500,7 +503,7 @@ export default function App() {
 
       {!isSignedIn ? (
         <div className="flex-1 flex flex-col w-full min-h-full">
-          <SignInPage isDark={isDark} onSignIn={() => setIsSignedIn(true)} />
+          <SignInPage isDark={isDark} onSignIn={() => { setIsSignedIn(true); localStorage.setItem('dataplus_signed_in', 'true'); }} />
         </div>
       ) : (
         <>
@@ -623,7 +626,7 @@ export default function App() {
           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <button
               type="button"
-              onClick={() => { setIsSignedIn(false); setProfileOpen(false); }}
+              onClick={() => { setIsSignedIn(false); setProfileOpen(false); localStorage.removeItem('dataplus_signed_in'); }}
               className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
             >
               <Svg.LogOut /> Sign Out
@@ -650,12 +653,12 @@ export default function App() {
                   <p className="text-lg sm:text-xl font-bold">¢ {buyBundle.price}</p>
                 </div>
               </div>
-              <button type="button" className="w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-amber-800 font-semibold text-base transition-colors shadow-lg">
+              <button type="button" className={`w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${isDark ? 'bg-white/95 hover:bg-white text-black' : 'bg-white hover:bg-slate-50 text-slate-900'}`}>
                 Buy
               </button>
             </div>
             {/* Bottom card: recipient details */}
-            <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-amber-400'}`}>
+            <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white' : 'text-slate-700'}`}>Recipient number</label>
               <input
                 type="tel"
@@ -675,7 +678,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={addToCart}
-                  className="px-5 py-2.5 rounded-xl font-medium text-base bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+                  className={`px-5 py-2.5 rounded-xl font-medium text-base transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
                 >
                   Add to cart
                 </button>
@@ -779,7 +782,7 @@ export default function App() {
             <div className={`flex p-1.5 rounded-xl mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-200'}`}>
               <button
                 onClick={() => setActiveTab('mtn')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? 'bg-yellow-600 text-white shadow-lg' : 'text-white/60 hover:text-white/90'}`}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
               >
                 MTN
               </button>
@@ -1021,7 +1024,7 @@ export default function App() {
         >
           <Svg.Cart stroke="currentColor" className="pointer-events-none" />
           {cart.length > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center pointer-events-none">
+            <span className={`absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold flex items-center justify-center pointer-events-none ${isDark ? 'bg-white text-black' : 'bg-black text-white'}`}>
               {cart.length > 9 ? '9+' : cart.length}
             </span>
           )}
@@ -1050,7 +1053,7 @@ export default function App() {
                       <div className="min-w-0">
                         <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>MTN {item.bundle.size}</p>
                         <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
-                        <p className={`text-sm font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>¢ {item.bundle.price}</p>
+                        <p className={`text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {item.bundle.price}</p>
                       </div>
                       <button type="button" onClick={() => removeFromCart(item.id)} className={`p-2 rounded-lg shrink-0 ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`} aria-label="Remove">
                         <Svg.Trash stroke="currentColor" />
@@ -1065,7 +1068,7 @@ export default function App() {
                 <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                   Total: <span className="font-bold">¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)}</span>
                 </p>
-                <button type="button" onClick={() => { setConfirmCheckoutOpen(true); setConfirmError(null); }} className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors">
+                <button type="button" onClick={() => { setConfirmCheckoutOpen(true); setConfirmError(null); }} className={`w-full py-3 rounded-xl font-semibold transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}>
                   Checkout
                 </button>
               </div>
@@ -1084,7 +1087,7 @@ export default function App() {
               You are about to pay ¢ {cart.reduce((sum, i) => sum + parseFloat(i.bundle.price), 0).toFixed(2)} with your wallet.
             </p>
             {confirmError && (
-              <p className="text-sm text-amber-500 dark:text-amber-400 mb-4 font-medium">{confirmError}</p>
+              <p className="text-sm text-red-500 dark:text-red-400 mb-4 font-medium">{confirmError}</p>
             )}
             <div className="flex gap-3">
               <button
@@ -1126,15 +1129,30 @@ export default function App() {
 const DEMO_LOGIN_EMAIL = 'demo@dataplus.com';
 const DEMO_LOGIN_PASSWORD = 'Demo123!';
 
+const EyeIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const EyeOffIcon = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 function SignInPage({ isDark, onSignIn }) {
   const [mode, setMode] = useState('signin'); // 'signin' | 'register'
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
-  const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'}`;
+  const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
 
   const clearError = () => setError('');
@@ -1214,21 +1232,41 @@ function SignInPage({ isDark, onSignIn }) {
           onChange={(e) => { setEmail(e.target.value); clearError(); }}
           className={inputClass}
         />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); clearError(); }}
-          className={inputClass}
-        />
-        {isRegister && (
+        <div className="relative">
           <input
-            type="password"
-            placeholder="Confirm password"
-            value={confirmPassword}
-            onChange={(e) => { setConfirmPassword(e.target.value); clearError(); }}
-            className={inputClass}
+            type={showPassword ? 'text' : 'password'}
+            placeholder="Password"
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); clearError(); }}
+            className={`${inputClass} pr-11`}
           />
+          <button
+            type="button"
+            onClick={() => setShowPassword((p) => !p)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        </div>
+        {isRegister && (
+          <div className="relative">
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              placeholder="Confirm password"
+              value={confirmPassword}
+              onChange={(e) => { setConfirmPassword(e.target.value); clearError(); }}
+              className={`${inputClass} pr-11`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword((p) => !p)}
+              aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
         )}
         {error && (
           <p className="text-sm text-red-500 text-center" role="alert">
@@ -1238,7 +1276,7 @@ function SignInPage({ isDark, onSignIn }) {
         <button
           type="button"
           onClick={handleSubmit}
-          className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-colors"
+          className={`w-full py-3 rounded-xl font-semibold transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
         >
           {isRegister ? 'Register' : 'Sign In'}
         </button>
