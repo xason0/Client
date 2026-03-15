@@ -138,24 +138,24 @@ export default function App() {
         <button
           onClick={() => handleMenuSelect(id)}
                 className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-all text-base ${
-                  isSelected
-                    ? isDark
-                      ? 'bg-neutral-900/90 text-white'
-                      : 'bg-white/90 text-slate-900'
-                    : isDark
-                      ? 'bg-neutral-900/50 hover:bg-neutral-800/70 text-white'
-                      : 'bg-white/50 hover:bg-slate-100/70 text-slate-900 border border-slate-200/50'
+            isSelected
+              ? isDark
+                ? 'bg-neutral-800 text-white'
+                : 'bg-slate-200 text-slate-900'
+              : isDark
+                ? 'bg-neutral-900 hover:bg-neutral-800 text-white'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
                 }`}
               >
                 <div
             className={`w-11 h-11 rounded-lg flex items-center justify-center ${
               isSelected
                 ? isDark
-                  ? 'bg-neutral-800/80'
-                  : 'bg-slate-100/80'
+                  ? 'bg-neutral-700'
+                  : 'bg-slate-300'
                 : isDark
-                  ? 'bg-neutral-800/50'
-                  : 'bg-slate-100/50'
+                  ? 'bg-neutral-800'
+                  : 'bg-slate-200'
             }`}
           >
             {icon}
@@ -341,17 +341,17 @@ export default function App() {
       )}
 
       <div
-        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950' : 'bg-white'} ${isDark ? 'border-r border-neutral-800/50' : 'border-r border-slate-200/50'}`}
+        className={`fixed top-0 left-0 h-full w-72 z-[60] md:z-50 transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-neutral-950' : 'bg-white'} ${isDark ? 'border-r border-neutral-800' : 'border-r border-slate-200'}`}
       >
         <div className="p-6 h-full overflow-y-auto no-scrollbar">
           <button
             onClick={toggleSidebar}
-            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-neutral-900/50' : 'hover:bg-slate-100/50'} backdrop-blur-sm`}
+            className={`absolute top-6 right-6 w-8 h-8 flex items-center justify-center rounded-lg ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'}`}
           >
             <Svg.Close stroke={stroke} />
           </button>
 
-          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-neutral-900/60' : 'bg-slate-100/60'} backdrop-blur-md`}>
+          <div className={`rounded-2xl p-6 mb-5 ${isDark ? 'bg-neutral-900' : 'bg-slate-100'}`}>
             <div className="flex flex-col items-center">
               <img
                 src="https://files.catbox.moe/l3islw.jpg"
@@ -363,9 +363,9 @@ export default function App() {
             </div>
           </div>
 
-          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-neutral-900/60' : 'bg-slate-100/60'} backdrop-blur-md`}>
+          <div className={`rounded-2xl p-5 mb-6 ${isDark ? 'bg-neutral-900' : 'bg-slate-100'}`}>
             <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-neutral-800/60' : 'bg-slate-200/60'} backdrop-blur-sm`}>
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center overflow-hidden ${isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
                 {profileImage ? (
                   <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
@@ -375,7 +375,7 @@ export default function App() {
               <div className="flex-1">
                 <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>James Owusu</h3>
                 <p className={`text-sm ${isDark ? 'text-yellow-500' : 'text-yellow-600'}`}>DF-4398</p>
-                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-neutral-800/60 text-yellow-500' : 'bg-slate-200/60 text-yellow-600'} backdrop-blur-sm`}>Agent</span>
+                <span className={`inline-block mt-1.5 px-3 py-1.5 text-sm rounded-full ${isDark ? 'bg-neutral-800 text-yellow-500' : 'bg-slate-200 text-yellow-600'}`}>Agent</span>
               </div>
             </div>
           </div>
@@ -396,11 +396,11 @@ export default function App() {
                 }}
                 className={`flex items-center gap-3 p-3 w-full rounded-xl transition-all ${
                   selectedMenu === 'orders'
-                    ? isDark ? 'bg-neutral-900/90 text-white' : 'bg-white/90 text-slate-900'
-                    : isDark ? 'bg-neutral-900/50 hover:bg-neutral-800/70 text-white' : 'bg-white/50 hover:bg-slate-100/70 text-slate-900 border border-slate-200/50'
+                    ? isDark ? 'bg-neutral-800 text-white' : 'bg-slate-200 text-slate-900'
+                    : isDark ? 'bg-neutral-900 hover:bg-neutral-800 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200'
                 }`}
               >
-                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-neutral-800/80' : 'bg-slate-100/80') : isDark ? 'bg-neutral-800/50' : 'bg-slate-100/50'}`}>
+                <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${selectedMenu === 'orders' ? (isDark ? 'bg-neutral-700' : 'bg-slate-300') : isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
                   <Svg.Clock stroke={stroke} />
                 </div>
                 <span className="flex-1 text-left">Orders</span>
@@ -408,8 +408,8 @@ export default function App() {
               </button>
               {ordersExpanded && (
                 <div className={`px-3 pb-3 space-y-1 ${isDark ? 'text-neutral-300' : 'text-slate-600'}`}>
-                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800/50' : 'hover:bg-slate-100/50'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-neutral-800/70' : 'bg-slate-100/70') : ''}`}>Pending Orders</a>
-                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800/50' : 'hover:bg-slate-100/50'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-neutral-800/70' : 'bg-slate-100/70') : ''}`}>Completed Orders</a>
+                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-neutral-800' : 'bg-slate-200') : ''}`}>Pending Orders</a>
+                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-neutral-800' : 'hover:bg-slate-200'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-neutral-800' : 'bg-slate-200') : ''}`}>Completed Orders</a>
                 </div>
               )}
             </div>
@@ -417,13 +417,13 @@ export default function App() {
             <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
           </nav>
 
-          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-neutral-800/50' : 'border-slate-200/50'}`}>
+          <div className={`mt-6 pt-4 border-t ${isDark ? 'border-neutral-800' : 'border-slate-200'}`}>
             <button
               onClick={toggleTheme}
-              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-neutral-900/50 hover:bg-neutral-800/70' : 'bg-slate-100/50 hover:bg-slate-200/70'}`}
+              className={`flex items-center gap-3 p-3.5 w-full rounded-xl transition-colors ${isDark ? 'bg-neutral-900 hover:bg-neutral-800' : 'bg-slate-100 hover:bg-slate-200'}`}
               aria-label="Toggle theme"
             >
-              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-neutral-800/60' : 'bg-slate-200/60'}`}>
+              <div className={`w-11 h-11 rounded-lg flex items-center justify-center ${isDark ? 'bg-neutral-800' : 'bg-slate-200'}`}>
                 {isDark ? <Svg.Sun /> : <Svg.Moon />}
               </div>
               <span className={`text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>{isDark ? 'Light mode' : 'Dark mode'}</span>
