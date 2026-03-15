@@ -1,14 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 export default function App() {
-  const getSystemDark = () => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const getInitialTheme = () => {
-    if (typeof window === 'undefined') return 'dark';
-    const stored = localStorage.getItem('theme');
-    if (stored === 'dark' || stored === 'light') return stored;
-    return getSystemDark() ? 'dark' : 'light';
-  };
-  const [theme, setTheme] = useState(getInitialTheme);
+  const [theme, setTheme] = useState('light');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -26,22 +19,34 @@ export default function App() {
     if (savedImage) setProfileImage(savedImage);
   }, []);
 
-  // Sync theme to document and follow system preference when user hasn't set one
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
-
+  // Resolve theme on mount from localStorage or system preference; listen for system changes
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => {
+    const apply = () => {
+      const stored = localStorage.getItem('theme');
+      if (stored === 'dark' || stored === 'light') {
+        setTheme(stored);
+        document.documentElement.setAttribute('data-theme', stored);
+        return;
+      }
+      const next = mq.matches ? 'dark' : 'light';
+      setTheme(next);
+      document.documentElement.setAttribute('data-theme', next);
+    };
+    apply();
+    const handleSystemChange = () => {
       if (localStorage.getItem('theme')) return;
       const next = mq.matches ? 'dark' : 'light';
       setTheme(next);
       document.documentElement.setAttribute('data-theme', next);
     };
-    mq.addEventListener('change', handleChange);
-    return () => mq.removeEventListener('change', handleChange);
+    mq.addEventListener('change', handleSystemChange);
+    return () => mq.removeEventListener('change', handleSystemChange);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -65,10 +70,12 @@ export default function App() {
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
   const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    localStorage.setItem('theme', next);
-    document.documentElement.setAttribute('data-theme', next);
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('theme', next);
+      document.documentElement.setAttribute('data-theme', next);
+      return next;
+    });
   };
 
   const handleMenuSelect = (menu) => {
