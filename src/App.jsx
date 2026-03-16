@@ -48,6 +48,16 @@ export default function App() {
   const cartButtonRef = useRef(null);
   const cartButtonDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const fileInputRef = useRef(null);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [profileEditFullName, setProfileEditFullName] = useState('');
+  const [profileEditEmail, setProfileEditEmail] = useState('');
+  const [profileEditPhone, setProfileEditPhone] = useState('');
+  const [profileEditError, setProfileEditError] = useState(null);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [passwordCurrent, setPasswordCurrent] = useState('');
+  const [passwordNew, setPasswordNew] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [passwordError, setPasswordError] = useState(null);
 
   const fetchWallet = () => {
     if (!api.getToken()) return;
@@ -321,6 +331,22 @@ export default function App() {
     { size: '40 GB', price: '154.00' },
     { size: '50 GB', price: '193.00' },
   ];
+
+  const telecelBundles = [
+    { size: '10 GB', price: '39.00' },
+    { size: '12 GB', price: '44.00' },
+    { size: '15 GB', price: '56.00' },
+    { size: '20 GB', price: '75.00' },
+    { size: '25 GB', price: '94.00' },
+    { size: '30 GB', price: '110.00' },
+    { size: '35 GB', price: '129.00' },
+    { size: '40 GB', price: '143.00' },
+    { size: '50 GB', price: '183.00' },
+    { size: '100 GB', price: '350.00' },
+  ];
+
+  const displayBundles = activeTab === 'telecel' ? telecelBundles : bundles;
+  const isTelecel = activeTab === 'telecel';
 
   const MenuItem = ({ id, icon, label, hasSubmenu = false }) => {
     const isSelected = selectedMenu === id;
@@ -815,20 +841,32 @@ export default function App() {
               >
                 Telecel
               </button>
+              <button
+                onClick={() => setActiveTab('bigtime')}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'bigtime' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
+              >
+                AT BigTime
+              </button>
+              <button
+                onClick={() => setActiveTab('ishare')}
+                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'ishare' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
+              >
+                AT ishare
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 pb-16 sm:pb-20">
-              {bundles.map((bundle, index) => (
+              {displayBundles.map((bundle, index) => (
                 <div
-                key={index}
-                className="rounded-xl sm:rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform bg-cover bg-center"
-                style={{ backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}
-              >
-                  <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
+                  key={index}
+                  className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform ${isTelecel ? 'bg-red-600' : 'bg-cover bg-center'}`}
+                  style={isTelecel ? {} : { backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}
+                >
+                  {!isTelecel && <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />}
                   <div className="relative z-10 flex flex-col h-full">
                     <div className="flex justify-between items-start mb-4 gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">MTN</p>
+                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">{isTelecel ? 'Telecel' : 'MTN'}</p>
                         <h3 className="text-xl sm:text-2xl font-bold drop-shadow-md">{bundle.size}</h3>
                       </div>
                       <div className="text-right flex-shrink-0">
@@ -836,7 +874,7 @@ export default function App() {
                         <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
                       </div>
                     </div>
-                    <button type="button" onClick={() => setBuyBundle(bundle)} className="mt-auto w-full py-3 sm:py-4 rounded-xl bg-white/95 hover:bg-white text-slate-800 font-semibold text-base transition-colors shadow-lg">
+                    <button type="button" onClick={() => setBuyBundle(bundle)} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
                       Buy
                     </button>
                   </div>
@@ -1065,9 +1103,14 @@ export default function App() {
                 {[
                   ['Full Name', user?.full_name || '—'],
                   ['Email Address', user?.email || '—'],
+                  ['Phone Number', user?.phone || '—'],
                   ['Agent ID', 'DF-4398'],
                   ['Account Status', 'Active'],
-                  ['Member Since', 'Nov 08, 2025'],
+                  ['Member Since', (() => {
+                    if (!user?.created_at) return '—';
+                    const d = new Date(user.created_at);
+                    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
+                  })()],
                 ].map(([label, value], i) => (
                   <div key={i}>
                     <p className={`text-sm font-medium mb-1.5 ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{label}</p>
@@ -1075,10 +1118,30 @@ export default function App() {
                   </div>
                 ))}
                 <div className="pt-5 space-y-3">
-                  <button className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileEditFullName(user?.full_name || '');
+                      setProfileEditEmail(user?.email || '');
+                      setProfileEditPhone(user?.phone || '');
+                      setProfileEditError(null);
+                      setEditProfileOpen(true);
+                    }}
+                    className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-base transition-colors flex items-center justify-center gap-2"
+                  >
                     <Svg.Edit stroke="currentColor" /> EDIT PROFILE
                   </button>
-                  <button className={`w-full py-3.5 rounded-xl font-semibold text-base transition-colors flex items-center justify-center gap-2 ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPasswordCurrent('');
+                      setPasswordNew('');
+                      setPasswordConfirm('');
+                      setPasswordError(null);
+                      setChangePasswordOpen(true);
+                    }}
+                    className={`w-full py-3.5 rounded-xl font-semibold text-base transition-colors flex items-center justify-center gap-2 ${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
+                  >
                     <Svg.Link /> CHANGE PASSWORD
                   </button>
                 </div>
@@ -1284,6 +1347,165 @@ export default function App() {
                 className={`flex-1 py-2.5 rounded-xl font-medium transition-colors border border-transparent ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
                 Confirm & Pay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile modal */}
+      {editProfileOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditProfileOpen(false); setProfileEditError(null); }} aria-hidden="true" />
+          <div className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Edit Profile</h3>
+              <button type="button" onClick={() => { setEditProfileOpen(false); setProfileEditError(null); }} className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`} aria-label="Close">
+                <Svg.Close stroke={stroke} />
+              </button>
+            </div>
+            {profileEditError && <p className="text-sm text-red-500 mb-3">{profileEditError}</p>}
+            <div className="space-y-3">
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Full Name</label>
+              <input
+                type="text"
+                value={profileEditFullName}
+                onChange={(e) => setProfileEditFullName(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="Full name"
+              />
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Email</label>
+              <input
+                type="email"
+                value={profileEditEmail}
+                onChange={(e) => setProfileEditEmail(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="Email"
+              />
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Phone Number</label>
+              <input
+                type="tel"
+                value={profileEditPhone}
+                onChange={(e) => setProfileEditPhone(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="Phone number"
+              />
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => { setEditProfileOpen(false); setProfileEditError(null); }}
+                className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setProfileEditError(null);
+                  const fullName = profileEditFullName.trim();
+                  const email = profileEditEmail.trim();
+                  if (!email) {
+                    setProfileEditError('Email is required');
+                    return;
+                  }
+                  try {
+                    const updated = await api.updateProfile({ fullName: fullName || undefined, email, phone: profileEditPhone.trim() || undefined });
+                    setUser(updated);
+                    setEditProfileOpen(false);
+                  } catch (err) {
+                    setProfileEditError(err.message || 'Failed to update profile');
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl font-medium bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password modal - new password must be different from current */}
+      {changePasswordOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setChangePasswordOpen(false); setPasswordError(null); }} aria-hidden="true" />
+          <div className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Change Password</h3>
+              <button type="button" onClick={() => { setChangePasswordOpen(false); setPasswordError(null); }} className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`} aria-label="Close">
+                <Svg.Close stroke={stroke} />
+              </button>
+            </div>
+            {passwordError && <p className="text-sm text-red-500 mb-3">{passwordError}</p>}
+            <p className={`text-sm mb-3 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Enter your current password and choose a new one. The new password must be different from your current password.</p>
+            <div className="space-y-3">
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Current password</label>
+              <input
+                type="password"
+                value={passwordCurrent}
+                onChange={(e) => setPasswordCurrent(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="Current password"
+              />
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>New password</label>
+              <input
+                type="password"
+                value={passwordNew}
+                onChange={(e) => setPasswordNew(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="New password (min 6 characters)"
+              />
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Confirm new password</label>
+              <input
+                type="password"
+                value={passwordConfirm}
+                onChange={(e) => setPasswordConfirm(e.target.value)}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                placeholder="Confirm new password"
+              />
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => { setChangePasswordOpen(false); setPasswordError(null); }}
+                className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setPasswordError(null);
+                  if (!passwordCurrent.trim()) {
+                    setPasswordError('Enter your current password');
+                    return;
+                  }
+                  if (!passwordNew.trim()) {
+                    setPasswordError('Enter a new password');
+                    return;
+                  }
+                  if (passwordNew.length < 6) {
+                    setPasswordError('New password must be at least 6 characters');
+                    return;
+                  }
+                  if (passwordNew !== passwordConfirm) {
+                    setPasswordError('New password and confirm do not match');
+                    return;
+                  }
+                  try {
+                    await api.changePassword({ currentPassword: passwordCurrent, newPassword: passwordNew });
+                    setChangePasswordOpen(false);
+                    setPasswordCurrent('');
+                    setPasswordNew('');
+                    setPasswordConfirm('');
+                  } catch (err) {
+                    setPasswordError(err.message || 'Failed to change password');
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl font-medium bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Change Password
               </button>
             </div>
           </div>

@@ -67,6 +67,28 @@ export const api = {
     return data;
   },
 
+  async updateProfile({ fullName, email, phone }) {
+    const res = await fetch(`${API_URL}/api/profile`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ fullName: fullName ?? undefined, email: email ?? undefined, phone: phone ?? undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to update profile');
+    return data;
+  },
+
+  async changePassword({ currentPassword, newPassword }) {
+    const res = await fetch(`${API_URL}/api/profile/password`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to change password');
+    return data;
+  },
+
   async getWallet() {
     const res = await fetch(`${API_URL}/api/wallet`, { headers: headers() });
     const data = await res.json().catch(() => ({}));
