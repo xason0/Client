@@ -345,8 +345,36 @@ export default function App() {
     { size: '100 GB', price: '350.00' },
   ];
 
-  const displayBundles = activeTab === 'telecel' ? telecelBundles : bundles;
+  const bigtimeBundles = [
+    { size: '20 GB', price: '60.00' },
+    { size: '25 GB', price: '65.00' },
+    { size: '30 GB', price: '75.00' },
+    { size: '40 GB', price: '85.00' },
+    { size: '50 GB', price: '95.00' },
+    { size: '60 GB', price: '135.00' },
+    { size: '80 GB', price: '170.00' },
+    { size: '100 GB', price: '200.00' },
+    { size: '200 GB', price: '370.00' },
+  ];
+
+  const ishareBundles = [
+    { size: '1 GB', price: '4.20' },
+    { size: '2 GB', price: '8.20' },
+    { size: '3 GB', price: '12.00' },
+    { size: '4 GB', price: '16.00' },
+    { size: '5 GB', price: '19.00' },
+    { size: '6 GB', price: '23.00' },
+    { size: '7 GB', price: '28.30' },
+    { size: '8 GB', price: '32.80' },
+    { size: '9 GB', price: '36.90' },
+    { size: '10 GB', price: '39.00' },
+    { size: '15 GB', price: '55.00' },
+  ];
+
+  const displayBundles = activeTab === 'telecel' ? telecelBundles : activeTab === 'bigtime' ? bigtimeBundles : activeTab === 'ishare' ? ishareBundles : bundles;
   const isTelecel = activeTab === 'telecel';
+  const isBigTime = activeTab === 'bigtime';
+  const isIshare = activeTab === 'ishare';
 
   const MenuItem = ({ id, icon, label, hasSubmenu = false }) => {
     const isSelected = selectedMenu === id;
@@ -828,45 +856,61 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`flex p-1.5 rounded-xl mb-5 sm:mb-6 ${isDark ? 'bg-black border border-white/10' : 'bg-slate-200'}`}>
-              <button
-                onClick={() => setActiveTab('mtn')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'mtn' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
-              >
-                MTN
-              </button>
-              <button
-                onClick={() => setActiveTab('telecel')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'telecel' ? 'bg-purple-600 text-white shadow-lg' : 'text-white/60 hover:text-white/90'}`}
-              >
-                Telecel
-              </button>
-              <button
-                onClick={() => setActiveTab('bigtime')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'bigtime' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
-              >
-                AT BigTime
-              </button>
-              <button
-                onClick={() => setActiveTab('ishare')}
-                className={`flex-1 py-2.5 sm:py-3 rounded-lg text-sm sm:text-base font-medium transition-all ${activeTab === 'ishare' ? (isDark ? 'bg-white text-black shadow-lg' : 'bg-black text-white shadow-lg') : 'text-white/60 hover:text-white/90'}`}
-              >
-                AT ishare
-              </button>
+            <div
+              className={`relative flex gap-1 p-1.5 rounded-2xl mb-5 sm:mb-6 overflow-x-auto overflow-y-hidden scrollbar-hide ${isDark ? 'bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05)]' : 'bg-slate-100/80 backdrop-blur-sm border border-slate-200/80 shadow-sm'}`}
+              role="tablist"
+              aria-label="Network providers"
+            >
+              {[
+                { id: 'mtn', label: 'MTN' },
+                { id: 'telecel', label: 'Telecel' },
+                { id: 'bigtime', label: 'AT BigTime' },
+                { id: 'ishare', label: 'AT iShare' },
+              ].map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`
+                      relative flex-1 min-w-0 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl text-sm sm:text-base font-semibold
+                      transition-all duration-300 ease-out
+                      ${isActive
+                        ? isDark
+                          ? 'bg-white text-black shadow-lg shadow-white/10'
+                          : 'bg-slate-900 text-white shadow-lg shadow-slate-900/20'
+                        : isDark
+                          ? 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                          : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
+                      }
+                    `}
+                  >
+                    {isActive && (
+                      <span
+                        className={`absolute inset-0 rounded-xl ring-2 pointer-events-none ${isDark ? 'ring-white/20' : 'ring-slate-300/50'}`}
+                        aria-hidden
+                      />
+                    )}
+                    <span className="relative truncate block text-center tracking-tight">{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 pb-16 sm:pb-20">
               {displayBundles.map((bundle, index) => (
                 <div
                   key={index}
-                  className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform ${isTelecel ? 'bg-red-600' : 'bg-cover bg-center'}`}
-                  style={isTelecel ? {} : { backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}
+                  className="rounded-xl sm:rounded-2xl p-5 sm:p-6 text-white relative overflow-hidden group hover:scale-[1.01] sm:hover:scale-[1.02] transition-transform bg-cover bg-center"
+                  style={{ backgroundImage: (isBigTime || isIshare) ? 'url(https://files.catbox.moe/riugtj.png)' : isTelecel ? 'url(https://files.catbox.moe/yzcokj.jpg)' : 'url(https://files.catbox.moe/r1m0uh.png)' }}
                 >
-                  {!isTelecel && <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />}
+                  <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
                   <div className="relative z-10 flex flex-col h-full">
                     <div className="flex justify-between items-start mb-4 gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">{isTelecel ? 'Telecel' : 'MTN'}</p>
+                        <p className="text-sm font-medium opacity-90 drop-shadow-sm">{isBigTime ? 'AT BigTime' : isIshare ? 'AT iShare' : isTelecel ? 'Telecel' : 'MTN'}</p>
                         <h3 className="text-xl sm:text-2xl font-bold drop-shadow-md">{bundle.size}</h3>
                       </div>
                       <div className="text-right flex-shrink-0">
@@ -874,7 +918,7 @@ export default function App() {
                         <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
                       </div>
                     </div>
-                    <button type="button" onClick={() => setBuyBundle(bundle)} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
+                    <button type="button" onClick={() => setBuyBundle(bundle)} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
                       Buy
                     </button>
                   </div>
