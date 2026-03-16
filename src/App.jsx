@@ -29,6 +29,7 @@ export default function App() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [buyBundle, setBuyBundle] = useState(null);
   const [recipientNumber, setRecipientNumber] = useState('');
+  const [recipientError, setRecipientError] = useState(null);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
@@ -94,9 +95,25 @@ export default function App() {
     }
   }, [currentPage]);
 
+  const networkLabel = (n) => ({ mtn: 'MTN', telecel: 'Telecel', bigtime: 'AT BigTime', ishare: 'AT iShare' }[n] || 'MTN');
+  const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
+
+  const validGhanaPrefixes = ['020', '024', '026', '027', '054', '055', '059'];
+  const isValidGhanaNumber = (digits) => digits.length === 10 && validGhanaPrefixes.some((p) => digits.startsWith(p));
+
   const addToCart = () => {
     if (!buyBundle) return;
-    setCart((prev) => [...prev, { id: Date.now(), bundle: buyBundle, recipientNumber: recipientNumber.trim() || '—' }]);
+    const digitsOnly = recipientNumber.replace(/\D/g, '');
+    if (digitsOnly.length !== 10) {
+      setRecipientError('Enter exactly 10 digits (numbers only). No country code, symbols or emojis.');
+      return;
+    }
+    if (!isValidGhanaNumber(digitsOnly)) {
+      setRecipientError('Use a valid Ghana mobile number (e.g. 024, 020, 054, 055, 059, 026, 027).');
+      return;
+    }
+    setRecipientError(null);
+    setCart((prev) => [...prev, { id: Date.now(), bundle: buyBundle, recipientNumber: digitsOnly }]);
     setBuyBundle(null);
     setRecipientNumber('');
   };
@@ -745,12 +762,12 @@ export default function App() {
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setBuyBundle(null); setRecipientNumber(''); }} aria-hidden="true" />
           <div className={`relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto ${isDark ? 'bg-black' : 'bg-slate-50'}`}>
-            {/* Top card: purchase summary */}
-            <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: 'url(https://files.catbox.moe/r1m0uh.png)' }}>
+            {/* Top card: purchase summary - matches selected network */}
+            <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: networkBg(buyBundle.network) }}>
               <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
               <div className="relative z-10 flex justify-between items-start mb-4">
                 <div>
-                  <p className="text-sm font-medium opacity-90">MTN</p>
+                  <p className="text-sm font-medium opacity-90">{networkLabel(buyBundle.network)}</p>
                   <h3 className="text-xl sm:text-2xl font-bold">{buyBundle.size}</h3>
                 </div>
                 <div className="text-right">
@@ -762,20 +779,29 @@ export default function App() {
                 Buy
               </button>
             </div>
-            {/* Bottom card: recipient details */}
+            {/* Bottom card: recipient details - 10 digits only, no country code/symbols/emojis */}
             <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white' : 'text-slate-700'}`}>Recipient number</label>
               <input
                 type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
                 value={recipientNumber}
-                onChange={(e) => setRecipientNumber(e.target.value)}
-                placeholder="e.g. 024 000 0000"
-                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                onChange={(e) => {
+                  const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  setRecipientNumber(digitsOnly);
+                  setRecipientError(null);
+                }}
+                placeholder="e.g. 0241234567"
+                maxLength={10}
+                className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${recipientError ? 'border-red-500 focus:border-red-500' : isDark ? 'border-white/10' : 'border-slate-200'} ${isDark ? 'bg-black text-white placeholder:text-white/50' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
               />
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>10 digits, valid Ghana mobile (e.g. 024, 020, 054, 055, 059, 026, 027). No country code or symbols.</p>
+              {recipientError && <p className="text-sm text-red-500 mt-1.5">{recipientError}</p>}
               <div className="flex gap-3 mt-5 justify-end">
                 <button
                   type="button"
-                  onClick={() => { setBuyBundle(null); setRecipientNumber(''); }}
+                  onClick={() => { setBuyBundle(null); setRecipientNumber(''); setRecipientError(null); }}
                   className={`px-5 py-2.5 rounded-xl font-medium text-base transition-colors ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
                 >
                   Cancel
@@ -918,7 +944,7 @@ export default function App() {
                         <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
                       </div>
                     </div>
-                    <button type="button" onClick={() => setBuyBundle(bundle)} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
+                    <button type="button" onClick={() => setBuyBundle({ ...bundle, network: activeTab })} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
                       Buy
                     </button>
                   </div>
@@ -1323,7 +1349,7 @@ export default function App() {
                   {cart.map((item) => (
                     <li key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
                       <div className="min-w-0">
-                        <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>MTN {item.bundle.size}</p>
+                        <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{networkLabel(item.bundle.network)} {item.bundle.size}</p>
                         <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
                         <p className={`text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {item.bundle.price}</p>
                       </div>
