@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from './api';
 
 function getTheme() {
@@ -13,7 +14,8 @@ function getTheme() {
   }
 }
 
-export default function App() {
+export default function App({ adminRoute = false }) {
+  const navigate = useNavigate();
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
   const [token, setToken] = useState(() => (typeof window !== 'undefined' ? api.getToken() : null));
   const [user, setUser] = useState(null);
@@ -71,6 +73,55 @@ export default function App() {
   const [transactionCustomStart, setTransactionCustomStart] = useState('');
   const [transactionCustomEnd, setTransactionCustomEnd] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminStatsLoading, setAdminStatsLoading] = useState(false);
+  const [adminStatsError, setAdminStatsError] = useState(null);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [recentUsersExpanded, setRecentUsersExpanded] = useState(false);
+  const [adminPinVerified, setAdminPinVerified] = useState(() => !!api.getAdminToken());
+  const [appSettings, setAppSettings] = useState({ sidebarLogoUrl: 'https://files.catbox.moe/l3islw.jpg' });
+  const [adminSettingsSaving, setAdminSettingsSaving] = useState(false);
+  const [adminSettingsMessage, setAdminSettingsMessage] = useState(null);
+  const [headerShowWelcome, setHeaderShowWelcome] = useState(true);
+  const adminLogoInputRef = useRef(null);
+  const headerWelcomeEnteredAtRef = useRef(null);
+  const headerBrandTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+  const isAdmin = user?.role === 'admin' || (adminRoute && adminPinVerified);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    api.getSettings().then((s) => setAppSettings((prev) => ({ ...prev, ...s }))).catch(() => {});
+  }, []);
+
+  // Switch header from welcome back to brand name after 10 seconds. Do NOT clear the timeout in cleanup when effect re-runs (e.g. auth state) so the timer keeps running.
+  useEffect(() => {
+    const hasMainApp = isSignedIn || (adminRoute && adminPinVerified);
+
+    if (!hasMainApp) {
+      headerWelcomeEnteredAtRef.current = null;
+      if (headerBrandTimeoutRef.current) {
+        clearTimeout(headerBrandTimeoutRef.current);
+        headerBrandTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    const justEntered = headerWelcomeEnteredAtRef.current === null;
+    if (justEntered) {
+      headerWelcomeEnteredAtRef.current = Date.now();
+      setHeaderShowWelcome(true);
+      headerBrandTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) setHeaderShowWelcome(false);
+        headerBrandTimeoutRef.current = null;
+      }, 10 * 1000);
+    }
+    // Intentionally no cleanup: when effect re-runs (e.g. isSignedIn updates), we keep the existing timeout so it can fire after 3 min. Timeout is cleared only when hasMainApp becomes false above.
+  }, [isSignedIn, adminRoute, adminPinVerified]);
 
   const fetchWallet = () => {
     if (!api.getToken()) return;
@@ -116,6 +167,25 @@ export default function App() {
         .finally(() => setOrdersLoading(false));
     }
   }, [currentPage]);
+
+  useEffect(() => {
+    const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
+    if (currentPage === 'admin' && hasAdminAccess) {
+      setAdminStatsLoading(true);
+      setAdminStatsError(null);
+      Promise.all([api.getAdminStats(), api.getAdminUsers()])
+        .then(([stats, users]) => {
+          setAdminStats(stats);
+          setAdminUsers(Array.isArray(users) ? users : []);
+        })
+        .catch((err) => {
+          setAdminStatsError(err?.message || 'Failed to load admin data');
+          setAdminStats(null);
+          setAdminUsers([]);
+        })
+        .finally(() => setAdminStatsLoading(false));
+    }
+  }, [currentPage, user?.role, adminPinVerified]);
 
   const networkLabel = (n) => ({ mtn: 'MTN', telecel: 'Telecel', bigtime: 'AT BigTime', ishare: 'AT iShare' }[n] || 'MTN');
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
@@ -371,6 +441,18 @@ export default function App() {
     return () => mq.removeEventListener('change', handle);
   }, []);
 
+  useEffect(() => {
+    if (!adminRoute) return;
+    if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
+      setCurrentPage('admin');
+      setSelectedMenu('admin');
+      return;
+    }
+    if (isSignedIn && user?.role !== 'admin') {
+      navigate('/', { replace: true });
+    }
+  }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate]);
+
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
@@ -414,6 +496,10 @@ export default function App() {
       setProfileOpen(false);
     } else if (menu === 'join-us') {
       setCurrentPage('join-us');
+      setProfileOpen(false);
+    } else if (menu === 'admin') {
+      navigate('/admin');
+      setCurrentPage('admin');
       setProfileOpen(false);
     }
   };
@@ -645,6 +731,11 @@ export default function App() {
         <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
       </svg>
     ),
+    Shield: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
     Home: (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -728,10 +819,19 @@ export default function App() {
         }
       `}</style>
 
-      {!isSignedIn ? (
+      {adminRoute && !adminPinVerified && !(isSignedIn && user?.role === 'admin') ? (
+        <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6">
+          <AdminPinPage
+            isDark={isDark}
+            onVerified={() => setAdminPinVerified(true)}
+            appSettings={appSettings}
+          />
+        </div>
+      ) : !isSignedIn && !(adminRoute && adminPinVerified) ? (
         <div className="flex-1 flex flex-col w-full min-h-full">
           <SignInPage
             isDark={isDark}
+            appSettings={appSettings}
             onSignIn={(result) => {
               api.setToken(result.token);
               setToken(result.token);
@@ -775,11 +875,56 @@ export default function App() {
           {/* Datafy Hub: circle + details in line with close button, no card */}
           <div className="flex items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-4 min-w-0 flex-1">
-              <img
-                src="https://files.catbox.moe/l3islw.jpg"
-                alt="DataPlus"
-                className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover flex-shrink-0 border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
-              />
+              <div className="relative flex-shrink-0">
+                <img
+                  src={appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg'}
+                  alt="DataPlus"
+                  className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+                />
+                {isAdmin && (
+                  <>
+                    <input
+                      ref={adminLogoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        const dataUrl = await new Promise((res, rej) => {
+                          const r = new FileReader();
+                          r.onload = () => res(r.result);
+                          r.onerror = rej;
+                          r.readAsDataURL(f);
+                        });
+                        e.target.value = '';
+                        setAdminSettingsSaving(true);
+                        setAdminSettingsMessage(null);
+                        try {
+                          await api.updateAdminSettings({ sidebarLogoUrl: dataUrl });
+                          const s = await api.getSettings();
+                          setAppSettings((prev) => ({ ...prev, ...s }));
+                          setAdminSettingsMessage({ type: 'success', text: 'Logo updated' });
+                        } catch (err) {
+                          setAdminSettingsMessage({ type: 'error', text: err?.message || 'Failed to save' });
+                        } finally {
+                          setAdminSettingsSaving(false);
+                          setTimeout(() => setAdminSettingsMessage(null), 2500);
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => adminLogoInputRef.current?.click()}
+                      disabled={adminSettingsSaving}
+                      className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-lg font-bold border-2 shadow-md transition-transform hover:scale-110 active:scale-95 bg-white text-black border-slate-300 disabled:opacity-60"
+                      aria-label="Change logo"
+                    >
+                      {adminSettingsSaving ? '…' : '+'}
+                    </button>
+                  </>
+                )}
+              </div>
               <div className="min-w-0">
                 <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h2>
                 <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
@@ -793,6 +938,11 @@ export default function App() {
               <Svg.Close stroke={stroke} />
             </button>
           </div>
+          {adminSettingsMessage && (
+            <p className={`text-xs mb-3 ${adminSettingsMessage.type === 'success' ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+              {adminSettingsMessage.text}
+            </p>
+          )}
           <div className={`w-10 h-px mx-auto mb-4 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
 
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
@@ -830,6 +980,9 @@ export default function App() {
             </div>
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
             <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />
+            {(user?.role === 'admin' || (adminRoute && adminPinVerified)) && (
+              <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
+            )}
           </nav>
 
           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -857,7 +1010,9 @@ export default function App() {
             <Svg.Menu stroke={stroke} width={24} height={24} />
           </button>
           <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈
+            {headerShowWelcome
+              ? (isAdmin ? 'Welcome, Admin' : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
+              : '𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈'}
           </h1>
           <button
             onClick={toggleProfile}
@@ -937,10 +1092,7 @@ export default function App() {
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.Phone stroke={stroke} />
-                </div>
-                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Bulk Orders</h1>
+                <h1 className="page-title text-2xl sm:text-3xl truncate">Bulk Orders</h1>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} aria-hidden />
@@ -1034,10 +1186,7 @@ export default function App() {
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.Phone stroke={stroke} />
-                </div>
-                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>AFA Registration</h1>
+                <h1 className="page-title text-2xl sm:text-3xl truncate">AFA Registration</h1>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} aria-hidden />
@@ -1100,10 +1249,7 @@ export default function App() {
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.WhatsApp stroke={stroke} />
-                </div>
-                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Join Us</h1>
+                <h1 className="page-title text-2xl sm:text-3xl truncate">Join Us</h1>
               </div>
               <button
                 type="button"
@@ -1143,10 +1289,7 @@ export default function App() {
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className={`p-2 sm:p-2.5 rounded-lg ${isDark ? 'bg-black border border-white/10' : 'bg-white'}`}>
-                    <Svg.Home stroke={stroke} />
-                  </div>
-                  <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
+                  <h1 className="page-title text-2xl sm:text-3xl">Dashboard</h1>
                 </div>
                 <div className="relative w-4 h-4 flex items-center justify-center">
                   <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
@@ -1337,10 +1480,7 @@ export default function App() {
               <>
                 <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                      <Svg.Clock stroke={stroke} />
-                    </div>
-                    <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Transactions</h1>
+                    <h1 className="page-title text-2xl sm:text-3xl truncate">Transactions</h1>
                   </div>
                   <button
                     type="button"
@@ -1445,10 +1585,7 @@ export default function App() {
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.Wallet stroke={stroke} />
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-bold truncate">Top Up Wallet</h1>
+                <h1 className="page-title text-2xl sm:text-3xl truncate">Top Up Wallet</h1>
               </div>
               <button
                 type="button"
@@ -1566,10 +1703,7 @@ export default function App() {
               <>
                 <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                      <Svg.Cart stroke={stroke} />
-                    </div>
-                    <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Orders</h1>
+                    <h1 className="page-title text-2xl sm:text-3xl truncate">Orders</h1>
                   </div>
                   <button
                     type="button"
@@ -1720,14 +1854,113 @@ export default function App() {
               </>
             );
           })()
+        ) : currentPage === 'admin' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <h1 className="page-title text-2xl sm:text-3xl truncate">Admin</h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                aria-label="Back to dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                </svg>
+              </button>
+            </div>
+
+            {adminStatsError && (
+              <div className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-red-500/10 border border-red-500/30 text-red-200' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                {adminStatsError}
+              </div>
+            )}
+
+            {adminStatsLoading ? (
+              <div className={`rounded-xl p-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading admin stats…</div>
+            ) : adminStats ? (
+              <>
+                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6`}>
+                  {[
+                    { label: 'Total Users', value: adminStats.userCount, key: 'users' },
+                    { label: 'Total Orders', value: adminStats.orderCount, key: 'orders' },
+                    { label: 'Processing', value: adminStats.processingOrders, key: 'processing' },
+                    { label: 'Completed', value: adminStats.completedOrders, key: 'completed' },
+                    { label: 'Revenue (¢)', value: Number(adminStats.totalRevenue).toFixed(2), key: 'revenue' },
+                    { label: 'Top-ups (¢)', value: Number(adminStats.totalTopUps).toFixed(2), key: 'topups' },
+                  ].map(({ label, value, key }) => (
+                    <div key={key} className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                      <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{label}</p>
+                      <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <h2 className={`text-lg font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Recent users</h2>
+                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                  {!recentUsersExpanded ? (
+                    <div className={`px-4 py-4 flex items-center justify-between gap-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                      <span className="text-sm">
+                        {adminUsers.length === 0 ? 'No users' : `${adminUsers.length} user${adminUsers.length === 1 ? '' : 's'}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setRecentUsersExpanded(true)}
+                        className={`text-sm font-medium underline underline-offset-2 ${isDark ? 'text-white hover:text-white/90' : 'text-slate-700 hover:text-slate-900'}`}
+                      >
+                        See all
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className={`overflow-x-auto`}>
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className={`border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                              <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Email</th>
+                              <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Name</th>
+                              <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Role</th>
+                              <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Joined</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminUsers.length === 0 ? (
+                              <tr><td colSpan={4} className={`px-4 py-6 text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No users</td></tr>
+                            ) : (
+                              adminUsers.map((u) => (
+                                <tr key={u.id} className={`border-b last:border-0 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
+                                  <td className={`px-4 py-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>{u.email}</td>
+                                  <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.full_name || '—'}</td>
+                                  <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.role || 'user'}</td>
+                                  <td className={`px-4 py-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className={`px-4 py-2 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setRecentUsersExpanded(false)}
+                          className={`text-sm font-medium underline underline-offset-2 ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                          Show less
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </>
         ) : (
           <>
             <div className="pt-14 sm:pt-20 pb-5 sm:pb-6 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.User stroke={stroke} />
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-bold truncate">Profile</h1>
+                <h1 className="page-title text-2xl sm:text-3xl truncate">Profile</h1>
               </div>
               <button
                 type="button"
@@ -2204,7 +2437,84 @@ const EyeOffIcon = ({ className }) => (
   </svg>
 );
 
-function SignInPage({ isDark, onSignIn }) {
+function AdminPinPage({ isDark, onVerified, appSettings }) {
+  const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
+  const logoUrl = appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg';
+
+  const handleSubmit = async () => {
+    setError('');
+    if (!pin.trim()) {
+      setError('Please enter your PIN.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.verifyAdminPin(pin);
+      api.setAdminToken(data.token);
+      onVerified();
+    } catch (err) {
+      setError(err?.message || 'Invalid PIN. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center min-h-full w-full p-6">
+      <img
+        src={logoUrl}
+        alt="DataPlus"
+        className={`w-20 h-20 rounded-full object-cover border mb-6 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+      />
+      <h1 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h1>
+      <p className={`text-sm mb-8 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+        Admin — enter your PIN to continue
+      </p>
+      <div className="w-full max-w-sm space-y-4">
+        <div className="relative">
+          <input
+            type={showPin ? 'text' : 'password'}
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="PIN"
+            value={pin}
+            onChange={(e) => { setPin(e.target.value.replace(/\D/g, '').slice(0, 8)); setError(''); }}
+            maxLength={8}
+            className={`${inputClass} pr-11 text-center tracking-[0.4em] placeholder:tracking-normal`}
+            disabled={loading}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPin((p) => !p)}
+            aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
+            className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg transition-colors ${isDark ? 'text-white/60 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            {showPin ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        </div>
+        {error && (
+          <p className="text-sm text-red-500 text-center" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={loading}
+          className={`w-full py-3 rounded-xl font-semibold transition-colors disabled:opacity-60 ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+        >
+          {loading ? 'Checking…' : 'Continue'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SignInPage({ isDark, onSignIn, appSettings }) {
   const [mode, setMode] = useState('signin'); // 'signin' | 'register'
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -2286,7 +2596,7 @@ function SignInPage({ isDark, onSignIn }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center min-h-full w-full p-6">
       <img
-        src="https://files.catbox.moe/l3islw.jpg"
+        src={appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg'}
         alt="DataPlus"
         className={`w-20 h-20 rounded-full object-cover border mb-6 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
       />

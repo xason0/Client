@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
 
@@ -22,7 +23,12 @@ function DisableCopyPaste() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <DisableCopyPaste />
-    <App />
+    <BrowserRouter>
+      <DisableCopyPaste />
+      <Routes>
+        <Route path="/admin" element={<App adminRoute />} />
+        <Route path="/*" element={<App />} />
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>,
 )

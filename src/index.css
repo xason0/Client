@@ -40,3 +40,16 @@ html:not([data-auth-screen]) #root {
   padding-right: env(safe-area-inset-right, 0);
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
+
+/* Page titles: distinct font and color */
+.page-title {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+[data-theme="light"] .page-title {
+  color: #4338ca; /* indigo-700 */
+}
+[data-theme="dark"] .page-title {
+  color: #c7d2fe; /* indigo-200 */
+}

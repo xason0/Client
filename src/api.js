@@ -4,6 +4,8 @@ const API_URL =
     ? 'https://ok.ultraxas.com'
     : 'http://localhost:3001');
 
+const ADMIN_TOKEN_KEY = 'dataplus_admin_token';
+
 function getToken() {
   return localStorage.getItem('dataplus_token');
 }
@@ -11,6 +13,19 @@ function getToken() {
 function setToken(token) {
   if (token) localStorage.setItem('dataplus_token', token);
   else localStorage.removeItem('dataplus_token');
+}
+
+function getAdminToken() {
+  return localStorage.getItem(ADMIN_TOKEN_KEY);
+}
+
+function setAdminToken(token) {
+  if (token) localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  else localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function clearAdminToken() {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
 }
 
 function headers() {
@@ -21,10 +36,21 @@ function headers() {
   };
 }
 
+function adminHeaders() {
+  const t = getAdminToken() || getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(t ? { Authorization: `Bearer ${t}` } : {}),
+  };
+}
+
 export const api = {
   getUrl: () => API_URL,
   getToken,
   setToken,
+  getAdminToken,
+  setAdminToken,
+  clearAdminToken,
 
   async register({ email, password, fullName }) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
@@ -144,5 +170,56 @@ export const api = {
     const res = await fetch(`${API_URL}/api/bundles`);
     const data = await res.json().catch(() => ([]));
     return Array.isArray(data) ? data : [];
+  },
+
+  async verifyAdminPin(pin) {
+    const body = { pin: String(pin ?? '').trim() };
+    const res = await fetch(`${API_URL}/api/admin/verify-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 404) throw new Error('Admin PIN not available. Is the backend running?');
+      throw new Error(data.error || 'Invalid PIN');
+    }
+    return data;
+  },
+
+  async getAdminStats() {
+    const res = await fetch(`${API_URL}/api/admin/stats`, { headers: adminHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load admin stats');
+    return data;
+  },
+
+  async getAdminUsers() {
+    const res = await fetch(`${API_URL}/api/admin/users`, { headers: adminHeaders() });
+    const data = await res.json().catch(() => ([]));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load users');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getSettings() {
+    const res = await fetch(`${API_URL}/api/settings`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to load settings');
+    return data;
+  },
+
+  async updateAdminSettings({ sidebarLogoUrl }) {
+    const res = await fetch(`${API_URL}/api/admin/settings`, {
+      method: 'PUT',
+      headers: adminHeaders(),
+      body: JSON.stringify({ sidebarLogoUrl: sidebarLogoUrl ?? undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.status === 413) throw new Error('Image too large. Try a smaller image or use a URL instead.');
+    if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+    return data;
   },
 };
