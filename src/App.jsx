@@ -30,6 +30,9 @@ export default function App() {
   const [buyBundle, setBuyBundle] = useState(null);
   const [recipientNumber, setRecipientNumber] = useState('');
   const [recipientError, setRecipientError] = useState(null);
+  const [bulkOrderInput, setBulkOrderInput] = useState('');
+  const [bulkOrderError, setBulkOrderError] = useState(null);
+  const [bulkOrderSuccess, setBulkOrderSuccess] = useState(null);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
@@ -59,6 +62,9 @@ export default function App() {
   const [passwordNew, setPasswordNew] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [passwordError, setPasswordError] = useState(null);
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+  const [orderHistorySearch, setOrderHistorySearch] = useState('');
+  const [orderDateFilter, setOrderDateFilter] = useState('Today');
 
   const fetchWallet = () => {
     if (!api.getToken()) return;
@@ -120,6 +126,64 @@ export default function App() {
 
   const removeFromCart = (id) => {
     setCart((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const validMtnCapacities = [1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50];
+  const getMtnBundleByCapacity = (capacityNum) => {
+    const b = bundles.find((x) => x.size === `${capacityNum} GB`);
+    return b ? { ...b, network: 'mtn' } : null;
+  };
+
+  const processBulkOrders = () => {
+    setBulkOrderError(null);
+    setBulkOrderSuccess(null);
+    const lines = bulkOrderInput
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      setBulkOrderError('Enter at least one line in the format: phone_number capacity (e.g. 0241234567 5)');
+      return;
+    }
+    const added = [];
+    const errors = [];
+    lines.forEach((line, idx) => {
+      const parts = line.split(/\s+/);
+      if (parts.length < 2) {
+        errors.push(`Line ${idx + 1}: need "phone_number capacity" (e.g. 0241234567 5)`);
+        return;
+      }
+      const digitsOnly = parts[0].replace(/\D/g, '');
+      const capacityNum = parseInt(parts[1], 10);
+      if (digitsOnly.length !== 10) {
+        errors.push(`Line ${idx + 1}: phone must be exactly 10 digits.`);
+        return;
+      }
+      if (!isValidGhanaNumber(digitsOnly)) {
+        errors.push(`Line ${idx + 1}: use a valid Ghana mobile number (e.g. 024, 020, 054).`);
+        return;
+      }
+      if (!Number.isInteger(capacityNum) || !validMtnCapacities.includes(capacityNum)) {
+        errors.push(`Line ${idx + 1}: capacity must be a valid MTN bundle size (e.g. 1, 2, 5, 10, 15, 20, 25, 30, 40, 50).`);
+        return;
+      }
+      const bundle = getMtnBundleByCapacity(capacityNum);
+      if (!bundle) {
+        errors.push(`Line ${idx + 1}: no MTN bundle for ${capacityNum} GB.`);
+        return;
+      }
+      added.push({ id: Date.now() + idx, bundle, recipientNumber: digitsOnly });
+    });
+    if (errors.length > 0) {
+      const msg = errors.length > 10
+        ? errors.slice(0, 10).join(' ') + ` ... and ${errors.length - 10} more.`
+        : errors.join(' ');
+      setBulkOrderError(msg);
+      return;
+    }
+    setCart((prev) => [...prev, ...added]);
+    setBulkOrderInput('');
+    setBulkOrderSuccess(`${added.length} order(s) added to cart.`);
   };
 
   const clampCartPosition = (x, y) => {
@@ -305,6 +369,20 @@ export default function App() {
       setProfileOpen(false);
     } else if (menu === 'my-orders') {
       setCurrentPage('orders');
+      setProfileOpen(false);
+    } else if (menu === 'pending-orders') {
+      setCurrentPage('orders');
+      setOrderStatusFilter('processing');
+      setProfileOpen(false);
+    } else if (menu === 'completed-orders') {
+      setCurrentPage('orders');
+      setOrderStatusFilter('completed');
+      setProfileOpen(false);
+    } else if (menu === 'bulk-orders') {
+      setCurrentPage('bulk-orders');
+      setProfileOpen(false);
+    } else if (menu === 'afa-registration') {
+      setCurrentPage('afa-registration');
       setProfileOpen(false);
     }
   };
@@ -709,8 +787,8 @@ export default function App() {
               </button>
               {ordersExpanded && (
                 <div className={`px-3 pb-3 space-y-1 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
-                  <a href="#" onClick={() => handleMenuSelect('pending-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Pending Orders</a>
-                  <a href="#" onClick={() => handleMenuSelect('completed-orders')} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Completed Orders</a>
+                  <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('pending-orders'); }} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'pending-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Pending Orders</a>
+                  <a href="#" onClick={(e) => { e.preventDefault(); handleMenuSelect('completed-orders'); }} className={`block py-2.5 px-3 rounded-lg text-base ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'} ${selectedMenu === 'completed-orders' ? (isDark ? 'bg-white/10' : 'bg-slate-200') : ''}`}>Completed Orders</a>
                 </div>
               )}
             </div>
@@ -819,7 +897,170 @@ export default function App() {
         </div>
       )}
 
-        {currentPage === 'dashboard' ? (
+        {currentPage === 'bulk-orders' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.Phone stroke={stroke} />
+                </div>
+                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Bulk Orders</h1>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} aria-hidden />
+                <span className={`text-sm font-medium hidden sm:inline ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Open now</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('dashboard')}
+                  className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                  aria-label="Back to dashboard"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <p className={`mb-4 sm:mb-5 text-sm border-l-2 pl-3 ${isDark ? 'border-red-500/60 text-red-200/90' : 'border-red-500 text-red-700'}`}>
+              <span className="font-medium">MTN Network Only.</span>{' '}
+              Currently supporting MTN bundles. Additional networks will be available soon.
+            </p>
+
+            <div className={`rounded-xl sm:rounded-2xl overflow-hidden mb-4 sm:mb-5 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200 shadow-sm'}`}>
+              <div className="p-4 sm:p-6">
+                <h2 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Order Input</h2>
+                <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  Enter your orders in the format: <code className={`px-1.5 py-0.5 rounded font-mono text-sm ${isDark ? 'bg-white/10 text-white/90' : 'bg-slate-200 text-slate-800'}`}>phone_number capacity</code>
+                </p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Examples:</span>
+                  <span className={`text-xs font-medium ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{bulkOrderInput.split(/\r?\n/).filter((s) => s.trim()).length} lines</span>
+                </div>
+                <div className={`rounded-lg p-3 mb-4 font-mono text-sm ${isDark ? 'bg-black/30 text-white/80' : 'bg-slate-100 text-slate-700'}`}>
+                  <div>0241234567 5</div>
+                  <div>0247654321 10</div>
+                  <div>0241111111 2</div>
+                </div>
+                <textarea
+                  value={bulkOrderInput}
+                  onChange={(e) => { setBulkOrderInput(e.target.value); setBulkOrderError(null); setBulkOrderSuccess(null); }}
+                  placeholder={'0241234567 5\n0247654321 10\n0241111111 2'}
+                  rows={6}
+                  className={`w-full px-4 py-3 rounded-xl border text-base font-mono placeholder:opacity-60 resize-y ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                />
+                {bulkOrderError && <p className={`text-sm mt-2 ${isDark ? 'text-red-400' : 'text-red-600'}`}>{bulkOrderError}</p>}
+                {bulkOrderSuccess && <p className={`text-sm mt-2 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>{bulkOrderSuccess}</p>}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={processBulkOrders}
+              className={`w-full py-4 rounded-xl font-semibold flex items-center justify-center gap-2 mb-4 sm:mb-5 transition-all shadow-lg ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              Process Orders
+            </button>
+
+            <div className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
+              <h3 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>System Status</h3>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} />
+                  <span className={isDark ? 'text-white/90' : 'text-slate-700'}>Text Input: Active</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} />
+                  <span className={isDark ? 'text-white/90' : 'text-slate-700'}>Ordering: Enabled</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`rounded-xl sm:rounded-2xl overflow-hidden mb-5 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200 shadow-sm'}`}>
+              <div className="p-4 sm:p-5">
+                <h3 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Format Guide</h3>
+                <div className={`rounded-lg p-3 mb-3 ${isDark ? 'bg-black/30 text-white/90' : 'bg-slate-100 text-slate-800'}`}>
+                  <p className="text-sm font-medium mb-2">Valid Format:</p>
+                  <div className="font-mono text-sm space-y-1">0241234567 5<br />0247654321 10</div>
+                </div>
+                <ul className={`text-sm space-y-1 list-disc list-inside ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  <li>Phone numbers must be 10 digits (valid Ghana mobile, e.g. 024, 020, 054, 055, 059, 026, 027).</li>
+                  <li>Capacity must be a valid MTN bundle size (1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50).</li>
+                </ul>
+              </div>
+            </div>
+          </>
+        ) : currentPage === 'afa-registration' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.Phone stroke={stroke} />
+                </div>
+                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>AFA Registration</h1>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} aria-hidden />
+                <span className={`text-sm font-medium hidden sm:inline ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Open now</span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage('dashboard')}
+                  className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                  aria-label="Back to dashboard"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <p className={`text-lg mb-1 ${isDark ? 'text-white/90' : 'text-slate-800'}`}>AFA Registration</p>
+            <p className={`text-sm mb-5 sm:mb-6 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Register new AFA applications and view your registration history.</p>
+
+            <button
+              type="button"
+              className={`w-auto px-6 py-3.5 sm:py-4 rounded-xl font-semibold inline-flex items-center justify-center gap-2 mb-5 sm:mb-6 transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              REGISTER NEW AFA
+            </button>
+
+            <div className={`flex flex-wrap gap-2 mb-5 sm:mb-6 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+              {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors border ${label === 'Today' ? (isDark ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : isDark ? 'bg-white/10 border-white/20 text-white hover:bg-white/20' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-4">
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
+                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Total Registrations</p>
+                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
+              </div>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
+                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Completed</p>
+                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
+              </div>
+              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
+                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Pending</p>
+                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
+              </div>
+            </div>
+          </>
+        ) : currentPage === 'dashboard' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
               <div className="flex items-center justify-between">
@@ -883,7 +1124,7 @@ export default function App() {
             </div>
 
             <div
-              className={`relative flex gap-1 p-1.5 rounded-2xl mb-5 sm:mb-6 overflow-x-auto overflow-y-hidden scrollbar-hide ${isDark ? 'bg-white/5 backdrop-blur-xl border border-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.05)]' : 'bg-slate-100/80 backdrop-blur-sm border border-slate-200/80 shadow-sm'}`}
+              className={`relative flex gap-1 p-1.5 rounded-2xl mb-5 sm:mb-6 overflow-x-auto overflow-y-hidden scrollbar-hide ${isDark ? 'bg-white/[0.07] backdrop-blur-xl border border-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]' : 'bg-white/40 backdrop-blur-xl border border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.5)]'}`}
               role="tablist"
               aria-label="Network providers"
             >
@@ -1047,77 +1288,140 @@ export default function App() {
             </div>
           </>
         ) : currentPage === 'orders' ? (
-          <>
-            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
-                  <Svg.Cart stroke={stroke} />
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-bold truncate">Orders</h1>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCurrentPage('dashboard')}
-                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
-                aria-label="Back to dashboard"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                </svg>
-              </button>
-            </div>
+          (() => {
+            const mockOrders = [
+              { id: '1', recipientNumber: '0241234567', network: 'MTN', bundleSize: '5 GB', amount: '20.50', dateIso: new Date(Date.now() - 86400000).toISOString(), status: 'Completed' },
+              { id: '2', recipientNumber: '0549876543', network: 'MTN', bundleSize: '10 GB', amount: '41.00', dateIso: new Date().toISOString(), status: 'Processing' },
+              { id: '3', recipientNumber: '0201112233', network: 'Telecel', bundleSize: '3 GB', amount: '12.30', dateIso: new Date(Date.now() - 172800000).toISOString(), status: 'Completed' },
+            ];
+            const formatOrderDate = (iso) => {
+              const d = new Date(iso);
+              return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) };
+            };
+            const byStatus = (o) => orderStatusFilter === 'all' || o.status.toLowerCase() === orderStatusFilter;
+            const completedOrders = mockOrders.filter((o) => o.status === 'Completed');
+            const searchLower = orderHistorySearch.trim().toLowerCase();
+            const filteredHistory = searchLower
+              ? completedOrders.filter((o) => o.recipientNumber.includes(searchLower) || o.network.toLowerCase().includes(searchLower) || o.bundleSize.toLowerCase().includes(searchLower))
+              : completedOrders;
+            const ordersToShow = mockOrders.filter(byStatus);
 
-            <div className="space-y-4 mb-5">
-              <div className={`flex flex-wrap gap-2 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
-                {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${label === 'Today' ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <div className={`flex-1 min-w-[140px] px-4 py-2.5 rounded-xl border ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <span className="text-sm">All Networks</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block ml-1 opacity-60"><path d="M6 9l6 6 6-6"/></svg>
-                </div>
-                <div className={`flex-1 min-w-[140px] px-4 py-2.5 rounded-xl border ${isDark ? 'bg-black border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <span className="text-sm">All Status</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline-block ml-1 opacity-60"><path d="M6 9l6 6 6-6"/></svg>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search recipient"
-                  className={`flex-1 min-w-[160px] px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {[
-                { label: 'Orders', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), value: '0' },
-                { label: 'Amount', date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), value: '¢ 0.00' },
-                { label: 'Data (GB)', date: null, value: '0', showCart: true },
-              ].map((card) => (
-                <div key={card.label} className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/10 border border-white/10 text-white' : 'bg-slate-100 border border-slate-200 text-slate-900'}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className={`text-sm font-medium opacity-90 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>{card.label}{card.date ? ` (${card.date})` : ''}</p>
-                      <p className="text-2xl sm:text-3xl font-bold mt-1">{card.value}</p>
+            return (
+              <>
+                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                      <Svg.Cart stroke={stroke} />
                     </div>
-                    {card.showCart && (
-                      <button type="button" className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${isDark ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-900'}`} aria-label="Cart">
-                        <Svg.Cart stroke={stroke} width={20} height={20} />
+                    <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Orders</h1>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage('dashboard')}
+                    className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                    aria-label="Back to dashboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                    </svg>
+                  </button>
+                </div>
+
+                <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>View order status and your completed order history.</p>
+
+                <div className={`relative flex gap-0.5 p-0.5 rounded-2xl mb-5 sm:mb-6 overflow-hidden ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`} role="tablist" aria-label="Order status filter">
+                  {['all', 'processing', 'completed'].map((status) => {
+                    const label = status === 'all' ? 'All' : status === 'processing' ? 'Processing' : 'Completed';
+                    const active = orderStatusFilter === status;
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setOrderStatusFilter(status)}
+                        className={`flex-1 min-w-0 py-3 px-4 rounded-xl text-sm font-medium transition-all ${active ? (isDark ? 'bg-white text-black shadow-sm' : 'bg-white text-slate-900 shadow-sm border border-slate-200') : isDark ? 'text-white/70 hover:text-white hover:bg-white/5' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'}`}
+                      >
+                        {label}
                       </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mb-6">
+                  <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Order status</h2>
+                  <div className="space-y-3">
+                    {ordersToShow.length === 0 ? (
+                      <div className={`rounded-xl py-8 text-center text-sm ${isDark ? 'text-white/50 bg-white/5 border border-white/10' : 'text-slate-500 bg-slate-100 border border-slate-200'}`}>
+                        No orders in this filter.
+                      </div>
+                    ) : (
+                      ordersToShow.map((order) => {
+                        const { date, time } = formatOrderDate(order.dateIso);
+                        const isCompleted = order.status === 'Completed';
+                        return (
+                          <div
+                            key={order.id}
+                            className={`rounded-xl border p-4 sm:p-5 transition-colors ${isDark ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.06]' : 'bg-white border-slate-200 hover:border-slate-300'}`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className={`font-mono text-base font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
+                                <p className={`text-sm mt-0.5 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{order.network} · {order.bundleSize}</p>
+                                <p className={`text-xs mt-2 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{date} · {time}</p>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${isCompleted ? (isDark ? 'bg-white/15 text-white/90' : 'bg-slate-200 text-slate-800') : (isDark ? 'bg-white/10 text-white/80' : 'bg-slate-100 text-slate-700')}`}>
+                                  {order.status}
+                                </span>
+                                <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>¢ {order.amount}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </>
+
+                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div className={`px-4 py-3 border-b ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                    <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>Completed orders · History</h2>
+                    <input
+                      type="search"
+                      value={orderHistorySearch}
+                      onChange={(e) => setOrderHistorySearch(e.target.value)}
+                      placeholder="Search by number, network, or bundle..."
+                      className={`w-full px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                      aria-label="Search completed orders"
+                    />
+                  </div>
+                  <div className={`divide-y max-h-[280px] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
+                    {filteredHistory.length === 0 ? (
+                      <div className={`py-8 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                        {orderHistorySearch.trim() ? 'No matching completed orders.' : 'No completed orders yet.'}
+                      </div>
+                    ) : (
+                      filteredHistory.map((order) => {
+                        const { date, time } = formatOrderDate(order.dateIso);
+                        return (
+                          <div key={order.id} className={`px-4 py-3.5 flex flex-wrap items-center justify-between gap-2 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'}`}>
+                            <div className="min-w-0">
+                              <p className={`font-mono text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
+                              <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{date} at {time}</p>
+                            </div>
+                            <div className={`text-sm ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                              {order.network} {order.bundleSize} · <span className="font-semibold">¢ {order.amount}</span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()
         ) : (
           <>
             <div className="pt-14 sm:pt-20 pb-5 sm:pb-6 flex items-center justify-between gap-4">
