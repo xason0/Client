@@ -67,6 +67,10 @@ export default function App() {
   const [orderDateFilter, setOrderDateFilter] = useState('Today');
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [transactionDateFilter, setTransactionDateFilter] = useState('Today');
+  const [transactionCustomStart, setTransactionCustomStart] = useState('');
+  const [transactionCustomEnd, setTransactionCustomEnd] = useState('');
+  const [transactionSearch, setTransactionSearch] = useState('');
 
   const fetchWallet = () => {
     if (!api.getToken()) return;
@@ -98,7 +102,7 @@ export default function App() {
   }, [token]);
 
   useEffect(() => {
-    if (currentPage === 'topup' && api.getToken()) {
+    if ((currentPage === 'topup' || currentPage === 'transactions') && api.getToken()) {
       api.getTransactions().then(setTransactions).catch(() => setTransactions([]));
     }
   }, [currentPage]);
@@ -396,6 +400,12 @@ export default function App() {
     } else if (menu === 'afa-registration') {
       setCurrentPage('afa-registration');
       setProfileOpen(false);
+    } else if (menu === 'transactions') {
+      setCurrentPage('transactions');
+      setProfileOpen(false);
+    } else if (menu === 'join-us') {
+      setCurrentPage('join-us');
+      setProfileOpen(false);
     }
   };
 
@@ -608,6 +618,11 @@ export default function App() {
         <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
       </svg>
     ),
+    WhatsApp: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill={props.stroke || 'currentColor'} {...props}>
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.885-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+      </svg>
+    ),
     Wallet: (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
         <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
@@ -805,7 +820,7 @@ export default function App() {
               )}
             </div>
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
-            <MenuItem id="join-us" icon={<Svg.Message stroke={stroke} />} label="Join Us" />
+            <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />
           </nav>
 
           <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -1072,6 +1087,48 @@ export default function App() {
               </div>
             </div>
           </>
+        ) : currentPage === 'join-us' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                  <Svg.WhatsApp stroke={stroke} />
+                </div>
+                <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Join Us</h1>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentPage('dashboard')}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                aria-label="Back to dashboard"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
+              <div className="px-5 py-6 flex flex-col items-center text-center">
+                <div className="w-24 h-24 rounded-full overflow-hidden flex-shrink-0 mb-4 bg-slate-200">
+                  <img src="/join-us-profile.png" alt="LOVE MUTE" className="w-full h-full object-cover" />
+                </div>
+                <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>LOVE MUTE</h2>
+                <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Channel · 5.5K followers</p>
+                <a
+                  href="https://whatsapp.com/channel/0029VbCDPkSCMY0KfEF3LC2T"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm font-medium bg-[#25D366] hover:bg-[#20bd5a] text-[#0a3d1e] transition-colors"
+                >
+                  View in WhatsApp
+                </a>
+                <p className={`text-xs mt-3 max-w-[220px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                  You will be redirected to WhatsApp.
+                </p>
+              </div>
+            </div>
+          </>
         ) : currentPage === 'dashboard' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
@@ -1205,6 +1262,176 @@ export default function App() {
               ))}
             </div>
           </>
+        ) : currentPage === 'transactions' ? (
+          (() => {
+            const now = new Date();
+            const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            const getRange = () => {
+              if (transactionDateFilter === 'Today') {
+                const s = startOfDay(now);
+                return { start: s.getTime(), end: now.getTime() + 86400000 };
+              }
+              if (transactionDateFilter === 'Yesterday') {
+                const s = startOfDay(now);
+                return { start: s.getTime() - 86400000, end: s.getTime() };
+              }
+              if (transactionDateFilter === 'Last 7 Days') {
+                return { start: now.getTime() - 7 * 86400000, end: now.getTime() + 86400000 };
+              }
+              if (transactionDateFilter === 'This Month') {
+                const s = new Date(now.getFullYear(), now.getMonth(), 1);
+                return { start: s.getTime(), end: now.getTime() + 86400000 };
+              }
+              if (transactionDateFilter === 'Custom' && transactionCustomStart && transactionCustomEnd) {
+                const start = new Date(transactionCustomStart).getTime();
+                const end = new Date(transactionCustomEnd).getTime() + 86400000;
+                return { start, end };
+              }
+              return { start: 0, end: Infinity };
+            };
+            const { start, end } = getRange();
+            const searchLower = transactionSearch.trim().toLowerCase();
+            const filtered = transactions.filter((t) => {
+              const tTime = t.created_at ? new Date(t.created_at).getTime() : 0;
+              if (tTime < start || tTime >= end) return false;
+              if (!searchLower) return true;
+              const type = (t.type || '').toLowerCase();
+              const ref = (t.reference || '').toLowerCase();
+              const amt = String(t.amount || '');
+              return type.includes(searchLower) || ref.includes(searchLower) || amt.includes(searchLower);
+            });
+            const typeLabel = (t) => (t.type === 'topup' ? 'Top-up' : t.type === 'payment' ? 'Payment' : t.type || '—');
+            const modeLabel = (t) => (t.reference || (t.type === 'topup' ? 'Paystack' : 'Wallet'));
+            const narrationLabel = (t) => (t.reference || (t.type === 'topup' ? 'Wallet top-up' : 'Bundle purchase'));
+
+            const openPrintView = () => {
+              const win = window.open('', '_blank', 'width=800,height=600');
+              if (!win) return;
+              win.document.write(`
+                <!DOCTYPE html><html><head><title>Transactions</title>
+                <style>body{font-family:system-ui,sans-serif;padding:24px;color:#111}.meta{margin-bottom:16px;color:#666}.table{width:100%;border-collapse:collapse}.table th,.table td{border:1px solid #ddd;padding:10px 12px;text-align:left}.table th{background:#f5f5f5}.table tr:nth-child(even){background:#fafafa}.amount--pos{color:#059669}.amount--neg{color:#dc2626}</style></head><body>
+                <div class="meta">Generated ${new Date().toLocaleString()} · ${filtered.length} transaction(s)</div>
+                <table class="table"><thead><tr><th>Date</th><th>Type</th><th>Narration</th><th>Mode</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+                ${filtered.map((t) => {
+                  const d = t.created_at ? new Date(t.created_at).toLocaleString() : '—';
+                  const amt = t.amount >= 0 ? `+¢ ${t.amount.toFixed(2)}` : `−¢ ${Math.abs(t.amount).toFixed(2)}`;
+                  const amtClass = t.amount >= 0 ? 'amount--pos' : 'amount--neg';
+                  return `<tr><td>${d}</td><td>${typeLabel(t)}</td><td>${narrationLabel(t)}</td><td>${modeLabel(t)}</td><td class="${amtClass}">${amt}</td><td>Completed</td></tr>`;
+                }).join('')}
+                </tbody></table></body></html>`);
+              win.document.close();
+              win.focus();
+              setTimeout(() => { win.print(); }, 300);
+            };
+
+            return (
+              <>
+                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-2 sm:p-2.5 rounded-lg flex-shrink-0 ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                      <Svg.Clock stroke={stroke} />
+                    </div>
+                    <h1 className={`text-2xl sm:text-3xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>Transactions</h1>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage('dashboard')}
+                    className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                    aria-label="Back to dashboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                    </svg>
+                  </button>
+                </div>
+
+                <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Search and filter your transaction history. Download as PDF to save a copy.</p>
+
+                <div className={`flex flex-wrap gap-2 mb-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                  {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setTransactionDateFilter(label)}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${transactionDateFilter === label ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {transactionDateFilter === 'Custom' && (
+                  <div className={`flex flex-wrap items-center gap-3 mb-4 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
+                    <label className="flex items-center gap-2 text-sm">
+                      From
+                      <input type="date" value={transactionCustomStart} onChange={(e) => setTransactionCustomStart(e.target.value)} className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-slate-200 text-slate-900'}`} />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      To
+                      <input type="date" value={transactionCustomEnd} onChange={(e) => setTransactionCustomEnd(e.target.value)} className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-slate-200 text-slate-900'}`} />
+                    </label>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <input
+                    type="search"
+                    value={transactionSearch}
+                    onChange={(e) => setTransactionSearch(e.target.value)}
+                    placeholder="Search by type, reference, or amount..."
+                    className={`w-full px-4 py-3 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    aria-label="Search transactions"
+                  />
+                </div>
+
+                <div className="flex justify-end mb-4">
+                  <button
+                    type="button"
+                    onClick={openPrintView}
+                    disabled={filtered.length === 0}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${filtered.length === 0 ? 'opacity-50 cursor-not-allowed ' : ''}${isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-800'}`}
+                  >
+                    Download as PDF
+                  </button>
+                </div>
+
+                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div className={`overflow-x-auto ${isDark ? 'bg-white/[0.02]' : 'bg-slate-50'}`}>
+                    {filtered.length === 0 ? (
+                      <div className={`py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                        {transactions.length === 0 ? 'No transactions yet. Your top-ups and payments will appear here.' : 'No transactions match your filter or search.'}
+                      </div>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className={`border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                            <th className={`text-left py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Date</th>
+                            <th className={`text-left py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Type</th>
+                            <th className={`text-left py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Narration</th>
+                            <th className={`text-left py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Mode</th>
+                            <th className={`text-right py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Amount</th>
+                            <th className={`text-left py-3 px-4 font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((t) => (
+                            <tr key={t.id} className={`border-b last:border-b-0 ${isDark ? 'border-white/10 hover:bg-white/[0.04]' : 'border-slate-200 hover:bg-slate-50'}`}>
+                              <td className={`py-3 px-4 ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                              <td className={`py-3 px-4 ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{typeLabel(t)}</td>
+                              <td className={`py-3 px-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{narrationLabel(t)}</td>
+                              <td className={`py-3 px-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{modeLabel(t)}</td>
+                              <td className={`py-3 px-4 text-right font-medium ${t.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>{t.amount >= 0 ? '+' : ''}¢ {Math.abs(t.amount).toFixed(2)}</td>
+                              <td className={`py-3 px-4 ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Completed</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </>
+            );
+          })()
         ) : currentPage === 'topup' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
@@ -1444,41 +1671,43 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                  <div className={`px-4 py-3 border-b ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
-                    <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>Completed orders · History</h2>
-                    <input
-                      type="search"
-                      value={orderHistorySearch}
-                      onChange={(e) => setOrderHistorySearch(e.target.value)}
-                      placeholder="Search orders by number, network, or bundle..."
-                      className={`w-full px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
-                      aria-label="Search completed orders"
-                    />
-                  </div>
-                  <div className={`divide-y max-h-[280px] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
-                    {filteredHistory.length === 0 ? (
-                      <div className={`py-8 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {orderHistorySearch.trim() ? 'No matching completed orders.' : 'No completed orders yet.'}
-                      </div>
-                    ) : (
-                      filteredHistory.map((order) => {
-                        const { date, time } = formatOrderDate(order.dateIso);
-                        return (
-                          <div key={order.id} className={`px-4 py-3.5 flex flex-wrap items-center justify-between gap-2 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'}`}>
-                            <div className="min-w-0">
-                              <p className={`font-mono text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
-                              <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{date} at {time}</p>
+                {completedOrders.length > 0 ? (
+                  <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                    <div className={`px-4 py-3 border-b ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                      <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>Completed orders · History</h2>
+                      <input
+                        type="search"
+                        value={orderHistorySearch}
+                        onChange={(e) => setOrderHistorySearch(e.target.value)}
+                        placeholder="Search orders by number, network, or bundle..."
+                        className={`w-full px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                        aria-label="Search completed orders"
+                      />
+                    </div>
+                    <div className={`divide-y max-h-[280px] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
+                      {filteredHistory.length === 0 ? (
+                        <div className={`py-8 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                          No matching completed orders.
+                        </div>
+                      ) : (
+                        filteredHistory.map((order) => {
+                          const { date, time } = formatOrderDate(order.dateIso);
+                          return (
+                            <div key={order.id} className={`px-4 py-3.5 flex flex-wrap items-center justify-between gap-2 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'}`}>
+                              <div className="min-w-0">
+                                <p className={`font-mono text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
+                                <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{date} at {time}</p>
+                              </div>
+                              <div className={`text-sm ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                                {order.network} {order.bundleSize} · <span className="font-semibold">¢ {order.amount}</span>
+                              </div>
                             </div>
-                            <div className={`text-sm ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
-                              {order.network} {order.bundleSize} · <span className="font-semibold">¢ {order.amount}</span>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </>
             );
           })()
