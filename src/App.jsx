@@ -446,11 +446,8 @@ export default function App({ adminRoute = false }) {
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
       setCurrentPage('admin');
       setSelectedMenu('admin');
-      return;
     }
-    if (isSignedIn && user?.role !== 'admin') {
-      navigate('/', { replace: true });
-    }
+    // Do NOT redirect non-admin users away from /admin — they can still enter the admin PIN to get access.
   }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate]);
 
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
