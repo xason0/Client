@@ -23,10 +23,10 @@ export default function App({ adminRoute = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
-  const [selectedMenu, setSelectedMenu] = useState('dashboard');
+  const [selectedMenu, setSelectedMenu] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin' : 'dashboard');
   const [activeTab, setActiveTab] = useState('mtn');
   const [scrolled, setScrolled] = useState(false);
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [currentPage, setCurrentPage] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin' : 'dashboard');
   const [profileImage, setProfileImage] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [buyBundle, setBuyBundle] = useState(null);
@@ -823,7 +823,11 @@ export default function App({ adminRoute = false }) {
         <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6">
           <AdminPinPage
             isDark={isDark}
-            onVerified={() => setAdminPinVerified(true)}
+            onVerified={() => {
+              setAdminPinVerified(true);
+              setCurrentPage('admin');
+              setSelectedMenu('admin');
+            }}
             appSettings={appSettings}
           />
         </div>
@@ -1854,7 +1858,7 @@ export default function App({ adminRoute = false }) {
               </>
             );
           })()
-        ) : currentPage === 'admin' ? (
+        ) : (currentPage === 'admin' || (adminRoute && (adminPinVerified || (isSignedIn && user?.role === 'admin')))) ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3 min-w-0">
