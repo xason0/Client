@@ -114,6 +114,14 @@ export const api = {
     return data;
   },
 
+  async getOrders() {
+    const res = await fetch(`${API_URL}/api/orders`, { headers: headers() });
+    if (res.status === 401) return [];
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to load orders');
+    return Array.isArray(data) ? data : [];
+  },
+
   async createOrders(items) {
     const res = await fetch(`${API_URL}/api/orders`, {
       method: 'POST',
@@ -123,6 +131,7 @@ export const api = {
           bundle_size: i.bundle?.size,
           bundle_price: i.bundle?.price,
           recipient_number: i.recipientNumber || i.recipient_number,
+          network: i.bundle?.network ?? 'mtn',
         })),
       }),
     });

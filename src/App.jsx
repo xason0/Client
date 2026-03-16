@@ -65,6 +65,8 @@ export default function App() {
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [orderHistorySearch, setOrderHistorySearch] = useState('');
   const [orderDateFilter, setOrderDateFilter] = useState('Today');
+  const [orders, setOrders] = useState([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const fetchWallet = () => {
     if (!api.getToken()) return;
@@ -98,6 +100,16 @@ export default function App() {
   useEffect(() => {
     if (currentPage === 'topup' && api.getToken()) {
       api.getTransactions().then(setTransactions).catch(() => setTransactions([]));
+    }
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (currentPage === 'orders' && api.getToken()) {
+      setOrdersLoading(true);
+      api.getOrders()
+        .then((list) => setOrders(Array.isArray(list) ? list : []))
+        .catch(() => setOrders([]))
+        .finally(() => setOrdersLoading(false));
     }
   }, [currentPage]);
 
@@ -1289,22 +1301,30 @@ export default function App() {
           </>
         ) : currentPage === 'orders' ? (
           (() => {
-            const mockOrders = [
-              { id: '1', recipientNumber: '0241234567', network: 'MTN', bundleSize: '5 GB', amount: '20.50', dateIso: new Date(Date.now() - 86400000).toISOString(), status: 'Completed' },
-              { id: '2', recipientNumber: '0549876543', network: 'MTN', bundleSize: '10 GB', amount: '41.00', dateIso: new Date().toISOString(), status: 'Processing' },
-              { id: '3', recipientNumber: '0201112233', network: 'Telecel', bundleSize: '3 GB', amount: '12.30', dateIso: new Date(Date.now() - 172800000).toISOString(), status: 'Completed' },
-            ];
             const formatOrderDate = (iso) => {
               const d = new Date(iso);
               return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) };
             };
+            const normalized = orders.map((o) => ({
+              id: String(o.id),
+              recipientNumber: o.recipient_number || '',
+              network: o.network ? (typeof o.network === 'string' && o.network.length > 3 ? o.network : networkLabel(o.network)) : networkLabel('mtn'),
+              bundleSize: o.bundle_size || '',
+              amount: typeof o.bundle_price === 'number' ? o.bundle_price.toFixed(2) : String(o.bundle_price || '0'),
+              dateIso: o.created_at || new Date().toISOString(),
+              status: (o.status && o.status.toLowerCase()) === 'completed' ? 'Completed' : 'Processing',
+            }));
             const byStatus = (o) => orderStatusFilter === 'all' || o.status.toLowerCase() === orderStatusFilter;
-            const completedOrders = mockOrders.filter((o) => o.status === 'Completed');
             const searchLower = orderHistorySearch.trim().toLowerCase();
-            const filteredHistory = searchLower
-              ? completedOrders.filter((o) => o.recipientNumber.includes(searchLower) || o.network.toLowerCase().includes(searchLower) || o.bundleSize.toLowerCase().includes(searchLower))
-              : completedOrders;
-            const ordersToShow = mockOrders.filter(byStatus);
+            const bySearch = (o) => {
+              if (!searchLower) return true;
+              return (o.recipientNumber && o.recipientNumber.includes(searchLower)) ||
+                (o.network && o.network.toLowerCase().includes(searchLower)) ||
+                (o.bundleSize && o.bundleSize.toLowerCase().includes(searchLower));
+            };
+            const completedOrders = normalized.filter((o) => o.status === 'Completed');
+            const filteredHistory = completedOrders.filter(bySearch);
+            const ordersToShow = normalized.filter(byStatus).filter(bySearch);
 
             return (
               <>
@@ -1351,14 +1371,19 @@ export default function App() {
                 <div className="mb-6">
                   <h2 className={`text-sm font-semibold uppercase tracking-wider mb-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Order status</h2>
                   <div className="space-y-3">
-                    {ordersToShow.length === 0 ? (
+                    {ordersLoading ? (
                       <div className={`rounded-xl py-8 text-center text-sm ${isDark ? 'text-white/50 bg-white/5 border border-white/10' : 'text-slate-500 bg-slate-100 border border-slate-200'}`}>
-                        No orders in this filter.
+                        Loading orders…
+                      </div>
+                    ) : ordersToShow.length === 0 ? (
+                      <div className={`rounded-xl py-8 text-center text-sm ${isDark ? 'text-white/50 bg-white/5 border border-white/10' : 'text-slate-500 bg-slate-100 border border-slate-200'}`}>
+                        {normalized.length === 0 ? 'No orders yet. Your orders will appear here after you checkout.' : orderHistorySearch.trim() ? 'No orders match your search.' : 'No orders in this filter.'}
                       </div>
                     ) : (
                       ordersToShow.map((order) => {
                         const { date, time } = formatOrderDate(order.dateIso);
                         const isCompleted = order.status === 'Completed';
+                        const processingSteps = ['Submitted', 'Confirming', 'Completing'];
                         return (
                           <div
                             key={order.id}
@@ -1371,12 +1396,47 @@ export default function App() {
                                 <p className={`text-xs mt-2 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{date} · {time}</p>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${isCompleted ? (isDark ? 'bg-white/15 text-white/90' : 'bg-slate-200 text-slate-800') : (isDark ? 'bg-white/10 text-white/80' : 'bg-slate-100 text-slate-700')}`}>
-                                  {order.status}
-                                </span>
+                                {isCompleted ? (
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-white/15 text-white/90' : 'bg-slate-200 text-slate-800'}`}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                    Completed
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-medium text-green-600 dark:text-green-400">Processing</span>
+                                )}
                                 <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>¢ {order.amount}</span>
                               </div>
                             </div>
+                            {!isCompleted && (
+                              <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  {processingSteps.map((step, i) => (
+                                    <span key={step} className={`text-xs font-medium ${i < 2 ? (isDark ? 'text-white/80' : 'text-slate-700') : (isDark ? 'text-white/40' : 'text-slate-400')}`}>
+                                      {step}
+                                    </span>
+                                  ))}
+                                </div>
+                                <div className="relative h-2 rounded-full overflow-hidden bg-green-500/20">
+                                  <div
+                                    className="h-full rounded-full bg-green-500"
+                                    style={{ width: '66%' }}
+                                  />
+                                  <div
+                                    className="absolute inset-0 opacity-40"
+                                    style={{
+                                      background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
+                                      backgroundSize: '200% 100%',
+                                      backgroundPosition: '200% 0',
+                                      animation: 'shimmer 1.8s ease-in-out infinite',
+                                    }}
+                                  />
+                                </div>
+                                <div className="flex justify-between mt-1.5">
+                                  <span className={`text-[10px] uppercase tracking-wider ${isDark ? 'text-white/50' : 'text-slate-400'}`}>Confirming with network</span>
+                                  <span className={`text-[10px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>Step 2 of 3</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -1391,7 +1451,7 @@ export default function App() {
                       type="search"
                       value={orderHistorySearch}
                       onChange={(e) => setOrderHistorySearch(e.target.value)}
-                      placeholder="Search by number, network, or bundle..."
+                      placeholder="Search orders by number, network, or bundle..."
                       className={`w-full px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
                       aria-label="Search completed orders"
                     />
@@ -1714,6 +1774,8 @@ export default function App() {
                     setConfirmCheckoutOpen(false);
                     setCartOpen(false);
                     setCart([]);
+                    fetchWallet();
+                    api.getOrders().then((list) => setOrders(Array.isArray(list) ? list : [])).catch(() => {});
                   } catch (err) {
                     setConfirmError(err.message || 'Payment failed. Try again.');
                   }
