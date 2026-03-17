@@ -168,8 +168,21 @@ export const api = {
 
   async getBundles() {
     const res = await fetch(`${API_URL}/api/bundles`);
-    const data = await res.json().catch(() => ([]));
-    return Array.isArray(data) ? data : [];
+    const data = await res.json().catch(() => ({}));
+    if (data && typeof data === 'object' && Array.isArray(data.mtn)) return data;
+    return { mtn: [], telecel: [], bigtime: [], ishare: [] };
+  },
+
+  async updateBundles(bundles) {
+    const res = await fetch(`${API_URL}/api/admin/bundles`, {
+      method: 'PUT',
+      headers: adminHeaders(),
+      body: JSON.stringify({ bundles }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to update bundles');
+    return data;
   },
 
   async verifyAdminPin(pin) {
@@ -201,6 +214,18 @@ export const api = {
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load users');
     return Array.isArray(data) ? data : [];
+  },
+
+  async updateUserRole(userId, role) {
+    const res = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify({ role }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to update role');
+    return data;
   },
 
   async getSettings() {

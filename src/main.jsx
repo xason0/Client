@@ -26,7 +26,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <DisableCopyPaste />
       <Routes>
-        <Route path="/admin" element={<App adminRoute />} />
         <Route path="/*" element={<App />} />
       </Routes>
     </BrowserRouter>

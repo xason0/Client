@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
 
 function getTheme() {
@@ -14,8 +14,10 @@ function getTheme() {
   }
 }
 
-export default function App({ adminRoute = false }) {
+export default function App({ adminRoute: adminRouteProp = false }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const adminRoute = adminRouteProp || (typeof location?.pathname === 'string' && location.pathname === '/admin');
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
   const [token, setToken] = useState(() => (typeof window !== 'undefined' ? api.getToken() : null));
   const [user, setUser] = useState(null);
@@ -77,17 +79,32 @@ export default function App({ adminRoute = false }) {
   const [adminStatsLoading, setAdminStatsLoading] = useState(false);
   const [adminStatsError, setAdminStatsError] = useState(null);
   const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUsersSearch, setAdminUsersSearch] = useState('');
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+  const [adminRoleUpdating, setAdminRoleUpdating] = useState(null);
   const [recentUsersExpanded, setRecentUsersExpanded] = useState(false);
   const [adminPinVerified, setAdminPinVerified] = useState(() => !!api.getAdminToken());
   const [appSettings, setAppSettings] = useState({ sidebarLogoUrl: 'https://files.catbox.moe/l3islw.jpg' });
+  const [bundlesData, setBundlesData] = useState(null);
   const [adminSettingsSaving, setAdminSettingsSaving] = useState(false);
   const [adminSettingsMessage, setAdminSettingsMessage] = useState(null);
+  const [adminBundlesSaving, setAdminBundlesSaving] = useState(false);
+  const [adminBundlesMessage, setAdminBundlesMessage] = useState(null);
+  const [editingBundle, setEditingBundle] = useState(null);
+  const [editBundleForm, setEditBundleForm] = useState({ size: '', price: 0 });
   const [headerShowWelcome, setHeaderShowWelcome] = useState(true);
   const adminLogoInputRef = useRef(null);
   const headerWelcomeEnteredAtRef = useRef(null);
   const headerBrandTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
   const isAdmin = user?.role === 'admin' || (adminRoute && adminPinVerified);
+  const adminDisplayName = (raw) => {
+    const name = (raw ?? '').toString().trim();
+    if (name.toLowerCase() === 'xason') return 'Gyamfi Bless';
+    return name || 'Gyamfi Bless';
+  };
+  const brandLogoUrl = appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg';
+  const adminAvatarSrc = isAdmin ? brandLogoUrl : profileImage;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -97,6 +114,11 @@ export default function App({ adminRoute = false }) {
   useEffect(() => {
     api.getSettings().then((s) => setAppSettings((prev) => ({ ...prev, ...s }))).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    api.getBundles().then((b) => setBundlesData(b)).catch(() => setBundlesData({ mtn: [], telecel: [], bigtime: [], ishare: [] }));
+  }, []);
+
 
   // Switch header from welcome back to brand name after 10 seconds. Do NOT clear the timeout in cleanup when effect re-runs (e.g. auth state) so the timer keeps running.
   useEffect(() => {
@@ -179,11 +201,23 @@ export default function App({ adminRoute = false }) {
           setAdminUsers(Array.isArray(users) ? users : []);
         })
         .catch((err) => {
-          setAdminStatsError(err?.message || 'Failed to load admin data');
+          const msg = err?.message || 'Failed to load admin data';
+          setAdminStatsError(msg);
           setAdminStats(null);
           setAdminUsers([]);
+          const isTokenInvalid = /invalid|expired|token|unauthorized|401|403/i.test(msg);
+          if (isTokenInvalid) {
+            api.clearAdminToken();
+            setAdminPinVerified(false);
+          }
         })
         .finally(() => setAdminStatsLoading(false));
+    } else if (currentPage === 'admin-users' && hasAdminAccess) {
+      setAdminUsersLoading(true);
+      api.getAdminUsers()
+        .then((users) => setAdminUsers(Array.isArray(users) ? users : []))
+        .catch(() => setAdminUsers([]))
+        .finally(() => setAdminUsersLoading(false));
     }
   }, [currentPage, user?.role, adminPinVerified]);
 
@@ -214,10 +248,40 @@ export default function App({ adminRoute = false }) {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const validMtnCapacities = [1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50];
+  const defaultBundlesForUse = {
+    mtn: [
+      { size: '1 GB', price: 4.20 }, { size: '2 GB', price: 8.40 }, { size: '3 GB', price: 12.30 },
+      { size: '4 GB', price: 16.20 }, { size: '5 GB', price: 20.50 }, { size: '6 GB', price: 25.00 },
+      { size: '7 GB', price: 28.80 }, { size: '8 GB', price: 33.00 }, { size: '10 GB', price: 41.00 },
+      { size: '15 GB', price: 61.00 }, { size: '20 GB', price: 80.00 }, { size: '25 GB', price: 98.00 },
+      { size: '30 GB', price: 118.00 }, { size: '40 GB', price: 154.00 }, { size: '50 GB', price: 193.00 },
+    ],
+    telecel: [
+      { size: '10 GB', price: 39.00 }, { size: '12 GB', price: 44.00 }, { size: '15 GB', price: 56.00 },
+      { size: '20 GB', price: 75.00 }, { size: '25 GB', price: 94.00 }, { size: '30 GB', price: 110.00 },
+      { size: '35 GB', price: 129.00 }, { size: '40 GB', price: 143.00 }, { size: '50 GB', price: 183.00 },
+      { size: '100 GB', price: 350.00 },
+    ],
+    bigtime: [
+      { size: '20 GB', price: 60.00 }, { size: '25 GB', price: 65.00 }, { size: '30 GB', price: 75.00 },
+      { size: '40 GB', price: 85.00 }, { size: '50 GB', price: 95.00 }, { size: '60 GB', price: 135.00 },
+      { size: '80 GB', price: 170.00 }, { size: '100 GB', price: 200.00 }, { size: '200 GB', price: 370.00 },
+    ],
+    ishare: [
+      { size: '1 GB', price: 4.20 }, { size: '2 GB', price: 8.20 }, { size: '3 GB', price: 12.00 },
+      { size: '4 GB', price: 16.00 }, { size: '5 GB', price: 19.00 }, { size: '6 GB', price: 23.00 },
+      { size: '7 GB', price: 28.30 }, { size: '8 GB', price: 32.80 }, { size: '9 GB', price: 36.90 },
+      { size: '10 GB', price: 39.00 }, { size: '15 GB', price: 55.00 },
+    ],
+  };
+  const mtnBundlesForBulk = (bundlesData && Array.isArray(bundlesData.mtn) ? bundlesData.mtn : defaultBundlesForUse.mtn) || [];
+
+  const validMtnCapacities = (mtnBundlesForBulk || []).map((b) => parseInt(b.size.replace(/\D/g, ''), 10)).filter((n) => !isNaN(n));
   const getMtnBundleByCapacity = (capacityNum) => {
-    const b = bundles.find((x) => x.size === `${capacityNum} GB`);
-    return b ? { ...b, network: 'mtn' } : null;
+    const b = (mtnBundlesForBulk || []).find((x) => x.size === `${capacityNum} GB`);
+    if (!b) return null;
+    const price = typeof b.price === 'number' ? b.price : parseFloat(b.price);
+    return { size: b.size, price: Number.isFinite(price) ? price : 0, network: 'mtn' };
   };
 
   const processBulkOrders = () => {
@@ -444,11 +508,15 @@ export default function App({ adminRoute = false }) {
   useEffect(() => {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
+      const adminSubPages = ['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
+      const mainAppPages = ['dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
+      if (adminSubPages.includes(currentPage)) return;
+      if (mainAppPages.includes(currentPage)) return;
       setCurrentPage('admin');
       setSelectedMenu('admin');
     }
     // Do NOT redirect non-admin users away from /admin — they can still enter the admin PIN to get access.
-  }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate]);
+  }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate, currentPage]);
 
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
   const toggleProfile = () => setProfileOpen((prev) => !prev);
@@ -498,6 +566,11 @@ export default function App({ adminRoute = false }) {
       navigate('/admin');
       setCurrentPage('admin');
       setProfileOpen(false);
+    } else if (['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(menu)) {
+      navigate('/admin');
+      setCurrentPage(menu);
+      setSelectedMenu(menu);
+      setProfileOpen(false);
     }
   };
 
@@ -523,63 +596,37 @@ export default function App({ adminRoute = false }) {
 
   const isDark = theme === 'dark';
 
-  const bundles = [
-    { size: '1 GB', price: '4.20' },
-    { size: '2 GB', price: '8.40' },
-    { size: '3 GB', price: '12.30' },
-    { size: '4 GB', price: '16.20' },
-    { size: '5 GB', price: '20.50' },
-    { size: '6 GB', price: '25.00' },
-    { size: '7 GB', price: '28.80' },
-    { size: '8 GB', price: '33.00' },
-    { size: '10 GB', price: '41.00' },
-    { size: '15 GB', price: '61.00' },
-    { size: '20 GB', price: '80.00' },
-    { size: '25 GB', price: '98.00' },
-    { size: '30 GB', price: '118.00' },
-    { size: '40 GB', price: '154.00' },
-    { size: '50 GB', price: '193.00' },
-  ];
-
-  const telecelBundles = [
-    { size: '10 GB', price: '39.00' },
-    { size: '12 GB', price: '44.00' },
-    { size: '15 GB', price: '56.00' },
-    { size: '20 GB', price: '75.00' },
-    { size: '25 GB', price: '94.00' },
-    { size: '30 GB', price: '110.00' },
-    { size: '35 GB', price: '129.00' },
-    { size: '40 GB', price: '143.00' },
-    { size: '50 GB', price: '183.00' },
-    { size: '100 GB', price: '350.00' },
-  ];
-
-  const bigtimeBundles = [
-    { size: '20 GB', price: '60.00' },
-    { size: '25 GB', price: '65.00' },
-    { size: '30 GB', price: '75.00' },
-    { size: '40 GB', price: '85.00' },
-    { size: '50 GB', price: '95.00' },
-    { size: '60 GB', price: '135.00' },
-    { size: '80 GB', price: '170.00' },
-    { size: '100 GB', price: '200.00' },
-    { size: '200 GB', price: '370.00' },
-  ];
-
-  const ishareBundles = [
-    { size: '1 GB', price: '4.20' },
-    { size: '2 GB', price: '8.20' },
-    { size: '3 GB', price: '12.00' },
-    { size: '4 GB', price: '16.00' },
-    { size: '5 GB', price: '19.00' },
-    { size: '6 GB', price: '23.00' },
-    { size: '7 GB', price: '28.30' },
-    { size: '8 GB', price: '32.80' },
-    { size: '9 GB', price: '36.90' },
-    { size: '10 GB', price: '39.00' },
-    { size: '15 GB', price: '55.00' },
-  ];
-
+  const defaultBundles = {
+    mtn: [
+      { size: '1 GB', price: 4.20 }, { size: '2 GB', price: 8.40 }, { size: '3 GB', price: 12.30 },
+      { size: '4 GB', price: 16.20 }, { size: '5 GB', price: 20.50 }, { size: '6 GB', price: 25.00 },
+      { size: '7 GB', price: 28.80 }, { size: '8 GB', price: 33.00 }, { size: '10 GB', price: 41.00 },
+      { size: '15 GB', price: 61.00 }, { size: '20 GB', price: 80.00 }, { size: '25 GB', price: 98.00 },
+      { size: '30 GB', price: 118.00 }, { size: '40 GB', price: 154.00 }, { size: '50 GB', price: 193.00 },
+    ],
+    telecel: [
+      { size: '10 GB', price: 39.00 }, { size: '12 GB', price: 44.00 }, { size: '15 GB', price: 56.00 },
+      { size: '20 GB', price: 75.00 }, { size: '25 GB', price: 94.00 }, { size: '30 GB', price: 110.00 },
+      { size: '35 GB', price: 129.00 }, { size: '40 GB', price: 143.00 }, { size: '50 GB', price: 183.00 },
+      { size: '100 GB', price: 350.00 },
+    ],
+    bigtime: [
+      { size: '20 GB', price: 60.00 }, { size: '25 GB', price: 65.00 }, { size: '30 GB', price: 75.00 },
+      { size: '40 GB', price: 85.00 }, { size: '50 GB', price: 95.00 }, { size: '60 GB', price: 135.00 },
+      { size: '80 GB', price: 170.00 }, { size: '100 GB', price: 200.00 }, { size: '200 GB', price: 370.00 },
+    ],
+    ishare: [
+      { size: '1 GB', price: 4.20 }, { size: '2 GB', price: 8.20 }, { size: '3 GB', price: 12.00 },
+      { size: '4 GB', price: 16.00 }, { size: '5 GB', price: 19.00 }, { size: '6 GB', price: 23.00 },
+      { size: '7 GB', price: 28.30 }, { size: '8 GB', price: 32.80 }, { size: '9 GB', price: 36.90 },
+      { size: '10 GB', price: 39.00 }, { size: '15 GB', price: 55.00 },
+    ],
+  };
+  const bundlesByNetwork = bundlesData && Array.isArray(bundlesData.mtn) ? bundlesData : defaultBundles;
+  const bundles = bundlesByNetwork.mtn || defaultBundles.mtn;
+  const telecelBundles = bundlesByNetwork.telecel || defaultBundles.telecel;
+  const bigtimeBundles = bundlesByNetwork.bigtime || defaultBundles.bigtime;
+  const ishareBundles = bundlesByNetwork.ishare || defaultBundles.ishare;
   const displayBundles = activeTab === 'telecel' ? telecelBundles : activeTab === 'bigtime' ? bigtimeBundles : activeTab === 'ishare' ? ishareBundles : bundles;
   const isTelecel = activeTab === 'telecel';
   const isBigTime = activeTab === 'bigtime';
@@ -817,7 +864,7 @@ export default function App({ adminRoute = false }) {
       `}</style>
 
       {adminRoute && !adminPinVerified && !(isSignedIn && user?.role === 'admin') ? (
-        <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6">
+        <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6" style={{ minHeight: '100dvh' }}>
           <AdminPinPage
             isDark={isDark}
             onVerified={() => {
@@ -828,7 +875,7 @@ export default function App({ adminRoute = false }) {
             appSettings={appSettings}
           />
         </div>
-      ) : !isSignedIn && !(adminRoute && adminPinVerified) ? (
+      ) : !isSignedIn && !adminPinVerified ? (
         <div className="flex-1 flex flex-col w-full min-h-full">
           <SignInPage
             isDark={isDark}
@@ -918,17 +965,20 @@ export default function App({ adminRoute = false }) {
                       type="button"
                       onClick={() => adminLogoInputRef.current?.click()}
                       disabled={adminSettingsSaving}
-                      className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center text-lg font-bold border-2 shadow-md transition-transform hover:scale-110 active:scale-95 bg-white text-black border-slate-300 disabled:opacity-60"
-                      aria-label="Change logo"
+                      className="absolute bottom-0 right-0 w-7 h-7 rounded-full flex items-center justify-center border-2 shadow-md transition-transform hover:scale-110 active:scale-95 bg-white text-black border-slate-300 disabled:opacity-60"
+                      aria-label="Edit logo"
+                      title="Edit logo"
                     >
-                      {adminSettingsSaving ? '…' : '+'}
+                      {adminSettingsSaving ? <span className="text-sm">…</span> : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                      )}
                     </button>
                   </>
                 )}
               </div>
               <div className="min-w-0">
                 <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h2>
-                <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent Console</p>
+                <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin Console</p>
               </div>
             </div>
             <button
@@ -980,9 +1030,18 @@ export default function App({ adminRoute = false }) {
               )}
             </div>
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
-            <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />
+            {!isAdmin && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
             {(user?.role === 'admin' || (adminRoute && adminPinVerified)) && (
-              <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
+              <>
+                <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
+                <MenuItem id="admin-users" icon={<Svg.User stroke={stroke} />} label="User Management" />
+                <MenuItem id="admin-orders" icon={<Svg.Cart stroke={stroke} />} label="Order Management" />
+                <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
+                <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
+                <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
+                <MenuItem id="admin-applications" icon={<Svg.Shield stroke={stroke} />} label="Admin Applications" />
+                <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
+              </>
             )}
           </nav>
 
@@ -1012,7 +1071,7 @@ export default function App({ adminRoute = false }) {
           </button>
           <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
             {headerShowWelcome
-              ? (isAdmin ? 'Welcome, Admin' : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
+              ? (isAdmin ? `Welcome, ${adminDisplayName(user?.full_name).trim().split(/\s+/)[0]}` : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
               : '𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈'}
           </h1>
           <button
@@ -1020,8 +1079,8 @@ export default function App({ adminRoute = false }) {
             className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center overflow-hidden transition-colors flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-200'}`}
             aria-label="Toggle profile"
           >
-            {profileImage ? (
-              <img src={profileImage} alt="" className="w-full h-full object-cover rounded-full" />
+            {adminAvatarSrc ? (
+              <img src={adminAvatarSrc} alt="" className="w-full h-full object-cover rounded-full" />
             ) : (
               <Svg.User stroke={stroke} width={24} height={24} />
             )}
@@ -1035,6 +1094,28 @@ export default function App({ adminRoute = false }) {
             {/* Top card: purchase summary - matches selected network */}
             <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: networkBg(buyBundle.network) }}>
               <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
+              {isAdmin && bundlesData && bundlesData[buyBundle.network] && (() => {
+                const arr = bundlesData[buyBundle.network];
+                const idx = Array.isArray(arr) ? arr.findIndex((b) => String(b.size) === String(buyBundle.size)) : -1;
+                return idx >= 0 ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const b = arr[idx];
+                      setEditingBundle({ network: buyBundle.network, index: idx });
+                      setEditBundleForm({ size: b.size, price: typeof b.price === 'number' ? b.price : parseFloat(b.price) || 0 });
+                      setAdminBundlesMessage(null);
+                      setBuyBundle(null);
+                    }}
+                    className="absolute top-3 right-3 z-20 w-9 h-9 rounded-lg flex items-center justify-center bg-white/20 hover:bg-white/40 text-white border border-white/40 shadow-lg"
+                    aria-label="Edit package"
+                    title="Edit package (updates for everyone)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  </button>
+                ) : null;
+              })()}
               <div className="relative z-10 flex justify-between items-start mb-4">
                 <div>
                   <p className="text-sm font-medium opacity-90">{networkLabel(buyBundle.network)}</p>
@@ -1264,26 +1345,32 @@ export default function App({ adminRoute = false }) {
               </button>
             </div>
 
-            <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
-              <div className="px-5 py-6 flex flex-col items-center text-center">
-                <div className="w-24 h-24 rounded-full overflow-hidden flex-shrink-0 mb-4 bg-slate-200">
-                  <img src="/join-us-profile.png" alt="LOVE MUTE" className="w-full h-full object-cover" />
-                </div>
-                <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>LOVE MUTE</h2>
-                <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Channel · 5.5K followers</p>
-                <a
-                  href="https://whatsapp.com/channel/0029VbCDPkSCMY0KfEF3LC2T"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm font-medium bg-[#25D366] hover:bg-[#20bd5a] text-[#0a3d1e] transition-colors"
-                >
-                  View in WhatsApp
-                </a>
-                <p className={`text-xs mt-3 max-w-[220px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
-                  You will be redirected to WhatsApp.
-                </p>
+            {isAdmin ? (
+              <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
+                <div className="px-5 py-12 flex flex-col items-center text-center min-h-[200px]" />
               </div>
-            </div>
+            ) : (
+              <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
+                <div className="px-5 py-6 flex flex-col items-center text-center">
+                  <div className="w-24 h-24 rounded-full overflow-hidden flex-shrink-0 mb-4 bg-slate-200">
+                    <img src="/join-us-profile.png" alt="LOVE MUTE" className="w-full h-full object-cover" />
+                  </div>
+                  <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>LOVE MUTE</h2>
+                  <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Channel · 5.5K followers</p>
+                  <a
+                    href="https://whatsapp.com/channel/0029VbCDPkSCMY0KfEF3LC2T"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm font-medium bg-[#25D366] hover:bg-[#20bd5a] text-[#0a3d1e] transition-colors"
+                  >
+                    View in WhatsApp
+                  </a>
+                  <p className={`text-xs mt-3 max-w-[220px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
+                    You will be redirected to WhatsApp.
+                  </p>
+                </div>
+              </div>
+            )}
           </>
         ) : currentPage === 'dashboard' ? (
           <>
@@ -1396,6 +1483,22 @@ export default function App({ adminRoute = false }) {
                   style={{ backgroundImage: (isBigTime || isIshare) ? 'url(https://files.catbox.moe/riugtj.png)' : isTelecel ? 'url(https://files.catbox.moe/yzcokj.jpg)' : 'url(https://files.catbox.moe/r1m0uh.png)' }}
                 >
                   <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingBundle({ network: activeTab, index });
+                        setEditBundleForm({ size: bundle.size, price: typeof bundle.price === 'number' ? bundle.price : parseFloat(bundle.price) || 0 });
+                        setAdminBundlesMessage(null);
+                      }}
+                      className="absolute top-3 right-3 z-20 w-9 h-9 rounded-lg flex items-center justify-center bg-white/20 hover:bg-white/40 text-white border border-white/40 shadow-lg"
+                      title="Edit package"
+                      aria-label="Edit package"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                  )}
                   <div className="relative z-10 flex flex-col h-full">
                     <div className="flex justify-between items-start mb-4 gap-3">
                       <div className="min-w-0">
@@ -1407,13 +1510,103 @@ export default function App({ adminRoute = false }) {
                         <p className="text-lg sm:text-xl font-bold drop-shadow-md">¢ {bundle.price}</p>
                       </div>
                     </div>
-                    <button type="button" onClick={() => setBuyBundle({ ...bundle, network: activeTab })} className={`mt-auto w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
-                      Buy
-                    </button>
+                    <div className="mt-auto flex flex-col gap-2">
+                      <button type="button" onClick={() => setBuyBundle({ ...bundle, network: activeTab })} className={`w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
+                        Buy
+                      </button>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBundle({ network: activeTab, index });
+                            setEditBundleForm({ size: bundle.size, price: typeof bundle.price === 'number' ? bundle.price : parseFloat(bundle.price) || 0 });
+                            setAdminBundlesMessage(null);
+                          }}
+                          className="w-full py-2 rounded-xl font-medium text-sm bg-white/20 hover:bg-white/30 text-white border border-white/30"
+                        >
+                          Edit price
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
+
+            {editingBundle != null && bundlesData && (
+              <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }} aria-hidden="true" />
+                <div className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
+                  <h3 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Edit package</h3>
+                  <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Changes apply for everyone.</p>
+                  <div className="space-y-3">
+                    <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Size</label>
+                    <input
+                      type="text"
+                      value={editBundleForm.size}
+                      onChange={(e) => setEditBundleForm((f) => ({ ...f, size: e.target.value }))}
+                      className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                      placeholder="e.g. 10 GB"
+                    />
+                    <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Price (¢)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editBundleForm.price}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        setEditBundleForm((f) => ({ ...f, price: Number.isFinite(v) ? v : 0 }));
+                      }}
+                      className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                      placeholder="0"
+                    />
+                  </div>
+                  {adminBundlesMessage && (
+                    <p className={`text-sm mt-3 ${adminBundlesMessage.type === 'success' ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                      {adminBundlesMessage.text}
+                    </p>
+                  )}
+                  <div className="flex gap-3 mt-5">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }}
+                      className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={adminBundlesSaving}
+                      onClick={async () => {
+                        setAdminBundlesSaving(true);
+                        setAdminBundlesMessage(null);
+                        try {
+                          const next = JSON.parse(JSON.stringify(bundlesData));
+                          const arr = [...(next[editingBundle.network] || [])];
+                          if (arr[editingBundle.index]) {
+                            arr[editingBundle.index] = { ...arr[editingBundle.index], size: editBundleForm.size.trim() || arr[editingBundle.index].size, price: editBundleForm.price };
+                            next[editingBundle.network] = arr;
+                            await api.updateBundles(next);
+                            const b = await api.getBundles();
+                            setBundlesData(b);
+                            setAdminBundlesMessage({ type: 'success', text: 'Updated. Everyone will see the new price.' });
+                            setEditingBundle(null);
+                          }
+                        } catch (err) {
+                          setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to save' });
+                        } finally {
+                          setAdminBundlesSaving(false);
+                        }
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} disabled:opacity-50`}
+                    >
+                      {adminBundlesSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : currentPage === 'transactions' ? (
           (() => {
@@ -1855,49 +2048,212 @@ export default function App({ adminRoute = false }) {
               </>
             );
           })()
-        ) : (currentPage === 'admin' || (adminRoute && (adminPinVerified || (isSignedIn && user?.role === 'admin')))) ? (
+        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(currentPage) && (adminRoute || adminPinVerified || (isSignedIn && user?.role === 'admin'))) ? (
           <>
-            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <h1 className="page-title text-2xl sm:text-3xl truncate">Admin</h1>
-              </div>
-              <button
-                type="button"
-                onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
-                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
-                aria-label="Back to dashboard"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                </svg>
-              </button>
-            </div>
+            {(() => {
+              const adminPageTitles = {
+                admin: 'Admin',
+                'admin-users': 'User Management',
+                'admin-orders': 'Order Management',
+                'admin-packages': 'Data Packages',
+                'admin-all-transactions': 'All Transactions',
+                'admin-wallet': 'Wallet Management',
+                'admin-applications': 'Admin Applications',
+                'admin-analytics': 'Analytics',
+              };
+              const adminPageSubtitles = {
+                admin: null,
+                'admin-users': 'Manage users and roles',
+                'admin-orders': 'Process and approve orders',
+                'admin-packages': 'Manage data packages',
+                'admin-all-transactions': 'View all transactions',
+                'admin-wallet': 'Manage user wallet balances',
+                'admin-applications': 'Review admin applications',
+                'admin-analytics': 'View platform analytics',
+              };
+              const title = adminPageTitles[currentPage] || 'Admin';
+              const subtitle = adminPageSubtitles[currentPage];
+              return (
+                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
+                    className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                    aria-label="Back to dashboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            })()}
 
-            {adminStatsError && (
+            {currentPage === 'admin' && adminStatsError && (
               <div className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-red-500/10 border border-red-500/30 text-red-200' : 'bg-red-50 border border-red-200 text-red-700'}`}>
                 {adminStatsError}
               </div>
             )}
 
-            {adminStatsLoading ? (
-              <div className={`rounded-xl p-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading admin stats…</div>
-            ) : adminStats ? (
-              <>
-                <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6`}>
-                  {[
-                    { label: 'Total Users', value: adminStats.userCount, key: 'users' },
-                    { label: 'Total Orders', value: adminStats.orderCount, key: 'orders' },
-                    { label: 'Processing', value: adminStats.processingOrders, key: 'processing' },
-                    { label: 'Completed', value: adminStats.completedOrders, key: 'completed' },
-                    { label: 'Revenue (¢)', value: Number(adminStats.totalRevenue).toFixed(2), key: 'revenue' },
-                    { label: 'Top-ups (¢)', value: Number(adminStats.totalTopUps).toFixed(2), key: 'topups' },
-                  ].map(({ label, value, key }) => (
-                    <div key={key} className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
-                      <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{label}</p>
-                      <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
-                    </div>
-                  ))}
+            {currentPage === 'admin-users' && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <input
+                    type="search"
+                    placeholder="Search by name, email or phone..."
+                    value={adminUsersSearch}
+                    onChange={(e) => setAdminUsersSearch(e.target.value)}
+                    className={`flex-1 min-w-0 px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/20 text-white placeholder-white/40' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                    aria-label="Search users"
+                  />
+                  <p className={`text-sm font-medium shrink-0 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                    {(() => {
+                      const q = (adminUsersSearch || '').trim().toLowerCase();
+                      const filtered = q
+                        ? adminUsers.filter((u) => {
+                            const name = (u.full_name || '').toLowerCase();
+                            const email = (u.email || '').toLowerCase();
+                            const phone = (u.phone || '').replace(/\D/g, '');
+                            const searchNum = q.replace(/\D/g, '');
+                            return name.includes(q) || email.includes(q) || (u.phone || '').toLowerCase().includes(q) || (searchNum && phone.includes(searchNum));
+                          })
+                        : adminUsers;
+                      return `${filtered.length} user${filtered.length !== 1 ? 's' : ''}`;
+                    })()}
+                  </p>
                 </div>
+                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                  {adminUsersLoading ? (
+                    <div className={`px-4 py-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading users…</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className={`border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Name</th>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Email</th>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Phone</th>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Role</th>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Date joined</th>
+                            <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const q = (adminUsersSearch || '').trim().toLowerCase();
+                            const filtered = q
+                              ? adminUsers.filter((u) => {
+                                  const name = (u.full_name || '').toLowerCase();
+                                  const email = (u.email || '').toLowerCase();
+                                  const phone = (u.phone || '').replace(/\D/g, '');
+                                  const searchNum = q.replace(/\D/g, '');
+                                  return name.includes(q) || email.includes(q) || (u.phone || '').toLowerCase().includes(q) || (searchNum && phone.includes(searchNum));
+                                })
+                              : adminUsers;
+                            if (filtered.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={6} className={`px-4 py-8 text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                                    No users found
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return filtered.map((u) => (
+                              <tr key={u.id} className={`border-b last:border-0 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
+                                <td className={`px-4 py-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>{u.full_name || '—'}</td>
+                                <td className={`px-4 py-3 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>{u.email || '—'}</td>
+                                <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.phone || '—'}</td>
+                                <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.role || 'user'}</td>
+                                <td className={`px-4 py-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' }) : '—'}</td>
+                                <td className="px-4 py-3">
+                                  {(u.role || 'user').toLowerCase() !== 'admin' ? (
+                                    <button
+                                      type="button"
+                                      disabled={adminRoleUpdating === u.id}
+                                      onClick={async () => {
+                                        setAdminRoleUpdating(u.id);
+                                        try {
+                                          await api.updateUserRole(u.id, 'admin');
+                                          setAdminUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: 'admin' } : x)));
+                                        } catch (err) {
+                                          alert(err?.message || 'Failed to update role');
+                                        } finally {
+                                          setAdminRoleUpdating(null);
+                                        }
+                                      }}
+                                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50' : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50'}`}
+                                    >
+                                      {adminRoleUpdating === u.id ? '…' : 'Make admin'}
+                                    </button>
+                                  ) : (
+                                    <span className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}>Admin</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!['admin', 'admin-users'].includes(currentPage) && (
+              <div className={`rounded-xl sm:rounded-2xl p-8 text-center border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-white border-slate-200 text-slate-500'}`}>
+                <p className="text-base">Details for this section will be added here.</p>
+              </div>
+            )}
+
+            {currentPage === 'admin' && adminStatsLoading ? (
+              <div className={`rounded-xl p-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading admin stats…</div>
+            ) : currentPage === 'admin' && adminStats ? (
+              <>
+                <section className="mb-8">
+                  <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Today&apos;s overview</h2>
+                  <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 sm:gap-4 mb-4`}>
+                    {[
+                      { label: 'Daily orders', value: adminStats.dailyOrders ?? 0, key: 'dailyOrders' },
+                      { label: 'Processing (today)', value: adminStats.dailyProcessing ?? 0, key: 'dailyProcessing' },
+                      { label: 'Completed (today)', value: adminStats.dailyCompleted ?? 0, key: 'dailyCompleted' },
+                      { label: 'Daily revenue (¢)', value: Number(adminStats.dailyRevenue ?? 0).toFixed(2), key: 'dailyRevenue' },
+                      { label: 'Daily transactions', value: adminStats.dailyTransactionCount ?? 0, key: 'dailyTx' },
+                      { label: 'Net flow (¢)', value: Number(adminStats.dailyNetFlow ?? 0).toFixed(2), key: 'dailyNetFlow' },
+                      { label: 'Credits in (¢)', value: Number(adminStats.dailyTopUps ?? 0).toFixed(2), key: 'dailyCredits' },
+                    ].map(({ label, value, key }) => (
+                      <div key={key} className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{label}</p>
+                        <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="mb-8">
+                  <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>All-time analysis</h2>
+                  <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3 sm:gap-4 mb-4`}>
+                    {[
+                      { label: 'Total users', value: adminStats.userCount ?? 0, key: 'users' },
+                      { label: 'Total orders', value: adminStats.orderCount ?? 0, key: 'orders' },
+                      { label: 'Processing', value: adminStats.processingOrders ?? 0, key: 'processing' },
+                      { label: 'Completed', value: adminStats.completedOrders ?? 0, key: 'completed' },
+                      { label: 'Revenue (¢)', value: Number(adminStats.totalRevenue ?? 0).toFixed(2), key: 'revenue' },
+                      { label: 'Top-ups / credits (¢)', value: Number(adminStats.totalTopUps ?? 0).toFixed(2), key: 'topups' },
+                      { label: 'Data packages sold', value: adminStats.orderCount ?? 0, key: 'packages' },
+                      { label: 'Admins', value: adminStats.adminCount ?? 0, key: 'admins' },
+                    ].map(({ label, value, key }) => (
+                      <div key={key} className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{label}</p>
+                        <p className={`text-xl sm:text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
 
                 <h2 className={`text-lg font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Recent users</h2>
                 <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
@@ -1954,6 +2310,7 @@ export default function App({ adminRoute = false }) {
                     </>
                   )}
                 </div>
+
               </>
             ) : null}
           </>
@@ -1991,7 +2348,7 @@ export default function App({ adminRoute = false }) {
                     className="w-40 h-40 sm:w-48 sm:h-48 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg overflow-hidden cursor-pointer"
                     onClick={triggerFileInput}
                   >
-                    {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
+                    {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
                   </div>
                   <button
                     type="button"
@@ -2002,15 +2359,15 @@ export default function App({ adminRoute = false }) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                   </button>
                 </div>
-                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
-                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
+                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
+                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin</p>
               </div>
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
                 {[
-                  ['Full Name', user?.full_name || '—'],
+                  ['Full Name', isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || '—')],
                   ['Email Address', user?.email || '—'],
                   ['Phone Number', user?.phone || '—'],
-                  ['Agent ID', 'DF-4398'],
+                  ['Admin ID', 'DF-4398'],
                   ['Account Status', 'Active'],
                   ['Member Since', (() => {
                     if (!user?.created_at) return '—';
@@ -2027,7 +2384,7 @@ export default function App({ adminRoute = false }) {
                   <button
                     type="button"
                     onClick={() => {
-                      setProfileEditFullName(user?.full_name || '');
+                      setProfileEditFullName(isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || ''));
                       setProfileEditEmail(user?.email || '');
                       setProfileEditPhone(user?.phone || '');
                       setProfileEditError(null);
@@ -2097,11 +2454,11 @@ export default function App({ adminRoute = false }) {
         <div className="p-4">
           <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
-              {profileImage ? <img src={profileImage} alt="Profile" className="w-full h-full object-cover" /> : 'J'}
+              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
-              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Agent</p>
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
+              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin</p>
             </div>
           </div>
           <nav className="space-y-0.5">
@@ -2182,18 +2539,40 @@ export default function App({ adminRoute = false }) {
                 <p className={`text-center py-8 text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Your cart is empty</p>
               ) : (
                 <ul className="space-y-3">
-                  {cart.map((item) => (
-                    <li key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
-                      <div className="min-w-0">
-                        <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{networkLabel(item.bundle.network)} {item.bundle.size}</p>
-                        <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
-                        <p className={`text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {item.bundle.price}</p>
-                      </div>
-                      <button type="button" onClick={() => removeFromCart(item.id)} className={`p-2 rounded-lg shrink-0 ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`} aria-label="Remove">
-                        <Svg.Trash stroke="currentColor" />
-                      </button>
-                    </li>
-                  ))}
+                  {cart.map((item) => {
+                    const arr = bundlesData && bundlesData[item.bundle.network];
+                    const bundleIdx = Array.isArray(arr) ? arr.findIndex((b) => String(b.size) === String(item.bundle.size)) : -1;
+                    return (
+                      <li key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-50 border border-slate-200'}`}>
+                        <div className="min-w-0">
+                          <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{networkLabel(item.bundle.network)} {item.bundle.size}</p>
+                          <p className={`text-sm truncate ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{item.recipientNumber}</p>
+                          <p className={`text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {item.bundle.price}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isAdmin && bundleIdx >= 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const b = arr[bundleIdx];
+                                setEditingBundle({ network: item.bundle.network, index: bundleIdx });
+                                setEditBundleForm({ size: b.size, price: typeof b.price === 'number' ? b.price : parseFloat(b.price) || 0 });
+                                setAdminBundlesMessage(null);
+                              }}
+                              className={`p-2 rounded-lg ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-600 hover:bg-slate-200'}`}
+                              aria-label="Edit package"
+                              title="Edit package (updates for everyone)"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                            </button>
+                          )}
+                          <button type="button" onClick={() => removeFromCart(item.id)} className={`p-2 rounded-lg shrink-0 ${isDark ? 'text-red-400 hover:bg-white/10' : 'text-red-600 hover:bg-slate-200'}`} aria-label="Remove">
+                            <Svg.Trash stroke="currentColor" />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
