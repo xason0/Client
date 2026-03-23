@@ -133,11 +133,35 @@ export const api = {
     return data;
   },
 
+  async initPaystackWalletTopUp(amount) {
+    const res = await fetch(`${API_URL}/api/wallet/paystack/initialize`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ amount: parseFloat(amount) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not start Paystack checkout');
+    return data;
+  },
+
+  async verifyPaystackWalletTopUp(reference) {
+    const res = await fetch(`${API_URL}/api/wallet/paystack/verify`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ reference: String(reference || '').trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not verify payment');
+    return data;
+  },
+
   async getTransactions() {
     const res = await fetch(`${API_URL}/api/wallet/transactions`, { headers: headers() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Failed to load transactions');
-    return data;
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.transactions)) return data.transactions;
+    return [];
   },
 
   async getOrders() {
@@ -225,6 +249,107 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to update role');
+    return data;
+  },
+
+  async getAdminOrders() {
+    const parseList = (data) => {
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.orders)) return data.orders;
+      if (data && Array.isArray(data.data)) return data.data;
+      return [];
+    };
+    let res = await fetch(`${API_URL}/api/admin/orders`, { headers: adminHeaders() });
+    let data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.ok) return parseList(data);
+
+    res = await fetch(`${API_URL}/api/orders`, { headers: adminHeaders() });
+    data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.ok) return parseList(data);
+
+    throw new Error(data.error || 'Failed to load orders. Ensure the API exposes GET /api/admin/orders or returns all orders for admins on GET /api/orders.');
+  },
+
+  async getAdminTransactions() {
+    const parseList = (data) => {
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.transactions)) return data.transactions;
+      if (data && Array.isArray(data.data)) return data.data;
+      if (data && Array.isArray(data.rows)) return data.rows;
+      return [];
+    };
+    let res = await fetch(`${API_URL}/api/admin/transactions`, { headers: adminHeaders() });
+    let data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.ok) return parseList(data);
+
+    res = await fetch(`${API_URL}/api/admin/wallet/transactions`, { headers: adminHeaders() });
+    data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.ok) return parseList(data);
+
+    res = await fetch(`${API_URL}/api/transactions`, { headers: adminHeaders() });
+    data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (res.ok) return parseList(data);
+
+    throw new Error(
+      data.error ||
+        'Failed to load wallet transactions. Add GET /api/admin/transactions (or /api/admin/wallet/transactions) that returns an array or { transactions: [...] }.'
+    );
+  },
+
+  async getAdminWallets() {
+    const res = await fetch(`${API_URL}/api/admin/wallets`, { headers: adminHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load wallets');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getAgentApplications() {
+    const res = await fetch(`${API_URL}/api/admin/agent-applications`, { headers: adminHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load agent applications');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async patchAgentApplication(id, { status }) {
+    const res = await fetch(`${API_URL}/api/admin/agent-applications/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Update failed');
+    return data;
+  },
+
+  async adminWalletCredit(userId, amount) {
+    const res = await fetch(`${API_URL}/api/admin/wallets/${encodeURIComponent(userId)}/credit`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ amount: parseFloat(amount) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Credit failed');
+    return data;
+  },
+
+  async adminWalletDebit(userId, amount) {
+    const res = await fetch(`${API_URL}/api/admin/wallets/${encodeURIComponent(userId)}/debit`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ amount: parseFloat(amount) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Debit failed');
     return data;
   },
 

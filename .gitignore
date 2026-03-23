@@ -10,6 +10,9 @@ build/
 .env.local
 .env.*.local
 
+# API data (local JSON DB)
+server/data/
+
 # Logs and cache
 npm-debug.log*
 *.log

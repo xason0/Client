@@ -14,6 +14,40 @@ function getTheme() {
   }
 }
 
+function loadPaystackInlineScript() {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      reject(new Error('Paystack requires a browser'));
+      return;
+    }
+    if (window.PaystackPop) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector('script[data-paystack-inline]');
+    if (existing) {
+      const done = () => (window.PaystackPop ? resolve() : reject(new Error('Paystack failed to load')));
+      if (window.PaystackPop) {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', done);
+      existing.addEventListener('error', () => reject(new Error('Paystack script failed')));
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = 'https://js.paystack.co/v1/inline.js';
+    s.async = true;
+    s.dataset.paystackInline = 'true';
+    s.onload = () => {
+      if (window.PaystackPop) resolve();
+      else reject(new Error('PaystackPop not available'));
+    };
+    s.onerror = () => reject(new Error('Failed to load Paystack'));
+    document.body.appendChild(s);
+  });
+}
+
 export default function App({ adminRoute: adminRouteProp = false }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,10 +59,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
-  const [selectedMenu, setSelectedMenu] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin' : 'dashboard');
+  const [selectedMenu, setSelectedMenu] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin-analytics' : 'dashboard');
   const [activeTab, setActiveTab] = useState('mtn');
   const [scrolled, setScrolled] = useState(false);
-  const [currentPage, setCurrentPage] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin' : 'dashboard');
+  const [currentPage, setCurrentPage] = useState(() => (typeof window !== 'undefined' && window.location.pathname === '/admin' && api.getAdminToken()) ? 'admin-analytics' : 'dashboard');
   const [profileImage, setProfileImage] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [buyBundle, setBuyBundle] = useState(null);
@@ -45,6 +79,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [topUpAmount, setTopUpAmount] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [topUpError, setTopUpError] = useState(null);
+  const [topUpBusy, setTopUpBusy] = useState(false);
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
     const w = window.innerWidth;
@@ -82,6 +117,29 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminUsersSearch, setAdminUsersSearch] = useState('');
   const [adminUsersLoading, setAdminUsersLoading] = useState(false);
   const [adminRoleUpdating, setAdminRoleUpdating] = useState(null);
+  const [adminOrders, setAdminOrders] = useState([]);
+  const [adminOrdersLoading, setAdminOrdersLoading] = useState(false);
+  const [adminOrdersError, setAdminOrdersError] = useState(null);
+  const [adminOrdersSearch, setAdminOrdersSearch] = useState('');
+  const [adminAllTransactions, setAdminAllTransactions] = useState([]);
+  const [adminAllTxLoading, setAdminAllTxLoading] = useState(false);
+  const [adminAllTxError, setAdminAllTxError] = useState(null);
+  const [adminAllTxSearch, setAdminAllTxSearch] = useState('');
+  const [adminWallets, setAdminWallets] = useState([]);
+  const [adminWalletsLoading, setAdminWalletsLoading] = useState(false);
+  const [adminWalletsError, setAdminWalletsError] = useState(null);
+  const [adminWalletsSearch, setAdminWalletsSearch] = useState('');
+  const [agentApplications, setAgentApplications] = useState([]);
+  const [agentApplicationsLoading, setAgentApplicationsLoading] = useState(false);
+  const [agentApplicationsError, setAgentApplicationsError] = useState(null);
+  const [agentApplicationsSearch, setAgentApplicationsSearch] = useState('');
+  const [agentAppReview, setAgentAppReview] = useState(null);
+  const [agentAppReviewSaving, setAgentAppReviewSaving] = useState(false);
+  const [agentAppReviewError, setAgentAppReviewError] = useState(null);
+  const [walletAdjust, setWalletAdjust] = useState(null);
+  const [walletAdjustAmount, setWalletAdjustAmount] = useState('');
+  const [walletAdjustSaving, setWalletAdjustSaving] = useState(false);
+  const [walletAdjustError, setWalletAdjustError] = useState(null);
   const [recentUsersExpanded, setRecentUsersExpanded] = useState(false);
   const [adminPinVerified, setAdminPinVerified] = useState(() => !!api.getAdminToken());
   const [appSettings, setAppSettings] = useState({ sidebarLogoUrl: 'https://files.catbox.moe/l3islw.jpg' });
@@ -90,6 +148,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminSettingsMessage, setAdminSettingsMessage] = useState(null);
   const [adminBundlesSaving, setAdminBundlesSaving] = useState(false);
   const [adminBundlesMessage, setAdminBundlesMessage] = useState(null);
+  const [adminPackagesNetwork, setAdminPackagesNetwork] = useState('mtn');
   const [editingBundle, setEditingBundle] = useState(null);
   const [editBundleForm, setEditBundleForm] = useState({ size: '', price: 0 });
   const [headerShowWelcome, setHeaderShowWelcome] = useState(true);
@@ -192,7 +251,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
   useEffect(() => {
     const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
-    if (currentPage === 'admin' && hasAdminAccess) {
+    if (currentPage === 'admin-analytics' && hasAdminAccess) {
       setAdminStatsLoading(true);
       setAdminStatsError(null);
       Promise.all([api.getAdminStats(), api.getAdminUsers()])
@@ -218,10 +277,168 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         .then((users) => setAdminUsers(Array.isArray(users) ? users : []))
         .catch(() => setAdminUsers([]))
         .finally(() => setAdminUsersLoading(false));
+    } else if (currentPage === 'admin-orders' && hasAdminAccess) {
+      setAdminOrdersLoading(true);
+      setAdminOrdersError(null);
+      api.getAdminOrders()
+        .then((list) => setAdminOrders(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminOrdersError(err?.message || 'Failed to load orders');
+          setAdminOrders([]);
+        })
+        .finally(() => setAdminOrdersLoading(false));
+    } else if (currentPage === 'admin-packages' && hasAdminAccess) {
+      api.getBundles()
+        .then((b) => setBundlesData(b && typeof b === 'object' ? b : null))
+        .catch(() => {});
+    } else if (currentPage === 'admin-all-transactions' && hasAdminAccess) {
+      setAdminAllTxLoading(true);
+      setAdminAllTxError(null);
+      api.getAdminTransactions()
+        .then((list) => setAdminAllTransactions(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminAllTxError(err?.message || 'Failed to load transactions');
+          setAdminAllTransactions([]);
+        })
+        .finally(() => setAdminAllTxLoading(false));
+    } else if (currentPage === 'admin-wallet' && hasAdminAccess) {
+      setAdminWalletsLoading(true);
+      setAdminWalletsError(null);
+      api.getAdminWallets()
+        .then((list) => setAdminWallets(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminWalletsError(err?.message || 'Failed to load wallets');
+          setAdminWallets([]);
+        })
+        .finally(() => setAdminWalletsLoading(false));
+    } else if (currentPage === 'admin-applications' && hasAdminAccess) {
+      setAgentApplicationsLoading(true);
+      setAgentApplicationsError(null);
+      api
+        .getAgentApplications()
+        .then((list) => setAgentApplications(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAgentApplicationsError(err?.message || 'Failed to load applications');
+          setAgentApplications([]);
+        })
+        .finally(() => setAgentApplicationsLoading(false));
     }
   }, [currentPage, user?.role, adminPinVerified]);
 
   const networkLabel = (n) => ({ mtn: 'MTN', telecel: 'Telecel', bigtime: 'AT BigTime', ishare: 'AT iShare' }[n] || 'MTN');
+  const stableOrderCodeSuffix = (id, createdAt) => {
+    const s = String(id ?? '');
+    const hexish = s.replace(/[^0-9a-f]/gi, '');
+    if (hexish.length >= 8) return hexish.slice(0, 8).toUpperCase();
+    const seed = `${s}|${createdAt || ''}`;
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+    return (h >>> 0).toString(16).padStart(8, '0').slice(0, 8).toUpperCase();
+  };
+  const normalizeAdminOrderRow = (o) => {
+    const netKey = o.network;
+    const net = networkLabel(typeof netKey === 'string' && netKey.length <= 24 ? netKey.toLowerCase() : 'mtn');
+    const bundle = (o.bundle_size || o.bundle || o.data_bundle || o.plan || '').toString().trim() || '—';
+    const recipient = (
+      o.recipient_number ||
+      o.recipient_phone ||
+      o.phone_number ||
+      o.msisdn ||
+      o.phone ||
+      o.recipient ||
+      ''
+    ).toString();
+    const rawOrd = (o.order_number || o.orderNumber || o.order_id || '').toString().trim();
+    const orderIdDisplay = rawOrd
+      ? (rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`)
+      : `ORD-${stableOrderCodeSuffix(o.id, o.created_at)}`;
+    const ref =
+      o.reference ||
+      o.payment_reference ||
+      o.paystack_reference ||
+      o.transaction_reference ||
+      o.pay_ref ||
+      (() => {
+        const t = o.created_at ? Date.parse(o.created_at) : Date.now();
+        const tail = String(o.id ?? '').replace(/\D/g, '').slice(-6) || String(Math.abs((t % 1e9) | 0)).padStart(6, '0');
+        return `${t}${tail}`.replace(/\D/g, '').slice(0, 17);
+      })();
+    const customer =
+      o.customer_name ||
+      o.buyer_name ||
+      o.full_name ||
+      o.name ||
+      o.user_full_name ||
+      (o.user && (o.user.full_name || o.user.name || o.user.email)) ||
+      'Unknown';
+    const customerSub = (o.user_email || o.email || o.user?.email || '').toString().trim() || 'Unknown';
+    const packageTitle = (o.package_title || o.bundle_label || o.plan_name || `${net} ${bundle}`).trim();
+    const packageSub = (o.package_subtitle || `${bundle} • ${net} Ghana`).trim();
+    const packageFull = `${packageTitle} — ${packageSub}`;
+    const rawPrice = o.bundle_price ?? o.amount ?? o.price ?? o.total_amount ?? o.total ?? o.paid_amount;
+    const numPrice = typeof rawPrice === 'number' ? rawPrice : parseFloat(rawPrice);
+    const amount = Number.isFinite(numPrice) ? numPrice.toFixed(2) : String(rawPrice ?? '0');
+    const st = (o.status && String(o.status).toLowerCase()) || 'processing';
+    const statusLabel = st === 'completed' ? 'Completed' : st === 'failed' || st === 'cancelled' ? 'Failed' : 'Processing';
+    return {
+      key: String(o.id ?? ref),
+      orderIdDisplay,
+      reference: String(ref),
+      customer,
+      customerSub,
+      packageTitle,
+      packageSub,
+      packageFull,
+      recipient,
+      amount,
+      statusLabel,
+      dateIso: o.created_at,
+    };
+  };
+  const normalizeAdminTxRow = (t, idx) => {
+    const rawId = t.id ?? t.transaction_id ?? `tx-${idx}`;
+    const created = t.created_at ?? t.createdAt ?? t.date ?? null;
+    const rawAmt = t.amount;
+    const parsed = typeof rawAmt === 'number' ? rawAmt : parseFloat(rawAmt);
+    const amount = Number.isFinite(parsed) ? parsed : 0;
+    const typ = (t.type || '').toString().toLowerCase();
+    const reference = (
+      t.reference ||
+      t.payment_reference ||
+      t.paystack_reference ||
+      t.transaction_reference ||
+      ''
+    ).toString();
+    const userName = (t.user_name || t.full_name || t.user_full_name || t.user?.full_name || '').toString().trim();
+    const userEmail = (t.user_email || t.email || t.user?.email || '').toString().trim();
+    const userPhone = (t.user_phone || t.phone || t.user?.phone || '').toString().trim();
+    const userLine =
+      [userName, userEmail].filter(Boolean).join(' · ') ||
+      userPhone ||
+      (t.user_id != null ? `User #${t.user_id}` : '—');
+    const narration =
+      (t.description || t.narration || '').toString().trim() ||
+      (reference || (typ === 'topup' ? 'Wallet top-up' : typ === 'payment' ? 'Bundle purchase' : typ || '—'));
+    const st = (t.status && String(t.status).toLowerCase()) || 'completed';
+    const statusLabel =
+      st === 'completed' || st === 'success'
+        ? 'Completed'
+        : st === 'failed' || st === 'cancelled' || st === 'reversed'
+          ? 'Failed'
+          : st.charAt(0).toUpperCase() + st.slice(1);
+    const time = created ? Date.parse(created) : 0;
+    return {
+      key: String(rawId),
+      created_at: created,
+      time,
+      amount,
+      type: typ,
+      reference,
+      userLine,
+      narration,
+      statusLabel,
+    };
+  };
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
 
   const validGhanaPrefixes = ['020', '024', '026', '027', '054', '055', '059'];
@@ -508,12 +725,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   useEffect(() => {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
-      const adminSubPages = ['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
+      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
       const mainAppPages = ['dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
       if (adminSubPages.includes(currentPage)) return;
       if (mainAppPages.includes(currentPage)) return;
-      setCurrentPage('admin');
-      setSelectedMenu('admin');
+      setCurrentPage('admin-analytics');
+      setSelectedMenu('admin-analytics');
     }
     // Do NOT redirect non-admin users away from /admin — they can still enter the admin PIN to get access.
   }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate, currentPage]);
@@ -571,6 +788,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setCurrentPage(menu);
       setSelectedMenu(menu);
       setProfileOpen(false);
+      if (menu === 'admin-packages') setAdminPackagesNetwork('mtn');
     }
   };
 
@@ -869,8 +1087,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             isDark={isDark}
             onVerified={() => {
               setAdminPinVerified(true);
-              setCurrentPage('admin');
-              setSelectedMenu('admin');
+              setCurrentPage('admin-analytics');
+              setSelectedMenu('admin-analytics');
             }}
             appSettings={appSettings}
           />
@@ -1039,7 +1257,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
-                <MenuItem id="admin-applications" icon={<Svg.Shield stroke={stroke} />} label="Admin Applications" />
+                <MenuItem id="admin-applications" icon={<Svg.User stroke={stroke} />} label="Agent Applications" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
               </>
             )}
@@ -1532,81 +1750,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 </div>
               ))}
             </div>
-
-            {editingBundle != null && bundlesData && (
-              <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
-                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }} aria-hidden="true" />
-                <div className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
-                  <h3 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Edit package</h3>
-                  <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Changes apply for everyone.</p>
-                  <div className="space-y-3">
-                    <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Size</label>
-                    <input
-                      type="text"
-                      value={editBundleForm.size}
-                      onChange={(e) => setEditBundleForm((f) => ({ ...f, size: e.target.value }))}
-                      className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
-                      placeholder="e.g. 10 GB"
-                    />
-                    <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Price (¢)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={editBundleForm.price}
-                      onChange={(e) => {
-                        const v = parseFloat(e.target.value);
-                        setEditBundleForm((f) => ({ ...f, price: Number.isFinite(v) ? v : 0 }));
-                      }}
-                      className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
-                      placeholder="0"
-                    />
-                  </div>
-                  {adminBundlesMessage && (
-                    <p className={`text-sm mt-3 ${adminBundlesMessage.type === 'success' ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
-                      {adminBundlesMessage.text}
-                    </p>
-                  )}
-                  <div className="flex gap-3 mt-5">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }}
-                      className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      disabled={adminBundlesSaving}
-                      onClick={async () => {
-                        setAdminBundlesSaving(true);
-                        setAdminBundlesMessage(null);
-                        try {
-                          const next = JSON.parse(JSON.stringify(bundlesData));
-                          const arr = [...(next[editingBundle.network] || [])];
-                          if (arr[editingBundle.index]) {
-                            arr[editingBundle.index] = { ...arr[editingBundle.index], size: editBundleForm.size.trim() || arr[editingBundle.index].size, price: editBundleForm.price };
-                            next[editingBundle.network] = arr;
-                            await api.updateBundles(next);
-                            const b = await api.getBundles();
-                            setBundlesData(b);
-                            setAdminBundlesMessage({ type: 'success', text: 'Updated. Everyone will see the new price.' });
-                            setEditingBundle(null);
-                          }
-                        } catch (err) {
-                          setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to save' });
-                        } finally {
-                          setAdminBundlesSaving(false);
-                        }
-                      }}
-                      className={`flex-1 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} disabled:opacity-50`}
-                    >
-                      {adminBundlesSaving ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         ) : currentPage === 'transactions' ? (
           (() => {
@@ -1796,7 +1939,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 mb-5 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Up Wallet</h2>
               <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
-                Enter an amount and continue to Paystack to complete your payment.
+                {import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                  ? 'Enter an amount and pay securely with Paystack (card, bank, or mobile money where available).'
+                  : 'Enter an amount and continue to complete your payment (dev mode: instant balance without Paystack).'}
               </p>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
               <input
@@ -1812,6 +1957,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               {topUpError && <p className="text-sm text-red-500 mt-2">{topUpError}</p>}
               <button
                 type="button"
+                disabled={topUpBusy}
                 onClick={async () => {
                   const amt = parseFloat(topUpAmount);
                   if (!Number.isFinite(amt) || amt < 10) {
@@ -1819,19 +1965,62 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     return;
                   }
                   setTopUpError(null);
+                  setTopUpBusy(true);
+                  const pk = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
                   try {
-                    const data = await api.topUp(amt);
-                    setWalletBalance(data.balance);
-                    setTopUpAmount('');
-                    const list = await api.getTransactions();
-                    setTransactions(list);
+                    if (pk) {
+                      const init = await api.initPaystackWalletTopUp(amt);
+                      await loadPaystackInlineScript();
+                      const PaystackPop = window.PaystackPop;
+                      if (!PaystackPop || typeof PaystackPop.setup !== 'function') {
+                        throw new Error('Paystack checkout could not start');
+                      }
+                      const handler = PaystackPop.setup({
+                        key: pk,
+                        access_code: init.access_code,
+                        callback: (response) => {
+                          void (async () => {
+                            try {
+                              const ref = response.reference || response.trxref;
+                              if (!ref) throw new Error('Missing payment reference');
+                              const r = await api.verifyPaystackWalletTopUp(ref);
+                              setWalletBalance(r.balance);
+                              setTopUpAmount('');
+                              const list = await api.getTransactions();
+                              setTransactions(list);
+                            } catch (err) {
+                              setTopUpError(err.message || 'Could not confirm payment');
+                            } finally {
+                              setTopUpBusy(false);
+                            }
+                          })();
+                        },
+                        onClose: () => {
+                          setTopUpBusy(false);
+                        },
+                      });
+                      try {
+                        handler.openIframe();
+                      } catch (openErr) {
+                        setTopUpError(openErr?.message || 'Could not open Paystack');
+                        setTopUpBusy(false);
+                      }
+                    } else {
+                      const data = await api.topUp(amt);
+                      setWalletBalance(data.balance);
+                      setTopUpAmount('');
+                      const list = await api.getTransactions();
+                      setTransactions(list);
+                      setTopUpBusy(false);
+                    }
                   } catch (err) {
                     setTopUpError(err.message || 'Top-up failed');
+                    setTopUpBusy(false);
                   }
                 }}
-                className={`w-full mt-4 py-3 rounded-xl font-medium transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+                className={`w-full mt-4 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
-                Top Up
+                {topUpBusy ? 'Please wait…' : 'Top Up'}
               </button>
             </div>
 
@@ -2058,41 +2247,65 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-packages': 'Data Packages',
                 'admin-all-transactions': 'All Transactions',
                 'admin-wallet': 'Wallet Management',
-                'admin-applications': 'Admin Applications',
+                'admin-applications': 'Agent Applications',
                 'admin-analytics': 'Analytics',
               };
               const adminPageSubtitles = {
                 admin: null,
                 'admin-users': 'Manage users and roles',
-                'admin-orders': 'Process and approve orders',
+                'admin-orders': 'Manage and approve customer orders.',
                 'admin-packages': 'Manage data packages',
                 'admin-all-transactions': 'View all transactions',
                 'admin-wallet': 'Manage user wallet balances',
-                'admin-applications': 'Review admin applications',
-                'admin-analytics': 'View platform analytics',
+                'admin-applications': 'Manage agent membership applications',
+                'admin-analytics': 'Dashboard overview, metrics, and recent users',
               };
               const title = adminPageTitles[currentPage] || 'Admin';
               const subtitle = adminPageSubtitles[currentPage];
               return (
-                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
-                    className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
-                    aria-label="Back to dashboard"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                    </svg>
-                  </button>
+                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
+                  {currentPage === 'admin-applications' ? (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <div className="min-w-0 flex-1">
+                        <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
+                        {subtitle ? (
+                          <p className={`text-sm mt-1 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{subtitle}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCurrentPage('admin');
+                          setSelectedMenu('admin');
+                        }}
+                        className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}
+                      >
+                        ← Back to Admin
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
+                        className={`inline-flex items-center gap-2 text-sm font-medium mb-3 transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                        </svg>
+                        Back to Dashboard
+                      </button>
+                      <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
+                      {subtitle ? (
+                        <p className={`text-sm mt-1 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{subtitle}</p>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               );
             })()}
 
-            {currentPage === 'admin' && adminStatsError && (
+            {currentPage === 'admin-analytics' && adminStatsError && (
               <div className={`mb-4 p-4 rounded-xl ${isDark ? 'bg-red-500/10 border border-red-500/30 text-red-200' : 'bg-red-50 border border-red-200 text-red-700'}`}>
                 {adminStatsError}
               </div>
@@ -2204,15 +2417,993 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
-            {!['admin', 'admin-users'].includes(currentPage) && (
+            {currentPage === 'admin-orders' && (
+              <div className="space-y-4">
+                <div className="relative">
+                  <span className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${isDark ? 'text-white/40' : 'text-slate-400'}`} aria-hidden>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="m21 21-4.3-4.3" />
+                    </svg>
+                  </span>
+                  <input
+                    type="search"
+                    value={adminOrdersSearch}
+                    onChange={(e) => setAdminOrdersSearch(e.target.value)}
+                    placeholder="Search orders by order number, phone, reference, or customer…"
+                    className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm placeholder:opacity-70 ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    aria-label="Search orders"
+                  />
+                </div>
+
+                {adminOrdersError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {adminOrdersError}
+                  </div>
+                )}
+
+                <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                    <span className={isDark ? 'text-white/90' : 'text-slate-800'} aria-hidden>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="9" cy="21" r="1" />
+                        <circle cx="20" cy="21" r="1" />
+                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+                      </svg>
+                    </span>
+                    <h2 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Orders ({(() => {
+                        const q = (adminOrdersSearch || '').trim().toLowerCase();
+                        const rows = (adminOrders || []).map(normalizeAdminOrderRow);
+                        const filtered = !q ? rows : rows.filter((r) => {
+                          const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel].join(' ').toLowerCase();
+                          return blob.includes(q);
+                        });
+                        return filtered.length;
+                      })()})
+                    </h2>
+                  </div>
+
+                  {adminOrdersLoading ? (
+                    <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading orders…</div>
+                  ) : (() => {
+                    const q = (adminOrdersSearch || '').trim().toLowerCase();
+                    const rows = (adminOrders || []).map(normalizeAdminOrderRow);
+                    const filtered = !q ? rows : rows.filter((r) => {
+                      const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel].join(' ').toLowerCase();
+                      return blob.includes(q);
+                    });
+                    if (filtered.length === 0) {
+                      return (
+                        <div className={`px-4 py-14 text-center text-sm max-w-md mx-auto ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                          <p className={`font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
+                            {adminOrders.length === 0 && !adminOrdersError ? 'No orders yet' : 'No matching orders'}
+                          </p>
+                          <p className="text-xs leading-relaxed">
+                            {adminOrders.length === 0 && !adminOrdersError
+                              ? 'After customers pay from wallet checkout, each order will list here with order ID, reference, name, package, phone, amount, and status.'
+                              : 'Try another search term.'}
+                          </p>
+                        </div>
+                      );
+                    }
+                    const statusPill = (row) => (
+                      row.statusLabel === 'Completed' ? (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}>Completed</span>
+                      ) : row.statusLabel === 'Failed' ? (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-800'}`}>Failed</span>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${isDark ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-800'}`}>
+                          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>
+                          Processing
+                        </span>
+                      )
+                    );
+                    return (
+                      <>
+                        <div className="hidden md:block overflow-x-auto max-h-[min(85vh,1200px)] overflow-y-auto">
+                          <table className="w-full text-left text-sm min-w-[920px]">
+                            <thead className={`sticky top-0 z-[1] ${isDark ? 'bg-zinc-900/95 border-b border-white/10' : 'bg-slate-100 border-b border-slate-200'}`}>
+                              <tr>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Order ID</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Reference</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Customer</th>
+                                <th className={`px-4 py-3 font-semibold min-w-[180px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Package</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Phone</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Amount</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className={isDark ? 'divide-y divide-white/10' : 'divide-y divide-slate-200'}>
+                              {filtered.map((row) => (
+                                <tr key={row.key} className={isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}>
+                                  <td className={`px-4 py-3.5 font-semibold align-top ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.orderIdDisplay}</td>
+                                  <td className={`px-4 py-3.5 font-mono text-xs align-top break-all max-w-[140px] ${isDark ? 'text-white/70' : 'text-slate-700'}`}>{row.reference}</td>
+                                  <td className={`px-4 py-3.5 align-top ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                    <span className="font-medium block">{row.customer}</span>
+                                    <span className={`text-xs block mt-0.5 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{row.customerSub}</span>
+                                  </td>
+                                  <td className={`px-4 py-3.5 align-top ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                                    <span className="font-medium block">{row.packageTitle}</span>
+                                    <span className={`text-xs block mt-0.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.packageSub}</span>
+                                  </td>
+                                  <td className={`px-4 py-3.5 font-mono align-top ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{row.recipient || '—'}</td>
+                                  <td className={`px-4 py-3.5 font-semibold align-top ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>₵{row.amount}</td>
+                                  <td className="px-4 py-3.5 align-top">{statusPill(row)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className={`md:hidden divide-y max-h-[min(85vh,1200px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
+                          {filtered.map((row) => (
+                            <div key={row.key} className={`p-4 space-y-3 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/90'}`}>
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Order ID</p>
+                                  <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.orderIdDisplay}</p>
+                                </div>
+                                {statusPill(row)}
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Reference</p>
+                                <p className={`text-xs font-mono break-all ${isDark ? 'text-white/75' : 'text-slate-700'}`}>{row.reference}</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Customer name</p>
+                                <p className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.customer}</p>
+                                <p className={`text-xs mt-0.5 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{row.customerSub}</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Package</p>
+                                <p className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.packageTitle}</p>
+                                <p className={`text-xs mt-0.5 ${isDark ? 'text-white/55' : 'text-slate-600'}`}>{row.packageSub}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-4 justify-between">
+                                <div>
+                                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Phone number</p>
+                                  <p className={`font-mono text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.recipient || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Amount (GHS)</p>
+                                  <p className={`text-lg font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>₵{row.amount}</p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {currentPage === 'admin-packages' && (
+              <div className="space-y-4 pb-8">
+                <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  Packages are stored on the server. Add, edit, or remove rows here — the dashboard and cart update for all users.
+                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div
+                    className={`relative flex gap-1 p-1.5 rounded-2xl overflow-x-auto overflow-y-hidden scrollbar-hide ${isDark ? 'bg-white/[0.07] backdrop-blur-xl border border-white/10' : 'bg-white/40 backdrop-blur-xl border border-white/20'}`}
+                    role="tablist"
+                    aria-label="Network for packages"
+                  >
+                    {[
+                      { id: 'mtn', label: 'MTN' },
+                      { id: 'telecel', label: 'Telecel' },
+                      { id: 'bigtime', label: 'AT BigTime' },
+                      { id: 'ishare', label: 'AT iShare' },
+                    ].map((tab) => {
+                      const isActive = adminPackagesNetwork === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          onClick={() => setAdminPackagesNetwork(tab.id)}
+                          className={`
+                            relative flex-1 min-w-0 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl text-sm sm:text-base font-semibold
+                            transition-all duration-300 ease-out
+                            ${isActive
+                              ? isDark
+                                ? 'bg-white text-black shadow-lg shadow-white/10'
+                                : 'bg-slate-900 text-white shadow-lg shadow-slate-900/20'
+                              : isDark
+                                ? 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                                : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
+                            }
+                          `}
+                        >
+                          <span className="relative truncate block text-center tracking-tight">{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingBundle({ network: adminPackagesNetwork, index: -1 });
+                      setEditBundleForm({ size: '', price: 0 });
+                      setAdminBundlesMessage(null);
+                    }}
+                    className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
+                  >
+                    <Svg.Plus stroke="currentColor" />
+                    Add package
+                  </button>
+                </div>
+                <div className={`rounded-xl sm:rounded-2xl overflow-hidden border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm min-w-[320px]">
+                      <thead>
+                        <tr className={`border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                          <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Size</th>
+                          <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Price (¢)</th>
+                          <th className={`px-4 py-3 font-medium text-right ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const list = (bundlesData && Array.isArray(bundlesData.mtn) ? bundlesData : defaultBundles)[adminPackagesNetwork] || [];
+                          if (list.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={3} className={`px-4 py-8 text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                                  No packages for {networkLabel(adminPackagesNetwork)}. Add one above.
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return list.map((bundle, index) => (
+                            <tr key={`${adminPackagesNetwork}-${index}-${bundle.size}`} className={`border-b last:border-0 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
+                              <td className={`px-4 py-3 font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{bundle.size}</td>
+                              <td className={`px-4 py-3 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {bundle.price}</td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingBundle({ network: adminPackagesNetwork, index });
+                                    setEditBundleForm({
+                                      size: bundle.size,
+                                      price: typeof bundle.price === 'number' ? bundle.price : parseFloat(bundle.price) || 0,
+                                    });
+                                    setAdminBundlesMessage(null);
+                                  }}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {currentPage === 'admin-all-transactions' && (
+              <div className="space-y-4 pb-8">
+                <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  All customer wallet activity: top-ups (credits) and bundle payments (debits), with dates and users when the API provides them.
+                </p>
+
+                {adminAllTxError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {adminAllTxError}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <input
+                    type="search"
+                    value={adminAllTxSearch}
+                    onChange={(e) => setAdminAllTxSearch(e.target.value)}
+                    placeholder="Search by user, reference, type, amount…"
+                    className={`flex-1 min-w-0 px-4 py-3 rounded-xl border text-sm placeholder:opacity-70 ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    aria-label="Search all transactions"
+                  />
+                  <button
+                    type="button"
+                    disabled={adminAllTxLoading}
+                    onClick={() => {
+                      setAdminAllTxLoading(true);
+                      setAdminAllTxError(null);
+                      api.getAdminTransactions()
+                        .then((list) => setAdminAllTransactions(Array.isArray(list) ? list : []))
+                        .catch((err) => {
+                          setAdminAllTxError(err?.message || 'Failed to load transactions');
+                          setAdminAllTransactions([]);
+                        })
+                        .finally(() => setAdminAllTxLoading(false));
+                    }}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                  >
+                    {adminAllTxLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+
+                {(() => {
+                  const rows = (adminAllTransactions || []).map(normalizeAdminTxRow);
+                  const sorted = [...rows].sort((a, b) => b.time - a.time);
+                  const q = (adminAllTxSearch || '').trim().toLowerCase();
+                  const filtered = !q
+                    ? sorted
+                    : sorted.filter((r) => {
+                        const blob = [r.userLine, r.reference, r.narration, r.type, r.statusLabel, String(r.amount)].join(' ').toLowerCase();
+                        return blob.includes(q);
+                      });
+                  const totalCredits = sorted.reduce((s, r) => s + (r.amount > 0 ? r.amount : 0), 0);
+                  const totalDebts = sorted.reduce((s, r) => s + (r.amount < 0 ? Math.abs(r.amount) : 0), 0);
+                  const net = sorted.reduce((s, r) => s + r.amount, 0);
+                  const typeLabel = (r) => (r.type === 'topup' ? 'Top-up' : r.type === 'payment' ? 'Payment' : r.type || '—');
+                  const fmt = (n) => (Number.isFinite(n) ? n.toFixed(2) : '0.00');
+                  const statusPill = (row) =>
+                    row.statusLabel === 'Completed' ? (
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}>Completed</span>
+                    ) : row.statusLabel === 'Failed' ? (
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-800'}`}>Failed</span>
+                    ) : (
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-800'}`}>{row.statusLabel}</span>
+                    );
+
+                  return (
+                    <>
+                      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4`}>
+                        {[
+                          { label: 'Total transactions', value: String(sorted.length), key: 'count' },
+                          { label: 'Total credits (¢)', value: fmt(totalCredits), key: 'cred', accent: 'text-emerald-500' },
+                          { label: 'Total debits (¢)', value: fmt(totalDebts), key: 'deb', accent: 'text-red-500' },
+                          { label: 'Net (¢)', value: `${net >= 0 ? '+' : ''}${fmt(net)}`, key: 'net', accent: net >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                        ].map(({ label, value, key, accent }) => (
+                          <div key={key} className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                            <p className={`text-xs font-medium uppercase tracking-wider mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{label}</p>
+                            <p className={`text-xl sm:text-2xl font-bold ${accent || ''} ${isDark && !accent ? 'text-white' : !accent ? 'text-slate-900' : ''}`}>{value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
+                        <div className={`px-4 py-3 border-b flex items-center justify-between gap-2 ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                          <h2 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            Activity ({filtered.length}{q ? ` of ${sorted.length}` : ''})
+                          </h2>
+                        </div>
+                        {adminAllTxLoading && sorted.length === 0 ? (
+                          <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading transactions…</div>
+                        ) : filtered.length === 0 ? (
+                          <div className={`px-4 py-14 text-center text-sm max-w-md mx-auto ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                            <p className={`font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
+                              {sorted.length === 0 && !adminAllTxError ? 'No transactions yet' : 'No matching rows'}
+                            </p>
+                            <p className="text-xs leading-relaxed">
+                              {sorted.length === 0 && !adminAllTxError
+                                ? 'Customer top-ups and wallet payments will appear here once your backend records them.'
+                                : 'Try another search term.'}
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="hidden lg:block overflow-x-auto max-h-[min(75vh,900px)] overflow-y-auto">
+                              <table className="w-full text-left text-sm min-w-[880px]">
+                                <thead className={`sticky top-0 z-[1] ${isDark ? 'bg-zinc-900/95 border-b border-white/10' : 'bg-slate-100 border-b border-slate-200'}`}>
+                                  <tr>
+                                    <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Date</th>
+                                    <th className={`px-4 py-3 font-semibold ${isDark ? 'text-white/90' : 'text-slate-800'}`}>User</th>
+                                    <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Type</th>
+                                    <th className={`px-4 py-3 font-semibold min-w-[160px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Narration</th>
+                                    <th className={`px-4 py-3 font-semibold ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Reference</th>
+                                    <th className={`px-4 py-3 font-semibold text-right whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Amount (¢)</th>
+                                    <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className={isDark ? 'divide-y divide-white/10' : 'divide-y divide-slate-200'}>
+                                  {filtered.map((row) => (
+                                    <tr key={row.key} className={isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}>
+                                      <td className={`px-4 py-3.5 align-top whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                                        {row.created_at ? new Date(row.created_at).toLocaleString() : '—'}
+                                      </td>
+                                      <td className={`px-4 py-3.5 align-top text-sm ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{row.userLine}</td>
+                                      <td className={`px-4 py-3.5 align-top ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{typeLabel(row)}</td>
+                                      <td className={`px-4 py-3.5 align-top ${isDark ? 'text-white/75' : 'text-slate-600'}`}>{row.narration}</td>
+                                      <td className={`px-4 py-3.5 align-top font-mono text-xs break-all max-w-[140px] ${isDark ? 'text-white/60' : 'text-slate-600'}`}>{row.reference || '—'}</td>
+                                      <td className={`px-4 py-3.5 align-top text-right font-semibold ${row.amount >= 0 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                                        {row.amount >= 0 ? '+' : '−'}¢ {Math.abs(row.amount).toFixed(2)}
+                                      </td>
+                                      <td className="px-4 py-3.5 align-top">{statusPill(row)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            <div className={`lg:hidden divide-y max-h-[min(75vh,900px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
+                              {filtered.map((row) => (
+                                <div key={row.key} className={`p-4 space-y-2 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/90'}`}>
+                                  <div className="flex flex-wrap justify-between gap-2">
+                                    <span className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.created_at ? new Date(row.created_at).toLocaleString() : '—'}</span>
+                                    {statusPill(row)}
+                                  </div>
+                                  <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.userLine}</p>
+                                  <p className={`text-xs ${isDark ? 'text-white/55' : 'text-slate-600'}`}>
+                                    {typeLabel(row)} · {row.narration}
+                                  </p>
+                                  {row.reference ? (
+                                    <p className={`text-xs font-mono break-all ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{row.reference}</p>
+                                  ) : null}
+                                  <p className={`text-lg font-bold ${row.amount >= 0 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                                    {row.amount >= 0 ? '+' : '−'}¢ {Math.abs(row.amount).toFixed(2)}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {currentPage === 'admin-wallet' && (
+              <div className="space-y-4 pb-8">
+                {adminWalletsError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {adminWalletsError}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <input
+                    type="search"
+                    value={adminWalletsSearch}
+                    onChange={(e) => setAdminWalletsSearch(e.target.value)}
+                    placeholder="Search by name, email, or user ID…"
+                    className={`flex-1 min-w-0 px-4 py-3 rounded-xl border text-sm placeholder:opacity-70 ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    aria-label="Search wallets"
+                  />
+                  <button
+                    type="button"
+                    disabled={adminWalletsLoading}
+                    onClick={() => {
+                      setAdminWalletsLoading(true);
+                      setAdminWalletsError(null);
+                      api.getAdminWallets()
+                        .then((list) => setAdminWallets(Array.isArray(list) ? list : []))
+                        .catch((err) => {
+                          setAdminWalletsError(err?.message || 'Failed to load wallets');
+                          setAdminWallets([]);
+                        })
+                        .finally(() => setAdminWalletsLoading(false));
+                    }}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                  >
+                    {adminWalletsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+
+                {(() => {
+                  const fmtWalletDate = (iso) => {
+                    if (!iso) return '—';
+                    const t = Date.parse(iso);
+                    if (Number.isNaN(t)) return '—';
+                    return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                  };
+                  const q = (adminWalletsSearch || '').trim().toLowerCase();
+                  const base = Array.isArray(adminWallets) ? adminWallets : [];
+                  const filtered = !q
+                    ? base
+                    : base.filter((w) => {
+                        const blob = [w.full_name, w.email, String(w.id ?? '')].join(' ').toLowerCase();
+                        return blob.includes(q);
+                      });
+                  const count = filtered.length;
+                  const balNum = (b) => (typeof b === 'number' ? b : parseFloat(b)) || 0;
+
+                  return (
+                    <>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`flex items-center justify-center w-11 h-11 rounded-xl shrink-0 ${isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                          <Svg.Wallet stroke="currentColor" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className={`text-lg sm:text-xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            User Wallets ({count})
+                          </h2>
+                          <p className={`text-xs sm:text-sm ${isDark ? 'text-white/55' : 'text-slate-500'}`}>
+                            Balances in ₵ (same units as the app). Credit and debit are recorded for All Transactions.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <div className={`hidden md:grid grid-cols-12 gap-2 px-4 py-3 text-xs font-semibold uppercase tracking-wide border-b ${isDark ? 'border-white/10 bg-white/[0.06] text-white/50' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                          <div className="col-span-4">User details</div>
+                          <div className="col-span-2 text-center">Balance</div>
+                          <div className="col-span-2">Created</div>
+                          <div className="col-span-2">Last updated</div>
+                          <div className="col-span-2 text-right">Actions</div>
+                        </div>
+
+                        {adminWalletsLoading && base.length === 0 ? (
+                          <div className={`px-4 py-14 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading wallets…</div>
+                        ) : filtered.length === 0 ? (
+                          <div className={`px-4 py-14 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                            {base.length === 0 ? 'No users yet.' : 'No matching users.'}
+                          </div>
+                        ) : (
+                          <div className={`divide-y max-h-[min(78vh,920px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-100'}`}>
+                            {filtered.map((w) => {
+                              const name = (w.full_name || '').trim() || 'Unknown User';
+                              const email = (w.email || '').trim() || 'Unknown';
+                              const created = fmtWalletDate(w.created_at);
+                              const updated = fmtWalletDate(w.wallet_updated_at);
+                              const bal = balNum(w.balance);
+                              return (
+                                <div key={w.id}>
+                                  <div className={`hidden md:grid grid-cols-12 gap-2 items-center px-4 py-4 ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}>
+                                    <div className="col-span-4 min-w-0">
+                                      <p className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{name}</p>
+                                      <p className={`text-xs mt-0.5 flex items-center gap-1 truncate ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                                        <span aria-hidden>✉</span>
+                                        <span className="truncate">{email}</span>
+                                      </p>
+                                    </div>
+                                    <div className="col-span-2 flex justify-center">
+                                      <span className="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold text-white bg-violet-600 shadow-sm">
+                                        ₵{bal.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className={`col-span-2 text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{created}</div>
+                                    <div className={`col-span-2 text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{updated}</div>
+                                    <div className="col-span-2 flex justify-end gap-2 flex-wrap">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setWalletAdjust({ row: w, mode: 'credit' });
+                                          setWalletAdjustAmount('');
+                                          setWalletAdjustError(null);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-violet-600 hover:bg-violet-500 transition-colors"
+                                      >
+                                        <Svg.Plus stroke="currentColor" className="w-3.5 h-3.5" /> Credit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setWalletAdjust({ row: w, mode: 'debit' });
+                                          setWalletAdjustAmount('');
+                                          setWalletAdjustError(null);
+                                        }}
+                                        className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors"
+                                      >
+                                        − Debit
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className={`md:hidden p-4 space-y-3 ${isDark ? 'border-b border-white/10' : 'border-b border-slate-100'}`}>
+                                    <div className="flex justify-between items-start gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{name}</p>
+                                        <p className={`text-xs mt-1 flex items-center gap-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                                          <span aria-hidden>✉</span>
+                                          <span className="break-all">{email}</span>
+                                        </p>
+                                      </div>
+                                      <span className="inline-flex shrink-0 items-center rounded-full px-3 py-1 text-sm font-semibold text-white bg-violet-600 shadow-sm">
+                                        ₵{bal.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className={`grid grid-cols-2 gap-2 text-xs ${isDark ? 'text-white/55' : 'text-slate-500'}`}>
+                                      <div>
+                                        <span className="font-medium opacity-80">Created</span>
+                                        <p className={isDark ? 'text-white/80' : 'text-slate-700'}>{created}</p>
+                                      </div>
+                                      <div>
+                                        <span className="font-medium opacity-80">Last updated</span>
+                                        <p className={isDark ? 'text-white/80' : 'text-slate-700'}>{updated}</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setWalletAdjust({ row: w, mode: 'credit' });
+                                          setWalletAdjustAmount('');
+                                          setWalletAdjustError(null);
+                                        }}
+                                        className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-500"
+                                      >
+                                        <Svg.Plus stroke="currentColor" className="w-4 h-4" /> Credit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setWalletAdjust({ row: w, mode: 'debit' });
+                                          setWalletAdjustAmount('');
+                                          setWalletAdjustError(null);
+                                        }}
+                                        className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-500 hover:bg-red-600"
+                                      >
+                                        − Debit
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {walletAdjust != null && (
+                  <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { if (!walletAdjustSaving) setWalletAdjust(null); }} aria-hidden="true" />
+                    <div className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
+                      <h3 className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {walletAdjust.mode === 'credit' ? 'Credit wallet' : 'Debit wallet'}
+                      </h3>
+                      <p className={`text-sm mb-4 ${isDark ? 'text-white/65' : 'text-slate-600'}`}>
+                        {(walletAdjust.row.full_name || 'User').trim() || 'User'} · {(walletAdjust.row.email || '').trim() || '—'}
+                      </p>
+                      <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Amount (₵)</label>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={walletAdjustAmount}
+                        onChange={(e) => setWalletAdjustAmount(e.target.value)}
+                        className={`w-full px-4 py-2.5 rounded-xl border text-base mb-3 ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                        placeholder="0.00"
+                        autoFocus
+                      />
+                      {walletAdjustError && (
+                        <p className={`text-sm mb-3 ${isDark ? 'text-red-400' : 'text-red-600'}`}>{walletAdjustError}</p>
+                      )}
+                      <div className="flex gap-3 mt-2">
+                        <button
+                          type="button"
+                          disabled={walletAdjustSaving}
+                          onClick={() => { if (!walletAdjustSaving) setWalletAdjust(null); }}
+                          className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={walletAdjustSaving}
+                          onClick={async () => {
+                            const amt = parseFloat(walletAdjustAmount);
+                            if (!Number.isFinite(amt) || amt <= 0) {
+                              setWalletAdjustError('Enter a valid amount greater than 0.');
+                              return;
+                            }
+                            setWalletAdjustSaving(true);
+                            setWalletAdjustError(null);
+                            try {
+                              const uid = walletAdjust.row.id;
+                              const data =
+                                walletAdjust.mode === 'credit'
+                                  ? await api.adminWalletCredit(uid, amt)
+                                  : await api.adminWalletDebit(uid, amt);
+                              setAdminWallets((prev) =>
+                                prev.map((x) =>
+                                  x.id === uid
+                                    ? { ...x, balance: data.balance, wallet_updated_at: data.updated_at || x.wallet_updated_at }
+                                    : x
+                                )
+                              );
+                              setWalletAdjust(null);
+                            } catch (err) {
+                              setWalletAdjustError(err?.message || 'Request failed');
+                            } finally {
+                              setWalletAdjustSaving(false);
+                            }
+                          }}
+                          className={`flex-1 py-2.5 rounded-xl font-semibold text-white ${walletAdjust.mode === 'credit' ? 'bg-violet-600 hover:bg-violet-500' : 'bg-red-500 hover:bg-red-600'} disabled:opacity-50`}
+                        >
+                          {walletAdjustSaving ? 'Saving…' : 'Confirm'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {currentPage === 'admin-applications' && (
+              <div className="space-y-4 pb-8">
+                {agentApplicationsError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {agentApplicationsError}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+                  <div className="relative flex-1 min-w-0">
+                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none ${isDark ? 'text-white/40' : 'text-slate-400'}`} aria-hidden>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.3-4.3" />
+                      </svg>
+                    </span>
+                    <input
+                      type="search"
+                      value={agentApplicationsSearch}
+                      onChange={(e) => setAgentApplicationsSearch(e.target.value)}
+                      placeholder="Search by name, phone, status, or pay"
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm placeholder:opacity-70 ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                      aria-label="Search applications"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={agentApplicationsLoading}
+                    onClick={() => {
+                      setAgentApplicationsLoading(true);
+                      setAgentApplicationsError(null);
+                      api
+                        .getAgentApplications()
+                        .then((list) => setAgentApplications(Array.isArray(list) ? list : []))
+                        .catch((err) => {
+                          setAgentApplicationsError(err?.message || 'Failed to load applications');
+                          setAgentApplications([]);
+                        })
+                        .finally(() => setAgentApplicationsLoading(false));
+                    }}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                  >
+                    {agentApplicationsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+
+                {(() => {
+                  const shortId = (id) => {
+                    const s = String(id || '').replace(/-/g, '');
+                    if (s.length <= 8) return s || '—';
+                    return `${s.slice(0, 8)}…`;
+                  };
+                  const fmtApplied = (iso) => {
+                    if (!iso) return '—';
+                    const t = Date.parse(iso);
+                    if (Number.isNaN(t)) return '—';
+                    return new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                  };
+                  const q = (agentApplicationsSearch || '').trim().toLowerCase();
+                  const base = Array.isArray(agentApplications) ? agentApplications : [];
+                  const filtered = !q
+                    ? base
+                    : base.filter((row) => {
+                        const name = (row.full_name || '').toLowerCase();
+                        const phone = (row.phone || '').toLowerCase().replace(/\s/g, '');
+                        const st = (row.status || '').toLowerCase();
+                        const pay = String(row.payment_amount ?? '');
+                        const qDigits = q.replace(/\D/g, '');
+                        return (
+                          name.includes(q) ||
+                          phone.includes(q.replace(/\s/g, '')) ||
+                          st.includes(q) ||
+                          pay.includes(q) ||
+                          (qDigits && phone.replace(/\D/g, '').includes(qDigits))
+                        );
+                      });
+                  const statusBadge = (st) => {
+                    const s = (st || 'pending').toLowerCase();
+                    if (s === 'approved') {
+                      return (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-200' : 'bg-emerald-100 text-emerald-800'}`}>
+                          approved
+                        </span>
+                      );
+                    }
+                    if (s === 'rejected') {
+                      return (
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-200' : 'bg-red-100 text-red-800'}`}>
+                          rejected
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${isDark ? 'bg-sky-500/20 text-sky-200' : 'bg-sky-100 text-sky-800'}`}>
+                        <Svg.Clock stroke="currentColor" className="w-3 h-3 shrink-0" />
+                        pending
+                      </span>
+                    );
+                  };
+
+                  return (
+                    <>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`flex items-center justify-center w-11 h-11 rounded-xl shrink-0 ${isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                          <Svg.User stroke="currentColor" />
+                        </div>
+                        <div className="min-w-0">
+                          <h2 className={`text-lg sm:text-xl font-bold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            Applications ({base.length})
+                          </h2>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                        <div className={`hidden md:grid grid-cols-12 gap-2 px-4 py-3 text-xs font-semibold border-b ${isDark ? 'border-white/10 bg-white/[0.06] text-white/50' : 'border-slate-200 bg-slate-100 text-slate-500'}`}>
+                          <div className="col-span-4">Applicant</div>
+                          <div className="col-span-2">Contact</div>
+                          <div className="col-span-2">Payment</div>
+                          <div className="col-span-2">Applied</div>
+                          <div className="col-span-2 text-right">Actions</div>
+                        </div>
+
+                        {agentApplicationsLoading && base.length === 0 ? (
+                          <div className={`px-4 py-14 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading applications…</div>
+                        ) : filtered.length === 0 ? (
+                          <div className={`px-4 py-14 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                            {base.length === 0 ? 'No applications yet.' : 'No matching applications.'}
+                          </div>
+                        ) : (
+                          <div className={`divide-y max-h-[min(78vh,920px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-100'}`}>
+                            {filtered.map((row) => (
+                              <div key={row.id}>
+                                <div className={`hidden md:grid grid-cols-12 gap-2 items-center px-4 py-4 ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}>
+                                  <div className="col-span-4 min-w-0">
+                                    <p className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{(row.full_name || '').trim() || '—'}</p>
+                                    <p className={`text-xs mt-0.5 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>ID: {shortId(row.id)}</p>
+                                  </div>
+                                  <div className={`col-span-2 text-sm font-mono ${isDark ? 'text-white/85' : 'text-slate-800'}`}>{row.phone || '—'}</div>
+                                  <div className="col-span-2">
+                                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>₵{Number(row.payment_amount ?? 0).toFixed(0)}</p>
+                                    <div className="mt-1">{statusBadge(row.status)}</div>
+                                  </div>
+                                  <div className={`col-span-2 text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>{fmtApplied(row.applied_at)}</div>
+                                  <div className="col-span-2 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAgentAppReview(row);
+                                        setAgentAppReviewError(null);
+                                      }}
+                                      className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                        <circle cx="12" cy="12" r="3" />
+                                      </svg>
+                                      Review
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className={`md:hidden p-4 space-y-3 ${isDark ? 'border-b border-white/10' : 'border-b border-slate-100'}`}>
+                                  <div className="flex justify-between items-start gap-2">
+                                    <div className="min-w-0">
+                                      <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{(row.full_name || '').trim() || '—'}</p>
+                                      <p className={`text-xs mt-0.5 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>ID: {shortId(row.id)}</p>
+                                    </div>
+                                    {statusBadge(row.status)}
+                                  </div>
+                                  <p className={`text-sm font-mono ${isDark ? 'text-white/80' : 'text-slate-700'}`}>{row.phone || '—'}</p>
+                                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>₵{Number(row.payment_amount ?? 0).toFixed(0)}</p>
+                                  <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Applied {fmtApplied(row.applied_at)}</p>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAgentAppReview(row);
+                                      setAgentAppReviewError(null);
+                                    }}
+                                    className={`w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                      <circle cx="12" cy="12" r="3" />
+                                    </svg>
+                                    Review
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+
+                {agentAppReview != null && (
+                  <div className="fixed inset-0 z-[85] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { if (!agentAppReviewSaving) setAgentAppReview(null); }} aria-hidden="true" />
+                    <div className={`relative w-full max-w-md rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
+                      <h3 className={`text-lg font-semibold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Review application</h3>
+                      <p className={`text-sm mb-4 ${isDark ? 'text-white/65' : 'text-slate-600'}`}>
+                        {(agentAppReview.full_name || '').trim() || 'Applicant'} · {agentAppReview.phone || '—'}
+                      </p>
+                      <dl className={`space-y-2 text-sm mb-4 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Payment</dt>
+                          <dd className="font-semibold">₵{Number(agentAppReview.payment_amount ?? 0).toFixed(0)}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Applied</dt>
+                          <dd>{agentAppReview.applied_at ? new Date(agentAppReview.applied_at).toLocaleString() : '—'}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Status</dt>
+                          <dd className="capitalize">{agentAppReview.status || 'pending'}</dd>
+                        </div>
+                      </dl>
+                      {agentAppReviewError && (
+                        <p className={`text-sm mb-3 ${isDark ? 'text-red-400' : 'text-red-600'}`}>{agentAppReviewError}</p>
+                      )}
+                      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                        <button
+                          type="button"
+                          disabled={agentAppReviewSaving}
+                          onClick={() => { if (!agentAppReviewSaving) setAgentAppReview(null); }}
+                          className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                        >
+                          Close
+                        </button>
+                        <button
+                          type="button"
+                          disabled={agentAppReviewSaving || (agentAppReview.status || '').toLowerCase() === 'approved'}
+                          onClick={async () => {
+                            setAgentAppReviewSaving(true);
+                            setAgentAppReviewError(null);
+                            try {
+                              const updated = await api.patchAgentApplication(agentAppReview.id, { status: 'approved' });
+                              setAgentApplications((prev) => prev.map((x) => (String(x.id) === String(updated.id) ? { ...x, ...updated } : x)));
+                              setAgentAppReview(null);
+                            } catch (err) {
+                              setAgentAppReviewError(err?.message || 'Request failed');
+                            } finally {
+                              setAgentAppReviewSaving(false);
+                            }
+                          }}
+                          className="flex-1 py-2.5 rounded-xl font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+                        >
+                          {agentAppReviewSaving ? 'Saving…' : 'Approve'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={agentAppReviewSaving || (agentAppReview.status || '').toLowerCase() === 'rejected'}
+                          onClick={async () => {
+                            setAgentAppReviewSaving(true);
+                            setAgentAppReviewError(null);
+                            try {
+                              const updated = await api.patchAgentApplication(agentAppReview.id, { status: 'rejected' });
+                              setAgentApplications((prev) => prev.map((x) => (String(x.id) === String(updated.id) ? { ...x, ...updated } : x)));
+                              setAgentAppReview(null);
+                            } catch (err) {
+                              setAgentAppReviewError(err?.message || 'Request failed');
+                            } finally {
+                              setAgentAppReviewSaving(false);
+                            }
+                          }}
+                          className="flex-1 py-2.5 rounded-xl font-semibold text-white bg-red-500 hover:bg-red-600 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications'].includes(currentPage) && (
               <div className={`rounded-xl sm:rounded-2xl p-8 text-center border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-white border-slate-200 text-slate-500'}`}>
                 <p className="text-base">Details for this section will be added here.</p>
               </div>
             )}
 
-            {currentPage === 'admin' && adminStatsLoading ? (
+            {currentPage === 'admin-analytics' && adminStatsLoading ? (
               <div className={`rounded-xl p-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading admin stats…</div>
-            ) : currentPage === 'admin' && adminStats ? (
+            ) : currentPage === 'admin-analytics' && adminStats ? (
               <>
                 <section className="mb-8">
                   <h2 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Today&apos;s overview</h2>
@@ -2495,6 +3686,130 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         </div>
       </div>
 
+      {editingBundle != null && isAdmin && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }} aria-hidden="true" />
+          <div className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
+            <h3 className={`text-lg font-semibold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {editingBundle.index === -1 ? 'Add package' : 'Edit package'}
+            </h3>
+            <p className={`text-sm mb-3 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+              {networkLabel(editingBundle.network)} · changes apply for everyone.
+            </p>
+            <div className="space-y-3">
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Size</label>
+              <input
+                type="text"
+                value={editBundleForm.size}
+                onChange={(e) => setEditBundleForm((f) => ({ ...f, size: e.target.value }))}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                placeholder="e.g. 10 GB"
+              />
+              <label className={`block text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Price (¢)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={editBundleForm.price}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setEditBundleForm((f) => ({ ...f, price: Number.isFinite(v) ? v : 0 }));
+                }}
+                className={`w-full px-4 py-2.5 rounded-xl border text-base ${isDark ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                placeholder="0"
+              />
+            </div>
+            {adminBundlesMessage && (
+              <p className={`text-sm mt-3 ${adminBundlesMessage.type === 'success' ? (isDark ? 'text-green-400' : 'text-green-600') : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                {adminBundlesMessage.text}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap mt-5">
+              <button
+                type="button"
+                onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }}
+                className={`flex-1 min-w-[6rem] py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+              >
+                Cancel
+              </button>
+              {editingBundle.index >= 0 && (
+                <button
+                  type="button"
+                  disabled={adminBundlesSaving}
+                  onClick={async () => {
+                    if (!window.confirm('Remove this package for everyone?')) return;
+                    setAdminBundlesSaving(true);
+                    setAdminBundlesMessage(null);
+                    try {
+                      const source = bundlesData && Array.isArray(bundlesData.mtn) ? bundlesData : defaultBundles;
+                      const next = JSON.parse(JSON.stringify(source));
+                      const arr = [...(next[editingBundle.network] || [])];
+                      if (editingBundle.index < 0 || editingBundle.index >= arr.length) {
+                        setAdminBundlesMessage({ type: 'error', text: 'Invalid row' });
+                        return;
+                      }
+                      arr.splice(editingBundle.index, 1);
+                      next[editingBundle.network] = arr;
+                      await api.updateBundles(next);
+                      const b = await api.getBundles();
+                      setBundlesData(b && typeof b === 'object' ? b : next);
+                      setEditingBundle(null);
+                    } catch (err) {
+                      setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to delete' });
+                    } finally {
+                      setAdminBundlesSaving(false);
+                    }
+                  }}
+                  className={`flex-1 min-w-[6rem] py-2.5 rounded-xl font-semibold ${isDark ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-red-100 text-red-800 hover:bg-red-200'} disabled:opacity-50`}
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={adminBundlesSaving}
+                onClick={async () => {
+                  setAdminBundlesSaving(true);
+                  setAdminBundlesMessage(null);
+                  try {
+                    const source = bundlesData && Array.isArray(bundlesData.mtn) ? bundlesData : defaultBundles;
+                    const next = JSON.parse(JSON.stringify(source));
+                    const arr = [...(next[editingBundle.network] || [])];
+                    if (editingBundle.index === -1) {
+                      arr.push({
+                        size: editBundleForm.size.trim() || '1 GB',
+                        price: editBundleForm.price,
+                      });
+                    } else if (arr[editingBundle.index]) {
+                      arr[editingBundle.index] = {
+                        ...arr[editingBundle.index],
+                        size: editBundleForm.size.trim() || arr[editingBundle.index].size,
+                        price: editBundleForm.price,
+                      };
+                    } else {
+                      setAdminBundlesMessage({ type: 'error', text: 'Invalid row' });
+                      return;
+                    }
+                    next[editingBundle.network] = arr;
+                    await api.updateBundles(next);
+                    const b = await api.getBundles();
+                    setBundlesData(b && typeof b === 'object' ? b : next);
+                    setEditingBundle(null);
+                  } catch (err) {
+                    setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to save' });
+                  } finally {
+                    setAdminBundlesSaving(false);
+                  }
+                }}
+                className={`flex-1 min-w-[6rem] py-2.5 rounded-xl font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} disabled:opacity-50`}
+              >
+                {adminBundlesSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cart FAB - portaled so it can be dragged anywhere on the viewport */}
       {typeof document !== 'undefined' && createPortal(
         <button
@@ -2627,6 +3942,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     setCart([]);
                     fetchWallet();
                     api.getOrders().then((list) => setOrders(Array.isArray(list) ? list : [])).catch(() => {});
+                    if (adminPinVerified || user?.role === 'admin') {
+                      api.getAdminOrders()
+                        .then((list) => setAdminOrders(Array.isArray(list) ? list : []))
+                        .catch(() => {});
+                    }
                   } catch (err) {
                     setConfirmError(err.message || 'Payment failed. Try again.');
                   }
