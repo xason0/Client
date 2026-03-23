@@ -2023,7 +2023,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
                 <div className="px-5 py-6 flex flex-col items-center text-center">
                   <div className="w-24 h-24 rounded-full overflow-hidden flex-shrink-0 mb-4 bg-slate-200">
-                    <img src="/join-us-profile.png" alt="LOVE MUTE" className="w-full h-full object-cover" />
+                    <img src={brandLogoUrl} alt="DataPlus" className="w-full h-full object-cover" />
                   </div>
                   <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>LOVE MUTE</h2>
                   <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Channel · 5.5K followers</p>
