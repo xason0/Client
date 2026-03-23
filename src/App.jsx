@@ -1362,7 +1362,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
           <nav className="space-y-1.5">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
-            <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />
+            {!showAdminNav && <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />}
             {!showAdminNav && <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />}
             {!showAdminNav && (
               <div
