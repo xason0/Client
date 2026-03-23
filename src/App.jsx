@@ -1382,7 +1382,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
               <div className="min-w-0">
                 <h2 className={`text-lg font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h2>
-                <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin Console</p>
+                <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{showAdminNav ? 'Admin Console' : 'User Console'}</p>
               </div>
             </div>
             <button
