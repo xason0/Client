@@ -5200,11 +5200,23 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authEmojiMode, setAuthEmojiMode] = useState('idle'); // idle | typing | happy | angry
+  const passwordEmojiTimerRef = useRef(null);
+  const passwordDoneTimerRef = useRef(null);
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
   const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
 
-  const clearError = () => { setError(''); setSuccess(''); };
+  useEffect(() => () => {
+    if (passwordEmojiTimerRef.current) clearTimeout(passwordEmojiTimerRef.current);
+    if (passwordDoneTimerRef.current) clearTimeout(passwordDoneTimerRef.current);
+  }, []);
+
+  const clearError = () => {
+    setError('');
+    setSuccess('');
+    if (authEmojiMode === 'angry') setAuthEmojiMode('idle');
+  };
 
   const handleSubmit = async () => {
     setError('');
@@ -5274,9 +5286,14 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
     setLoading(true);
     try {
       const result = await api.login({ email: trimmedEmail, password: trimmedPassword });
+      setAuthEmojiMode('happy');
       onSignIn(result);
     } catch (err) {
-      setError(err.message || 'Invalid email or password. Please try again or register.');
+      const msg = err.message || 'Invalid email or password. Please try again or register.';
+      setError(msg);
+      if (/deleted|banned/i.test(msg)) {
+        setAuthEmojiMode('angry');
+      }
     } finally {
       setLoading(false);
     }
@@ -5289,6 +5306,26 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
         alt="DataPlus"
         className={`w-20 h-20 rounded-full object-cover border mb-6 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
       />
+      <div className={`relative -mt-6 mb-4 h-8 flex items-center justify-center ${authEmojiMode === 'idle' ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
+        {authEmojiMode === 'typing' && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none">
+            <span className="animate-bounce">🙈</span>
+            <span className="animate-bounce" style={{ animationDelay: '120ms' }}>🙉</span>
+            <span className="animate-bounce" style={{ animationDelay: '240ms' }}>🙊</span>
+            <span className="animate-pulse text-base ml-1">🔒</span>
+          </div>
+        )}
+        {authEmojiMode === 'happy' && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none animate-pulse">
+            <span>😄</span><span>🎉</span><span>✨</span>
+          </div>
+        )}
+        {authEmojiMode === 'angry' && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none animate-pulse">
+            <span>😡</span><span>🚫</span><span>⛔</span>
+          </div>
+        )}
+      </div>
       <h1 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h1>
       <p className={`text-sm mb-8 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
         {isRegister ? 'Create an account' : 'Sign in to your account'}
@@ -5326,7 +5363,22 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
             type={showPassword ? 'text' : 'password'}
             placeholder="Password"
             value={password}
-            onChange={(e) => { setPassword(e.target.value); clearError(); }}
+            onChange={(e) => {
+              const v = e.target.value;
+              setPassword(v);
+              clearError();
+              if (passwordEmojiTimerRef.current) clearTimeout(passwordEmojiTimerRef.current);
+              if (passwordDoneTimerRef.current) clearTimeout(passwordDoneTimerRef.current);
+              if (v.length === 0) {
+                setAuthEmojiMode('idle');
+                return;
+              }
+              setAuthEmojiMode('typing');
+              passwordEmojiTimerRef.current = setTimeout(() => {
+                setAuthEmojiMode('happy');
+                passwordDoneTimerRef.current = setTimeout(() => setAuthEmojiMode('idle'), 1200);
+              }, 700);
+            }}
             className={`${inputClass} pr-11`}
           />
           <button

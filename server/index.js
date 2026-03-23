@@ -323,6 +323,10 @@ app.post('/api/auth/register', (req, res) => {
     return res.status(400).json({ error: 'Valid phone number required (at least 8 digits)' });
   }
   withDb((db) => {
+    if (db.users.some((u) => u.email === email && u.deleted_at)) {
+      res.status(403).json({ error: 'This email was deleted or banned and cannot be used again.' });
+      return;
+    }
     if (db.users.some((u) => u.email === email)) {
       res.status(400).json({ error: 'Email already registered' });
       return;
