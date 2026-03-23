@@ -162,8 +162,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const headerBrandTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
   const hasAdminRole = (user?.role || '').toLowerCase() === 'admin';
-  /** Sidebar admin links + logo upload — only when URL is /admin */
-  const showAdminNav = adminRoute && (adminPinVerified || (isSignedIn && hasAdminRole));
+  /** Sidebar admin links:
+   * - real admin users always see admin tabs
+   * - PIN-only sessions see admin tabs only on /admin
+   */
+  const showAdminNav = (isSignedIn && hasAdminRole) || (adminRoute && adminPinVerified);
   /** Catalog / bundle edit controls — admins use customer UI on /, tools on /admin */
   const adminStoreTools = adminRoute && (hasAdminRole || adminPinVerified);
   const adminDisplayName = (raw) => {
