@@ -4534,8 +4534,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   ['User ID', profileUserId],
                   ['Account Status', 'Active'],
                   ['Member Since', (() => {
-                    if (!user?.created_at) return '—';
-                    const d = new Date(user.created_at);
+                    const raw = user?.created_at;
+                    if (raw == null || String(raw).trim() === '') return '—';
+                    const s = String(raw).trim();
+                    const iso = s.includes('T') ? s : s.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/, '$1T$2');
+                    const d = new Date(iso);
                     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
                   })()],
                 ].map(([label, value], i) => (
@@ -4993,7 +4996,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   }
                   try {
                     const updated = await api.updateProfile({ fullName: fullName || undefined, email, phone: profileEditPhone.trim() || undefined });
-                    setUser(updated);
+                    setUser((prev) => (prev ? { ...prev, ...updated } : updated));
                     setEditProfileOpen(false);
                   } catch (err) {
                     setProfileEditError(err.message || 'Failed to update profile');
