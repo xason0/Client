@@ -114,7 +114,7 @@ export const api = {
   async uploadProfileImage(avatarDataUrlOrNull) {
     const res = await fetch(`${API_URL}/api/profile/avatar`, {
       method: 'PUT',
-      headers: headers(),
+      headers: adminHeaders(),
       body: JSON.stringify({ avatar: avatarDataUrlOrNull ?? null }),
     });
     const data = await res.json().catch(() => ({}));
@@ -125,7 +125,7 @@ export const api = {
   async updateProfile({ fullName, email, phone }) {
     const res = await fetch(`${API_URL}/api/profile`, {
       method: 'PUT',
-      headers: headers(),
+      headers: adminHeaders(),
       body: JSON.stringify({ fullName: fullName ?? undefined, email: email ?? undefined, phone: phone ?? undefined }),
     });
     const data = await res.json().catch(() => ({}));
@@ -136,7 +136,7 @@ export const api = {
   async changePassword({ currentPassword, newPassword }) {
     const res = await fetch(`${API_URL}/api/profile/password`, {
       method: 'PUT',
-      headers: headers(),
+      headers: adminHeaders(),
       body: JSON.stringify({ currentPassword, newPassword }),
     });
     const data = await res.json().catch(() => ({}));

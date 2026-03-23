@@ -162,7 +162,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** Sidebar admin links + logo upload — only when URL is /admin */
   const showAdminNav = adminRoute && (adminPinVerified || (isSignedIn && hasAdminRole));
   /** Catalog / bundle edit controls — admins use customer UI on /, tools on /admin */
-  const adminStoreTools = hasAdminRole && adminRoute;
+  const adminStoreTools = adminRoute && (hasAdminRole || adminPinVerified);
   const adminDisplayName = (raw) => {
     const name = (raw ?? '').toString().trim();
     if (name.toLowerCase() === 'xason') return 'Gyamfi Bless';
