@@ -320,6 +320,18 @@ export const api = {
     throw new Error(data.error || 'Failed to load orders. Ensure the API exposes GET /api/admin/orders or returns all orders for admins on GET /api/orders.');
   },
 
+  async updateAdminOrderStatus(orderId, status) {
+    const res = await fetch(`${API_URL}/api/admin/orders/${encodeURIComponent(orderId)}/status`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to update order status');
+    return data;
+  },
+
   async getAdminTransactions() {
     const parseList = (data) => {
       if (Array.isArray(data)) return data;

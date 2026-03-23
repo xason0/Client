@@ -96,6 +96,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminOrdersLoading, setAdminOrdersLoading] = useState(false);
   const [adminOrdersError, setAdminOrdersError] = useState(null);
   const [adminOrdersSearch, setAdminOrdersSearch] = useState('');
+  const [adminOrderStatusUpdating, setAdminOrderStatusUpdating] = useState(null);
   const [adminAllTransactions, setAdminAllTransactions] = useState([]);
   const [adminAllTxLoading, setAdminAllTxLoading] = useState(false);
   const [adminAllTxError, setAdminAllTxError] = useState(null);
@@ -434,6 +435,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     const st = (o.status && String(o.status).toLowerCase()) || 'processing';
     const statusLabel = st === 'completed' ? 'Completed' : st === 'failed' || st === 'cancelled' ? 'Failed' : 'Processing';
     return {
+      id: o.id,
       key: String(o.id ?? ref),
       orderIdDisplay,
       reference: String(ref),
@@ -2644,6 +2646,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Phone</th>
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Amount</th>
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Status</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap text-right ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Action</th>
                               </tr>
                             </thead>
                             <tbody className={isDark ? 'divide-y divide-white/10' : 'divide-y divide-slate-200'}>
@@ -2662,6 +2665,64 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <td className={`px-4 py-3.5 font-mono align-top ${isDark ? 'text-white/90' : 'text-slate-800'}`}>{row.recipient || '—'}</td>
                                   <td className={`px-4 py-3.5 font-semibold align-top ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>₵{row.amount}</td>
                                   <td className="px-4 py-3.5 align-top">{statusPill(row)}</td>
+                                  <td className="px-4 py-3.5 align-top text-right">
+                                    <div className="inline-flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Processing'}
+                                        onClick={async () => {
+                                          setAdminOrderStatusUpdating(row.id);
+                                          try {
+                                            await api.updateAdminOrderStatus(row.id, 'processing');
+                                            setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'processing' } : o));
+                                          } catch (err) {
+                                            setAdminOrdersError(err?.message || 'Failed to update order');
+                                          } finally {
+                                            setAdminOrderStatusUpdating(null);
+                                          }
+                                        }}
+                                        className={`px-2 py-1 rounded-lg text-[11px] font-semibold ${isDark ? 'bg-sky-500/20 text-sky-300 disabled:opacity-40' : 'bg-sky-100 text-sky-800 disabled:opacity-40'}`}
+                                      >
+                                        Processing
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Completed'}
+                                        onClick={async () => {
+                                          setAdminOrderStatusUpdating(row.id);
+                                          try {
+                                            await api.updateAdminOrderStatus(row.id, 'completed');
+                                            setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'completed' } : o));
+                                          } catch (err) {
+                                            setAdminOrdersError(err?.message || 'Failed to update order');
+                                          } finally {
+                                            setAdminOrderStatusUpdating(null);
+                                          }
+                                        }}
+                                        className={`px-2 py-1 rounded-lg text-[11px] font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-300 disabled:opacity-40' : 'bg-emerald-100 text-emerald-800 disabled:opacity-40'}`}
+                                      >
+                                        Completed
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Failed'}
+                                        onClick={async () => {
+                                          setAdminOrderStatusUpdating(row.id);
+                                          try {
+                                            await api.updateAdminOrderStatus(row.id, 'failed');
+                                            setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'failed' } : o));
+                                          } catch (err) {
+                                            setAdminOrdersError(err?.message || 'Failed to update order');
+                                          } finally {
+                                            setAdminOrderStatusUpdating(null);
+                                          }
+                                        }}
+                                        className={`px-2 py-1 rounded-lg text-[11px] font-semibold ${isDark ? 'bg-red-500/20 text-red-300 disabled:opacity-40' : 'bg-red-100 text-red-800 disabled:opacity-40'}`}
+                                      >
+                                        Failed
+                                      </button>
+                                    </div>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2700,6 +2761,62 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Amount (GHS)</p>
                                   <p className={`text-lg font-bold ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>₵{row.amount}</p>
                                 </div>
+                              </div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <button
+                                  type="button"
+                                  disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Processing'}
+                                  onClick={async () => {
+                                    setAdminOrderStatusUpdating(row.id);
+                                    try {
+                                      await api.updateAdminOrderStatus(row.id, 'processing');
+                                      setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'processing' } : o));
+                                    } catch (err) {
+                                      setAdminOrdersError(err?.message || 'Failed to update order');
+                                    } finally {
+                                      setAdminOrderStatusUpdating(null);
+                                    }
+                                  }}
+                                  className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-sky-500/20 text-sky-300 disabled:opacity-40' : 'bg-sky-100 text-sky-800 disabled:opacity-40'}`}
+                                >
+                                  Processing
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Completed'}
+                                  onClick={async () => {
+                                    setAdminOrderStatusUpdating(row.id);
+                                    try {
+                                      await api.updateAdminOrderStatus(row.id, 'completed');
+                                      setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'completed' } : o));
+                                    } catch (err) {
+                                      setAdminOrdersError(err?.message || 'Failed to update order');
+                                    } finally {
+                                      setAdminOrderStatusUpdating(null);
+                                    }
+                                  }}
+                                  className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-300 disabled:opacity-40' : 'bg-emerald-100 text-emerald-800 disabled:opacity-40'}`}
+                                >
+                                  Completed
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={adminOrderStatusUpdating === row.id || row.statusLabel === 'Failed'}
+                                  onClick={async () => {
+                                    setAdminOrderStatusUpdating(row.id);
+                                    try {
+                                      await api.updateAdminOrderStatus(row.id, 'failed');
+                                      setAdminOrders((prev) => prev.map((o) => String(o.id) === String(row.id) ? { ...o, status: 'failed' } : o));
+                                    } catch (err) {
+                                      setAdminOrdersError(err?.message || 'Failed to update order');
+                                    } finally {
+                                      setAdminOrderStatusUpdating(null);
+                                    }
+                                  }}
+                                  className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-300 disabled:opacity-40' : 'bg-red-100 text-red-800 disabled:opacity-40'}`}
+                                >
+                                  Failed
+                                </button>
                               </div>
                             </div>
                           ))}

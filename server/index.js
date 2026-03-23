@@ -651,7 +651,7 @@ app.post('/api/orders', requireAuth, (req, res) => {
         user_id: u.id,
         order_number: orderNum,
         created_at: new Date().toISOString(),
-        status: 'completed',
+        status: 'processing',
         bundle_size: bundleSize,
         bundle_price: price,
         recipient_number: recipient,
@@ -862,6 +862,24 @@ app.get('/api/admin/orders', requireAdmin, (req, res) => {
   const db = readDb();
   const list = db.orders.map((o) => enrichOrder(db, o)).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   res.json(list);
+});
+
+app.patch('/api/admin/orders/:orderId/status', requireAdmin, (req, res) => {
+  const status = String(req.body?.status || '').trim().toLowerCase();
+  const allowed = new Set(['processing', 'completed', 'failed']);
+  if (!allowed.has(status)) {
+    return res.status(400).json({ error: 'Invalid status. Use processing, completed, or failed.' });
+  }
+  withDb((db) => {
+    const row = db.orders.find((o) => String(o.id) === String(req.params.orderId));
+    if (!row) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+    row.status = status;
+    row.updated_at = new Date().toISOString();
+    res.json(enrichOrder(db, row));
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
 });
 
 function sendAllWalletTransactions(req, res) {
