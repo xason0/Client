@@ -155,14 +155,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [editingBundle, setEditingBundle] = useState(null);
   const [editBundleForm, setEditBundleForm] = useState({ size: '', price: 0 });
   const [ultraxasChatInput, setUltraxasChatInput] = useState('');
-  const [ultraxasChatSending, setUltraxasChatSending] = useState(false);
-  const [ultraxasChatMessages, setUltraxasChatMessages] = useState([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      text: 'Welcome to ULTRAXAS MODE chat. Ask about orders, bundles, wallets, or admin actions.',
-    },
-  ]);
   const ultraxasFileInputRef = useRef(null);
   const [headerShowWelcome, setHeaderShowWelcome] = useState(true);
   const adminLogoInputRef = useRef(null);
@@ -384,31 +376,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         if (/unauthorized|expired|401/i.test(String(e?.message || ''))) clearSession();
       });
   };
-
-  const sendUltraxasChatMessage = async () => {
-    const text = ultraxasChatInput.trim();
-    if (!text || ultraxasChatSending) return;
-    const userMsg = { id: `u-${Date.now()}`, role: 'user', text };
-    setUltraxasChatMessages((prev) => [...prev, userMsg]);
+  const sendUltraxasChatMessage = () => {
+    if (!ultraxasChatInput.trim()) return;
     setUltraxasChatInput('');
-    setUltraxasChatSending(true);
-    try {
-      // Keep the same chatbox experience in ULTRAXAS MODE even without an AI endpoint in this app.
-      await new Promise((r) => setTimeout(r, 350));
-      const lower = text.toLowerCase();
-      let reply = 'Received. You can manage this in ULTRAXAS MODE from Orders, Data Packages, Wallet, and Users.';
-      if (lower.includes('order')) reply = 'For orders, open Order Management to update status and track processing/completed rows.';
-      else if (lower.includes('package') || lower.includes('bundle')) reply = 'For packages, use Data Packages. Edits there update what users see.';
-      else if (lower.includes('wallet')) reply = 'For wallets, use Wallet Management to credit/debit and review balances.';
-      else if (lower.includes('user')) reply = 'For users and roles, open User Management in the sidebar.';
-      setUltraxasChatMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: 'assistant', text: reply }]);
-    } finally {
-      setUltraxasChatSending(false);
-    }
   };
   const handleUltraxasUploadClick = () => {
     ultraxasFileInputRef.current?.click();
   };
+
 
   useEffect(() => {
     if (!token) {
@@ -1630,7 +1605,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
-                <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="ULTRAXAS MODE" />
               </>
             )}
           </nav>
@@ -3040,28 +3014,43 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                 <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.role || 'user'}</td>
                                 <td className={`px-4 py-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{u.created_at ? new Date(u.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' }) : '—'}</td>
                                 <td className="px-4 py-3">
-                                  {(u.role || 'user').toLowerCase() !== 'admin' ? (
-                                    <button
-                                      type="button"
-                                      disabled={adminRoleUpdating === u.id}
-                                      onClick={async () => {
-                                        setAdminRoleUpdating(u.id);
-                                        try {
-                                          await api.updateUserRole(u.id, 'admin');
-                                          setAdminUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: 'admin' } : x)));
-                                        } catch (err) {
-                                          alert(err?.message || 'Failed to update role');
-                                        } finally {
-                                          setAdminRoleUpdating(null);
-                                        }
-                                      }}
-                                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50' : 'bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50'}`}
-                                    >
-                                      {adminRoleUpdating === u.id ? '…' : 'Make admin'}
-                                    </button>
-                                  ) : (
-                                    <span className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-400'}`}>Admin</span>
-                                  )}
+                                  {(() => {
+                                    const currentRole = (u.role || 'user').toLowerCase();
+                                    const nextRole = currentRole === 'admin' ? 'user' : 'admin';
+                                    const isSelf = String(u.id) === String(user?.id);
+                                    return (
+                                      <button
+                                        type="button"
+                                        disabled={adminRoleUpdating === u.id}
+                                        onClick={async () => {
+                                          setAdminRoleUpdating(u.id);
+                                          try {
+                                            await api.updateUserRole(u.id, nextRole);
+                                            setAdminUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: nextRole } : x)));
+                                            if (isSelf) {
+                                              setUser((prev) => (prev ? { ...prev, role: nextRole } : prev));
+                                              if (nextRole === 'user') {
+                                                api.clearAdminToken();
+                                                setAdminPinVerified(false);
+                                                setCurrentPage('dashboard');
+                                              }
+                                            }
+                                          } catch (err) {
+                                            alert(err?.message || 'Failed to update role');
+                                          } finally {
+                                            setAdminRoleUpdating(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          nextRole === 'admin'
+                                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                            : (isDark ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-red-600 hover:bg-red-700 text-white')
+                                        }`}
+                                      >
+                                        {adminRoleUpdating === u.id ? '…' : (nextRole === 'admin' ? 'Make admin' : 'Demote')}
+                                      </button>
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             ));
@@ -4279,6 +4268,36 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
+            {currentPage === 'admin' && (
+              <div className="pt-2 sm:pt-4">
+                <div className="telesopy-chat-row">
+                  <div className="telesopy-grid-btn-wrap">
+                    <input
+                      ref={ultraxasFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="telesopy-file-input"
+                      onChange={(e) => { e.target.value = ''; }}
+                    />
+                    <button type="button" className="telesopy-sidebar-btn" aria-label="Upload image" onClick={handleUltraxasUploadClick}>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="telesopy-chat-bar-wrap">
+                    <UltraxasChatBar
+                      value={ultraxasChatInput}
+                      onChange={setUltraxasChatInput}
+                      onSubmit={sendUltraxasChatMessage}
+                      placeholder="Ask anything"
+                      isDark={isDark}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {currentPage === 'admin-analytics' && adminStatsLoading ? (
               <div className={`rounded-xl p-8 text-center ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Loading admin stats…</div>
             ) : currentPage === 'admin-analytics' && adminStats ? (
@@ -4384,58 +4403,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             ) : null}
 
-            {currentPage === 'admin' && (
-              <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
-                <div className={`px-4 sm:px-5 py-3 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                  <h3 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>X2S2 Chatbox</h3>
-                  <p className={`text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Same chat-style control panel inside ULTRAXAS MODE.</p>
-                </div>
-                <div className={`h-[340px] sm:h-[420px] overflow-y-auto px-4 py-3 space-y-2 ${isDark ? 'bg-black/20' : 'bg-slate-50/70'}`}>
-                  {ultraxasChatMessages.map((m) => (
-                    <div key={m.id} className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user' ? 'ml-auto bg-blue-600 text-white' : (isDark ? 'bg-white/10 text-white' : 'bg-white border border-slate-200 text-slate-800')}`}>
-                      {m.text}
-                    </div>
-                  ))}
-                  {ultraxasChatSending && (
-                    <div className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${isDark ? 'bg-white/10 text-white/80' : 'bg-white border border-slate-200 text-slate-600'}`}>
-                      Typing...
-                    </div>
-                  )}
-                </div>
-                <div className={`p-3 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
-                  <div className="telesopy-chat-row">
-                    <div className="telesopy-grid-btn-wrap">
-                      <input
-                        ref={ultraxasFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        className="telesopy-file-input"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (!f) return;
-                          setUltraxasChatMessages((prev) => [...prev, { id: `u-file-${Date.now()}`, role: 'user', text: `Uploaded: ${f.name}` }]);
-                          e.target.value = '';
-                        }}
-                      />
-                      <button type="button" className="telesopy-sidebar-btn" aria-label="Upload image" onClick={handleUltraxasUploadClick}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M12 5v14M5 12h14" />
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="telesopy-chat-bar-wrap">
-                      <UltraxasChatBar
-                        value={ultraxasChatInput}
-                        onChange={setUltraxasChatInput}
-                        onSubmit={sendUltraxasChatMessage}
-                        placeholder="Ask anything"
-                        disabled={ultraxasChatSending}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         ) : (
           <>

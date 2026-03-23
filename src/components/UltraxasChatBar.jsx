@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import styles from './UltraxasChatBar.module.css';
 
-export default function UltraxasChatBar({ value, onChange, onSubmit, placeholder = 'Ask anything', disabled = false }) {
+export default function UltraxasChatBar({ value, onChange, onSubmit, placeholder = 'Ask anything', disabled = false, isDark = true }) {
   const [isFocused, setIsFocused] = useState(false);
 
   return (
@@ -13,7 +13,7 @@ export default function UltraxasChatBar({ value, onChange, onSubmit, placeholder
           if (!disabled) onSubmit?.();
         }}
       >
-        <div className={`${styles.wrapper} ${isFocused ? styles.focused : ''}`}>
+        <div className={`${styles.wrapper} ${isDark ? styles.wrapperDark : styles.wrapperLight} ${isFocused ? styles.focused : ''}`}>
           <button type="button" className={styles.emojiBtn} aria-label="Emoji">
             😊
           </button>
@@ -25,7 +25,7 @@ export default function UltraxasChatBar({ value, onChange, onSubmit, placeholder
             onBlur={() => setIsFocused(false)}
             placeholder={placeholder}
             disabled={disabled}
-            className={styles.input}
+            className={`${styles.input} ${isDark ? styles.inputDark : styles.inputLight}`}
             aria-label="Chat input"
           />
           <button type="submit" className={styles.sendBtn} aria-label="Send" disabled={disabled || !value.trim()}>
