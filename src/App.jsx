@@ -1005,6 +1005,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const triggerFileInput = () => fileInputRef.current?.click();
 
   const isDark = theme === 'dark';
+  const profileUserId = (() => {
+    const n = Number(user?.id);
+    if (Number.isFinite(n) && n > 0) return `USR-${String(Math.trunc(n)).padStart(6, '0')}`;
+    const seed = String(user?.email || 'guest').toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+    const code = Math.abs(hash) % 1000000;
+    return `USR-${String(code).padStart(6, '0')}`;
+  })();
 
   const defaultBundles = {
     mtn: [
@@ -4159,10 +4168,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               <div className="p-5 sm:p-6 flex flex-col items-center">
                 <div className="relative mb-4">
                   <div
-                    className="w-40 h-40 sm:w-48 sm:h-48 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg overflow-hidden cursor-pointer"
+                    className={`w-40 h-40 sm:w-48 sm:h-48 rounded-full flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg overflow-hidden cursor-pointer ${adminAvatarSrc ? 'bg-gradient-to-br from-blue-500 to-purple-600' : (isDark ? 'bg-white/5 border-2 border-dashed border-white/25' : 'bg-slate-100 border-2 border-dashed border-slate-300')}`}
                     onClick={triggerFileInput}
                   >
-                    {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
+                    {adminAvatarSrc ? (
+                      <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <span className={`text-sm font-semibold ${isDark ? 'text-white/80' : 'text-slate-500'}`}>No photo</span>
+                        <span className={`text-xs ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Tap + to upload</span>
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
@@ -4181,7 +4197,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   ['Full Name', hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || '—')],
                   ['Email Address', user?.email || '—'],
                   ['Phone Number', user?.phone || '—'],
-                  ['Admin ID', 'DF-4398'],
+                  ['User ID', profileUserId],
                   ['Account Status', 'Active'],
                   ['Member Since', (() => {
                     if (!user?.created_at) return '—';
