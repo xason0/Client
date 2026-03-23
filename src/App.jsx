@@ -2025,18 +2025,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   <div className="w-24 h-24 rounded-full overflow-hidden flex-shrink-0 mb-4 bg-slate-200">
                     <img src={brandLogoUrl} alt="DataPlus" className="w-full h-full object-cover" />
                   </div>
-                  <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>LOVE MUTE</h2>
-                  <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Channel · 5.5K followers</p>
+                  <h2 className={`text-lg font-semibold tracking-tight mb-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>DataPlus</h2>
+                  <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Updates, offers, and support on WhatsApp</p>
                   <a
                     href="https://whatsapp.com/channel/0029VbCDPkSCMY0KfEF3LC2T"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center px-5 py-2 rounded-full text-sm font-medium bg-[#25D366] hover:bg-[#20bd5a] text-[#0a3d1e] transition-colors"
                   >
-                    View in WhatsApp
+                    Open WhatsApp
                   </a>
                   <p className={`text-xs mt-3 max-w-[220px] ${isDark ? 'text-white/40' : 'text-slate-400'}`}>
-                    You will be redirected to WhatsApp.
+                    Opens WhatsApp in a new tab.
                   </p>
                 </div>
               </div>
