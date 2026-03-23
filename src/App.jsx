@@ -144,6 +144,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [walletAdjustSaving, setWalletAdjustSaving] = useState(false);
   const [walletAdjustError, setWalletAdjustError] = useState(null);
   const [recentUsersExpanded, setRecentUsersExpanded] = useState(false);
+  const [adminDeleteUserUpdating, setAdminDeleteUserUpdating] = useState(null);
   const [adminPinVerified, setAdminPinVerified] = useState(() => !!api.getAdminToken());
   const [appSettings, setAppSettings] = useState({ sidebarLogoUrl: 'https://files.catbox.moe/l3islw.jpg' });
   const [bundlesData, setBundlesData] = useState(null);
@@ -3027,36 +3028,63 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                     const nextRole = currentRole === 'admin' ? 'user' : 'admin';
                                     const isSelf = String(u.id) === String(user?.id);
                                     return (
-                                      <button
-                                        type="button"
-                                        disabled={adminRoleUpdating === u.id}
-                                        onClick={async () => {
-                                          setAdminRoleUpdating(u.id);
-                                          try {
-                                            await api.updateUserRole(u.id, nextRole);
-                                            setAdminUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: nextRole } : x)));
-                                            if (isSelf) {
-                                              setUser((prev) => (prev ? { ...prev, role: nextRole } : prev));
-                                              if (nextRole === 'user') {
-                                                api.clearAdminToken();
-                                                setAdminPinVerified(false);
-                                                setCurrentPage('dashboard');
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={adminRoleUpdating === u.id || adminDeleteUserUpdating === u.id}
+                                          onClick={async () => {
+                                            setAdminRoleUpdating(u.id);
+                                            try {
+                                              await api.updateUserRole(u.id, nextRole);
+                                              setAdminUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, role: nextRole } : x)));
+                                              if (isSelf) {
+                                                setUser((prev) => (prev ? { ...prev, role: nextRole } : prev));
+                                                if (nextRole === 'user') {
+                                                  api.clearAdminToken();
+                                                  setAdminPinVerified(false);
+                                                  setCurrentPage('dashboard');
+                                                }
                                               }
+                                            } catch (err) {
+                                              alert(err?.message || 'Failed to update role');
+                                            } finally {
+                                              setAdminRoleUpdating(null);
                                             }
-                                          } catch (err) {
-                                            alert(err?.message || 'Failed to update role');
-                                          } finally {
-                                            setAdminRoleUpdating(null);
-                                          }
-                                        }}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                                          nextRole === 'admin'
-                                            ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                                            : (isDark ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-red-600 hover:bg-red-700 text-white')
-                                        }`}
-                                      >
-                                        {adminRoleUpdating === u.id ? '…' : (nextRole === 'admin' ? 'Make admin' : 'Demote')}
-                                      </button>
+                                          }}
+                                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                            nextRole === 'admin'
+                                              ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                              : (isDark ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-red-600 hover:bg-red-700 text-white')
+                                          }`}
+                                        >
+                                          {adminRoleUpdating === u.id ? '…' : (nextRole === 'admin' ? 'Make admin' : 'Demote')}
+                                        </button>
+                                        {!isSelf && (
+                                          <button
+                                            type="button"
+                                            disabled={adminRoleUpdating === u.id || adminDeleteUserUpdating === u.id}
+                                            onClick={async () => {
+                                              const label = (u.full_name || u.email || 'this user').trim();
+                                              const ok = window.confirm(`Delete ${label}'s account?\\n\\nThey will no longer be able to log in.`);
+                                              if (!ok) return;
+                                              setAdminDeleteUserUpdating(u.id);
+                                              try {
+                                                await api.deleteAdminUser(u.id);
+                                                setAdminUsers((prev) => prev.filter((x) => x.id !== u.id));
+                                              } catch (err) {
+                                                alert(err?.message || 'Failed to delete user');
+                                              } finally {
+                                                setAdminDeleteUserUpdating(null);
+                                              }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                              isDark ? 'bg-rose-700 hover:bg-rose-600 text-white' : 'bg-rose-700 hover:bg-rose-800 text-white'
+                                            }`}
+                                          >
+                                            {adminDeleteUserUpdating === u.id ? '…' : 'Delete'}
+                                          </button>
+                                        )}
+                                      </div>
                                     );
                                   })()}
                                 </td>

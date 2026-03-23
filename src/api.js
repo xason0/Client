@@ -321,6 +321,17 @@ export const api = {
     return data;
   },
 
+  async deleteAdminUser(userId) {
+    const res = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: adminHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+    return data;
+  },
+
   async getAdminOrders() {
     const parseList = (data) => {
       if (Array.isArray(data)) return data;

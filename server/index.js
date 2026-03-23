@@ -357,6 +357,9 @@ app.post('/api/auth/login', (req, res) => {
   try {
     const db = readDb();
     const user = db.users.find((u) => u.email === email);
+    if (user && user.deleted_at) {
+      return res.status(403).json({ error: 'Account deleted or banned. Contact support.' });
+    }
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -370,7 +373,7 @@ app.post('/api/auth/login', (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const db = readDb();
   const u = db.users.find((x) => x.id === req.userId);
-  if (!u) return res.status(401).json({ error: 'Unauthorized' });
+  if (!u || u.deleted_at) return res.status(401).json({ error: 'Unauthorized' });
   res.json(publicUser(u));
 });
 
@@ -779,7 +782,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   const db = readDb();
-  const list = db.users.map((u) => ({
+  const list = db.users.filter((u) => !u.deleted_at).map((u) => ({
     id: u.id,
     email: u.email,
     full_name: u.full_name,
@@ -795,11 +798,32 @@ app.patch('/api/admin/users/:userId/role', requireAdmin, (req, res) => {
   if (role !== 'admin' && role !== 'user') return res.status(400).json({ error: 'Invalid role' });
   withDb((db) => {
     const u = db.users.find((x) => String(x.id) === String(req.params.userId));
-    if (!u) {
+    if (!u || u.deleted_at) {
       res.status(404).json({ error: 'User not found' });
       return;
     }
     u.role = role;
+    res.json({ ok: true });
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
+});
+
+app.delete('/api/admin/users/:userId', requireAdmin, (req, res) => {
+  withDb((db) => {
+    const targetId = String(req.params.userId);
+    const actorId = req.userId == null ? null : String(req.userId);
+    const u = db.users.find((x) => String(x.id) === targetId);
+    if (!u || u.deleted_at) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (actorId && targetId === actorId) {
+      res.status(400).json({ error: 'You cannot delete your own account from admin panel' });
+      return;
+    }
+    u.deleted_at = new Date().toISOString();
+    u.deleted_by = actorId || 'admin-pin';
+    u.role = 'user';
+    u.password_hash = bcrypt.hashSync(randomUUID(), 10);
     res.json({ ok: true });
   }).catch(() => res.status(500).json({ error: 'Server error' }));
 });
