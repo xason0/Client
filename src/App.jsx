@@ -1416,7 +1416,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6" style={{ minHeight: '100dvh' }}>
           <AdminPinPage
             isDark={isDark}
-            onVerified={() => {
+            onVerified={(adminToken) => {
+              if (adminToken) {
+                api.setToken(adminToken);
+                setToken(adminToken);
+              }
               setAdminPinVerified(true);
               setCurrentPage('admin-analytics');
               setSelectedMenu('admin-analytics');
@@ -5003,7 +5007,7 @@ function AdminPinPage({ isDark, onVerified, appSettings }) {
     try {
       const data = await api.verifyAdminPin(pin);
       api.setAdminToken(data.token);
-      onVerified();
+      onVerified(data.token);
     } catch (err) {
       setError(err?.message || 'Invalid PIN. Please try again.');
     } finally {
