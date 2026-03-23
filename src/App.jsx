@@ -578,6 +578,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       bundles,
     };
   })();
+  const isPinOnlyAdminSession = showAdminNav && !hasAdminRole;
+  const dashboardBalance = isPinOnlyAdminSession ? 0 : walletBalance;
+  const dashboardTodaySpent = isPinOnlyAdminSession ? 0 : userTodayStats.spent;
+  const dashboardTodayOrders = isPinOnlyAdminSession ? 0 : userTodayStats.orders;
+  const dashboardTodayAmount = isPinOnlyAdminSession ? 0 : userTodayStats.amount;
+  const dashboardTodayBundles = isPinOnlyAdminSession ? 0 : userTodayStats.bundles;
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
 
   const validGhanaPrefixes = ['020', '024', '026', '027', '054', '055', '059'];
@@ -1898,7 +1904,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   </div>
                   <div className="min-w-0">
                     <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Balance</p>
-                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {walletBalance.toFixed(2)}</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {dashboardBalance.toFixed(2)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 min-w-0">
@@ -1907,26 +1913,31 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   </div>
                   <div className="min-w-0">
                     <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Today's Spent</p>
-                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {userTodayStats.spent.toFixed(2)}</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {dashboardTodaySpent.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
+              {isPinOnlyAdminSession && (
+                <p className={`mb-3 text-xs ${isDark ? 'text-white/75' : 'text-neutral-500'}`}>
+                  Admin PIN mode active. Personal wallet figures are hidden unless signed in with an admin account.
+                </p>
+              )}
               <button
                 type="button"
-                onClick={() => setCurrentPage('topup')}
+                onClick={() => setCurrentPage(isPinOnlyAdminSession ? 'admin-analytics' : 'topup')}
                 className={`w-full py-3 sm:py-4 rounded-xl transition-colors flex items-center justify-center gap-2 font-medium text-base ${isDark ? 'bg-white/10 hover:bg-white/20' : 'bg-neutral-800 hover:bg-neutral-700'}`}
               >
-                <Svg.Plus /> Top Up Wallet
+                <Svg.Plus /> {isPinOnlyAdminSession ? 'Open Admin Analytics' : 'Top Up Wallet'}
               </button>
             </div>
 
             <div className="rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 bg-black text-white">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
                 {[
-                  { label: 'Wallet Balance', value: `¢ ${walletBalance.toFixed(2)}` },
-                  { label: "Today's Orders", value: String(userTodayStats.orders) },
-                  { label: "Today's Amount", value: `¢ ${userTodayStats.amount.toFixed(2)}` },
-                  { label: "Today's Bundle", value: `${userTodayStats.bundles} GB` },
+                  { label: 'Wallet Balance', value: `¢ ${dashboardBalance.toFixed(2)}` },
+                  { label: "Today's Orders", value: String(dashboardTodayOrders) },
+                  { label: "Today's Amount", value: `¢ ${dashboardTodayAmount.toFixed(2)}` },
+                  { label: "Today's Bundle", value: `${dashboardTodayBundles} GB` },
                 ].map((item, i) => (
                   <div key={item.label} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} border-white/10`}>
                     <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mx-auto mb-3 bg-white/10">
