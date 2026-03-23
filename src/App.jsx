@@ -367,12 +367,21 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     } else if (currentPage === 'admin-orders' && hasAdminAccess) {
       setAdminOrdersLoading(true);
       setAdminOrdersError(null);
-      api.getAdminOrders()
-        .then((list) => setAdminOrders(Array.isArray(list) ? list : []))
-        .catch((err) => {
-          setAdminOrdersError(err?.message || 'Failed to load orders');
-          setAdminOrders([]);
+      setAgentApplicationsLoading(true);
+      setAgentApplicationsError(null);
+      Promise.all([api.getAdminOrders(), api.getAgentApplications()])
+        .then(([ordersList, appList]) => {
+          setAdminOrders(Array.isArray(ordersList) ? ordersList : []);
+          setAgentApplications(Array.isArray(appList) ? appList : []);
         })
+        .catch((err) => {
+          const msg = err?.message || 'Failed to load admin order data';
+          setAdminOrdersError(msg);
+          setAgentApplicationsError(msg);
+          setAdminOrders([]);
+          setAgentApplications([]);
+        })
+        .finally(() => setAgentApplicationsLoading(false))
         .finally(() => setAdminOrdersLoading(false));
     } else if (currentPage === 'admin-packages' && hasAdminAccess) {
       api.getBundles()
@@ -2725,6 +2734,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     {adminOrdersError}
                   </div>
                 )}
+                {agentApplicationsError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {agentApplicationsError}
+                  </div>
+                )}
 
                 <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
                   <div className={`px-4 py-3 border-b flex items-center gap-2 ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
@@ -2974,6 +2988,78 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       </>
                     );
                   })()}
+                </div>
+                <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div className={`px-4 py-3 border-b flex items-center justify-between gap-2 ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                    <h2 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>AFA Registrations ({agentApplications.length})</h2>
+                  </div>
+                  {agentApplicationsLoading ? (
+                    <div className={`px-4 py-10 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading AFA registrations…</div>
+                  ) : agentApplications.length === 0 ? (
+                    <div className={`px-4 py-10 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No AFA registrations yet.</div>
+                  ) : (
+                    <div className={`divide-y max-h-[480px] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-100'}`}>
+                      {agentApplications.map((row) => (
+                        <div key={row.id} className="px-4 py-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.full_name || '—'}</p>
+                              <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.phone || '—'} · {row.ghana_card_number || '—'}</p>
+                              <p className={`text-xs ${isDark ? 'text-white/40' : 'text-slate-500'}`}>{row.occupation || '—'} · DOB: {row.date_of_birth || '—'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>₵{Number(row.payment_amount ?? 0).toFixed(2)}</p>
+                              <p className={`text-xs capitalize ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{row.status || 'pending'}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const updated = await api.patchAgentApplication(row.id, { status: 'pending' });
+                                  setAgentApplications((prev) => prev.map((x) => String(x.id) === String(row.id) ? updated : x));
+                                } catch (err) {
+                                  setAgentApplicationsError(err?.message || 'Failed to update AFA registration');
+                                }
+                              }}
+                              className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-800'}`}
+                            >
+                              Pending
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const updated = await api.patchAgentApplication(row.id, { status: 'approved' });
+                                  setAgentApplications((prev) => prev.map((x) => String(x.id) === String(row.id) ? updated : x));
+                                } catch (err) {
+                                  setAgentApplicationsError(err?.message || 'Failed to update AFA registration');
+                                }
+                              }}
+                              className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const updated = await api.patchAgentApplication(row.id, { status: 'rejected' });
+                                  setAgentApplications((prev) => prev.map((x) => String(x.id) === String(row.id) ? updated : x));
+                                } catch (err) {
+                                  setAgentApplicationsError(err?.message || 'Failed to update AFA registration');
+                                }
+                              }}
+                              className={`px-2 py-2 rounded-lg text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-800'}`}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
