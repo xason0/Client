@@ -1315,7 +1315,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           <nav className="space-y-1.5">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
             <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />
-            <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />
+            {!showAdminNav && <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />}
             {!showAdminNav && (
               <div
                 className={`rounded-xl transition-all ${selectedMenu === 'orders' ? 'p-[2px]' : ''}`}
