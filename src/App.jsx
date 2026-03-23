@@ -156,14 +156,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const headerWelcomeEnteredAtRef = useRef(null);
   const headerBrandTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
-  const isAdmin = user?.role === 'admin' || (adminRoute && adminPinVerified);
+  const hasAdminRole = (user?.role || '').toLowerCase() === 'admin';
+  /** Sidebar admin links + logo upload — only when URL is /admin */
+  const showAdminNav = adminRoute && (adminPinVerified || (isSignedIn && hasAdminRole));
+  /** Catalog / bundle edit controls — admins use customer UI on /, tools on /admin */
+  const adminStoreTools = hasAdminRole && adminRoute;
   const adminDisplayName = (raw) => {
     const name = (raw ?? '').toString().trim();
     if (name.toLowerCase() === 'xason') return 'Gyamfi Bless';
     return name || 'Gyamfi Bless';
   };
   const brandLogoUrl = appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg';
-  const adminAvatarSrc = isAdmin ? brandLogoUrl : profileImage;
+  const adminAvatarSrc = adminRoute && (hasAdminRole || adminPinVerified) ? brandLogoUrl : profileImage;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -175,7 +179,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, []);
 
   useEffect(() => {
-    api.getBundles().then((b) => setBundlesData(b)).catch(() => setBundlesData({ mtn: [], telecel: [], bigtime: [], ishare: [] }));
+    api.getBundles().then((b) => setBundlesData(b)).catch(() => {});
   }, []);
 
 
@@ -1155,7 +1159,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   alt="DataPlus"
                   className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
                 />
-                {isAdmin && (
+                {showAdminNav && (
                   <>
                     <input
                       ref={adminLogoInputRef}
@@ -1256,8 +1260,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               )}
             </div>
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
-            {!isAdmin && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
-            {(user?.role === 'admin' || (adminRoute && adminPinVerified)) && (
+            {!(hasAdminRole && adminRoute) && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
+            {showAdminNav && (
               <>
                 <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
                 <MenuItem id="admin-users" icon={<Svg.User stroke={stroke} />} label="User Management" />
@@ -1297,7 +1301,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           </button>
           <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
             {headerShowWelcome
-              ? (isAdmin ? `Welcome, ${adminDisplayName(user?.full_name).trim().split(/\s+/)[0]}` : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
+              ? (hasAdminRole && adminRoute ? `Welcome, ${adminDisplayName(user?.full_name).trim().split(/\s+/)[0]}` : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
               : '𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈'}
           </h1>
           <button
@@ -1320,7 +1324,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             {/* Top card: purchase summary - matches selected network */}
             <div className="rounded-xl sm:rounded-2xl mx-3 mt-3 sm:mx-4 sm:mt-4 p-5 sm:p-6 text-white relative overflow-hidden bg-cover bg-center" style={{ backgroundImage: networkBg(buyBundle.network) }}>
               <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
-              {isAdmin && bundlesData && bundlesData[buyBundle.network] && (() => {
+              {adminStoreTools && bundlesData && bundlesData[buyBundle.network] && (() => {
                 const arr = bundlesData[buyBundle.network];
                 const idx = Array.isArray(arr) ? arr.findIndex((b) => String(b.size) === String(buyBundle.size)) : -1;
                 return idx >= 0 ? (
@@ -1571,7 +1575,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </button>
             </div>
 
-            {isAdmin ? (
+            {hasAdminRole && adminRoute ? (
               <div className={`rounded-[1.75rem] overflow-hidden border max-w-sm mx-auto ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200/80 shadow-sm'}`}>
                 <div className="px-5 py-12 flex flex-col items-center text-center min-h-[200px]" />
               </div>
@@ -1709,7 +1713,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   style={{ backgroundImage: (isBigTime || isIshare) ? 'url(https://files.catbox.moe/riugtj.png)' : isTelecel ? 'url(https://files.catbox.moe/yzcokj.jpg)' : 'url(https://files.catbox.moe/r1m0uh.png)' }}
                 >
                   <div className="absolute inset-0 bg-black/50 rounded-xl sm:rounded-2xl" aria-hidden="true" />
-                  {isAdmin && (
+                  {adminStoreTools && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1740,7 +1744,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       <button type="button" onClick={() => setBuyBundle({ ...bundle, network: activeTab })} className={`w-full py-3 sm:py-4 rounded-xl font-semibold text-base transition-colors shadow-lg ${(isBigTime || isIshare) ? 'bg-white/95 hover:bg-white text-blue-600' : isTelecel ? 'bg-white/95 hover:bg-white text-red-700' : 'bg-white/95 hover:bg-white text-slate-800'}`}>
                         Buy
                       </button>
-                      {isAdmin && (
+                      {adminStoreTools && (
                         <button
                           type="button"
                           onClick={() => {
@@ -3547,7 +3551,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     className="w-40 h-40 sm:w-48 sm:h-48 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg overflow-hidden cursor-pointer"
                     onClick={triggerFileInput}
                   >
-                    {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
+                    {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
                   </div>
                   <button
                     type="button"
@@ -3558,12 +3562,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                   </button>
                 </div>
-                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
-                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin</p>
+                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
+                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{hasAdminRole && adminRoute ? 'Administrator' : 'Account'}</p>
               </div>
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
                 {[
-                  ['Full Name', isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || '—')],
+                  ['Full Name', hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || '—')],
                   ['Email Address', user?.email || '—'],
                   ['Phone Number', user?.phone || '—'],
                   ['Admin ID', 'DF-4398'],
@@ -3583,7 +3587,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   <button
                     type="button"
                     onClick={() => {
-                      setProfileEditFullName(isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || ''));
+                      setProfileEditFullName(hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || ''));
                       setProfileEditEmail(user?.email || '');
                       setProfileEditPhone(user?.phone || '');
                       setProfileEditError(null);
@@ -3653,10 +3657,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <div className="p-4">
           <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
-              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
+              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{isAdmin ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
               <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin</p>
             </div>
           </div>
@@ -3694,7 +3698,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         </div>
       </div>
 
-      {editingBundle != null && isAdmin && (
+      {editingBundle != null && adminStoreTools && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setEditingBundle(null); setAdminBundlesMessage(null); }} aria-hidden="true" />
           <div className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`} onClick={(e) => e.stopPropagation()}>
@@ -3759,8 +3763,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       arr.splice(editingBundle.index, 1);
                       next[editingBundle.network] = arr;
                       await api.updateBundles(next);
-                      const b = await api.getBundles();
-                      setBundlesData(b && typeof b === 'object' ? b : next);
+                      try {
+                        const b = await api.getBundles();
+                        setBundlesData(b && typeof b === 'object' ? b : next);
+                      } catch {
+                        setBundlesData(next);
+                      }
                       setEditingBundle(null);
                     } catch (err) {
                       setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to delete' });
@@ -3800,8 +3808,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     }
                     next[editingBundle.network] = arr;
                     await api.updateBundles(next);
-                    const b = await api.getBundles();
-                    setBundlesData(b && typeof b === 'object' ? b : next);
+                    try {
+                      const b = await api.getBundles();
+                      setBundlesData(b && typeof b === 'object' ? b : next);
+                    } catch {
+                      setBundlesData(next);
+                    }
                     setEditingBundle(null);
                   } catch (err) {
                     setAdminBundlesMessage({ type: 'error', text: err?.message || 'Failed to save' });
@@ -3873,7 +3885,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           <p className={`text-sm font-medium ${isDark ? 'text-white/90' : 'text-slate-700'}`}>¢ {item.bundle.price}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          {isAdmin && bundleIdx >= 0 && (
+                          {adminStoreTools && bundleIdx >= 0 && (
                             <button
                               type="button"
                               onClick={() => {

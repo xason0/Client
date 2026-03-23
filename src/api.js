@@ -193,8 +193,11 @@ export const api = {
   async getBundles() {
     const res = await fetch(`${API_URL}/api/bundles`);
     const data = await res.json().catch(() => ({}));
-    if (data && typeof data === 'object' && Array.isArray(data.mtn)) return data;
-    return { mtn: [], telecel: [], bigtime: [], ishare: [] };
+    if (!res.ok) throw new Error(data?.error || `Failed to load bundles (${res.status})`);
+    if (!data || typeof data !== 'object' || !Array.isArray(data.mtn)) {
+      throw new Error(data?.error || 'Invalid bundles response');
+    }
+    return data;
   },
 
   async updateBundles(bundles) {
