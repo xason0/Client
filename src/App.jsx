@@ -2492,35 +2492,53 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             };
             const { start, end } = getOrderRange();
             const inRange = (iso) => {
-              const t = Date.parse(iso || '');
-              if (!Number.isFinite(t)) return false;
+              if (!iso) return true;
+              const t = Date.parse(iso);
+              if (!Number.isFinite(t)) return true;
               return t >= start && t < end;
             };
             const formatOrderDate = (iso) => {
+              if (!iso) return { date: '—', time: '—' };
               const d = new Date(iso);
-              return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) };
+              if (Number.isNaN(d.getTime())) return { date: '—', time: '—' };
+              return {
+                date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              };
             };
-            const normalized = orders.map((o) => ({
-              id: String(o.id),
-              recipientNumber: o.recipient_number || '',
-              network: o.network ? (typeof o.network === 'string' && o.network.length > 3 ? o.network : networkLabel(o.network)) : networkLabel('mtn'),
-              bundleSize: o.bundle_size || '',
-              amount: typeof o.bundle_price === 'number' ? o.bundle_price.toFixed(2) : String(o.bundle_price || '0'),
-              dateIso: o.created_at || new Date().toISOString(),
-              status: (() => {
-                const s = (o.status || '').toString().toLowerCase();
-                if (s === 'completed' || s === 'success') return 'Completed';
-                if (s === 'failed' || s === 'cancelled' || s === 'reversed') return 'Failed';
-                return 'Processing';
-              })(),
-            }));
+            const normalized = orders.map((o) => {
+              const rawCreated = o.created_at;
+              const parsedMs = rawCreated ? Date.parse(rawCreated) : NaN;
+              const dateIso = Number.isFinite(parsedMs) ? rawCreated : null;
+              const rawOrd = (o.order_number || o.orderNumber || o.order_id || '').toString().trim();
+              const orderDisplayId = rawOrd
+                ? (rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`)
+                : `ORD-${stableOrderCodeSuffix(o.id, o.created_at)}`;
+              return {
+                id: String(o.id),
+                orderDisplayId,
+                recipientNumber: o.recipient_number || '',
+                network: o.network ? (typeof o.network === 'string' && o.network.length > 3 ? o.network : networkLabel(o.network)) : networkLabel('mtn'),
+                bundleSize: o.bundle_size || '',
+                amount: typeof o.bundle_price === 'number' ? o.bundle_price.toFixed(2) : String(o.bundle_price || '0'),
+                dateIso,
+                status: (() => {
+                  const s = (o.status || '').toString().toLowerCase();
+                  if (s === 'completed' || s === 'success') return 'Completed';
+                  if (s === 'failed' || s === 'cancelled' || s === 'reversed') return 'Failed';
+                  return 'Processing';
+                })(),
+              };
+            });
             const byStatus = (o) => orderStatusFilter === 'all' || o.status.toLowerCase() === orderStatusFilter;
             const searchLower = orderHistorySearch.trim().toLowerCase();
             const bySearch = (o) => {
               if (!searchLower) return true;
+              const ord = (o.orderDisplayId || '').toLowerCase();
               return (o.recipientNumber && o.recipientNumber.includes(searchLower)) ||
                 (o.network && o.network.toLowerCase().includes(searchLower)) ||
-                (o.bundleSize && o.bundleSize.toLowerCase().includes(searchLower));
+                (o.bundleSize && o.bundleSize.toLowerCase().includes(searchLower)) ||
+                ord.includes(searchLower);
             };
             const rangedOrders = normalized.filter((o) => inRange(o.dateIso));
             const completedOrders = rangedOrders.filter((o) => o.status === 'Completed');
@@ -2624,6 +2642,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0">
+                                <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+                                  isFailed ? (isDark ? 'text-red-300/90' : 'text-red-700') : (isDark ? 'text-indigo-300/90' : 'text-indigo-700')
+                                }`}>{order.orderDisplayId}</p>
                                 <p className={`font-mono text-base font-medium ${
                                   isFailed ? (isDark ? 'text-red-200' : 'text-red-900') : (isDark ? 'text-white' : 'text-slate-900')
                                 }`}>{order.recipientNumber}</p>
@@ -2701,7 +2722,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         type="search"
                         value={orderHistorySearch}
                         onChange={(e) => setOrderHistorySearch(e.target.value)}
-                        placeholder="Search orders by number, network, or bundle..."
+                        placeholder="Search by order number, phone, network, or bundle..."
                         className={`w-full px-4 py-2.5 rounded-xl border text-sm placeholder:opacity-60 ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
                         aria-label="Search completed orders"
                       />
@@ -2717,6 +2738,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           return (
                             <div key={order.id} className={`px-4 py-3.5 flex flex-wrap items-center justify-between gap-2 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'}`}>
                               <div className="min-w-0">
+                                <p className={`text-[11px] font-semibold uppercase tracking-wide mb-0.5 ${isDark ? 'text-indigo-300/90' : 'text-indigo-700'}`}>{order.orderDisplayId}</p>
                                 <p className={`font-mono text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
                                 <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{date} at {time}</p>
                               </div>
