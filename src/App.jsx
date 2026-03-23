@@ -40,6 +40,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [bulkOrderInput, setBulkOrderInput] = useState('');
   const [bulkOrderError, setBulkOrderError] = useState(null);
   const [bulkOrderSuccess, setBulkOrderSuccess] = useState(null);
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [confirmCheckoutOpen, setConfirmCheckoutOpen] = useState(false);
@@ -598,7 +599,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return { size: b.size, price: Number.isFinite(price) ? price : 0, network: 'mtn' };
   };
 
-  const processBulkOrders = () => {
+  const parseBulkLines = () => {
     setBulkOrderError(null);
     setBulkOrderSuccess(null);
     const lines = bulkOrderInput
@@ -606,8 +607,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      setBulkOrderError('Enter at least one line in the format: phone_number capacity (e.g. 0241234567 5)');
-      return;
+      return { added: [], errors: ['Enter at least one line in the format: phone_number capacity (e.g. 0241234567 5)'] };
     }
     const added = [];
     const errors = [];
@@ -638,6 +638,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       }
       added.push({ id: Date.now() + idx, bundle, recipientNumber: digitsOnly });
     });
+    return { added, errors };
+  };
+
+  const processBulkOrders = () => {
+    const { added, errors } = parseBulkLines();
     if (errors.length > 0) {
       const msg = errors.length > 10
         ? errors.slice(0, 10).join(' ') + ` ... and ${errors.length - 10} more.`
@@ -645,9 +650,43 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setBulkOrderError(msg);
       return;
     }
+    const total = added.reduce((sum, i) => sum + Number(i.bundle?.price || 0), 0);
     setCart((prev) => [...prev, ...added]);
+    setCartOpen(true);
     setBulkOrderInput('');
-    setBulkOrderSuccess(`${added.length} order(s) added to cart.`);
+    setBulkOrderSuccess(`${added.length} order(s) queued separately (¢${total.toFixed(2)} total). Checkout to send to management.`);
+  };
+
+  const submitBulkOrdersNow = async () => {
+    const { added, errors } = parseBulkLines();
+    if (errors.length > 0) {
+      const msg = errors.length > 10
+        ? errors.slice(0, 10).join(' ') + ` ... and ${errors.length - 10} more.`
+        : errors.join(' ');
+      setBulkOrderError(msg);
+      return;
+    }
+    const total = added.reduce((sum, i) => sum + Number(i.bundle?.price || 0), 0);
+    if (walletBalance < total) {
+      setBulkOrderError(`Insufficient balance. You have ¢ ${walletBalance.toFixed(2)} but bulk total is ¢ ${total.toFixed(2)}.`);
+      return;
+    }
+    setBulkSubmitting(true);
+    try {
+      const data = await api.createOrders(added);
+      setWalletBalance(Number(data?.balance ?? walletBalance));
+      setBulkOrderInput('');
+      setBulkOrderSuccess(`${added.length} bulk order(s) sent. They are now in admin management as separate lines.`);
+      fetchWallet();
+      api.getOrders().then((list) => setOrders(Array.isArray(list) ? list : [])).catch(() => {});
+      if (adminPinVerified || user?.role === 'admin') {
+        api.getAdminOrders().then((list) => setAdminOrders(Array.isArray(list) ? list : [])).catch(() => {});
+      }
+    } catch (err) {
+      setBulkOrderError(err?.message || 'Failed to submit bulk orders');
+    } finally {
+      setBulkSubmitting(false);
+    }
   };
 
   const clampCartPosition = (x, y) => {
@@ -1559,6 +1598,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <polyline points="12 6 12 12 16 14" />
               </svg>
               Process Orders
+            </button>
+            <button
+              type="button"
+              disabled={bulkSubmitting}
+              onClick={submitBulkOrdersNow}
+              className={`w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-2 mb-4 transition-all border ${
+                isDark
+                  ? 'bg-emerald-500/15 border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50'
+                  : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50'
+              }`}
+            >
+              {bulkSubmitting ? 'Submitting…' : 'Submit Bulk Orders Now'}
             </button>
 
             <div className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 mb-4 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
