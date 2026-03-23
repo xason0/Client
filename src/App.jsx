@@ -1427,11 +1427,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6" style={{ minHeight: '100dvh' }}>
           <AdminPinPage
             isDark={isDark}
-            onVerified={(adminToken) => {
-              if (adminToken) {
-                api.setToken(adminToken);
-                setToken(adminToken);
-              }
+            onVerified={() => {
               setAdminPinVerified(true);
               setCurrentPage('admin-analytics');
               setSelectedMenu('admin-analytics');
