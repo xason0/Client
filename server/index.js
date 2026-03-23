@@ -17,6 +17,9 @@ const PORT = Number(process.env.PORT) || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-dataplus-secret-change-me';
 const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
 const PAYSTACK_SECRET_KEY = (process.env.PAYSTACK_SECRET_KEY || '').trim();
+/** Keep in sync with `MIN_WALLET_TOPUP_GHS` in `src/App.jsx`. Override via WALLET_MIN_TOPUP_GHS. */
+const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 1));
+const MIN_WALLET_TOPUP_PESEWAS = Math.round(MIN_WALLET_TOPUP_GHS * 100);
 
 if (JWT_SECRET === 'dev-dataplus-secret-change-me' || ADMIN_PIN === '1234') {
   console.warn('[dataplus-api] Using default JWT_SECRET or ADMIN_PIN — set env vars in production.');
@@ -94,6 +97,12 @@ function publicUser(u) {
 
 function paystackConfigured() {
   return Boolean(PAYSTACK_SECRET_KEY);
+}
+
+const DEFAULT_CLIENT_APP_ORIGIN = (process.env.NODE_ENV === 'production' ? 'https://client.ultraxas.com' : 'http://localhost:5173');
+function resolveClientAppOrigin() {
+  const raw = (process.env.CLIENT_PUBLIC_URL || process.env.PAYSTACK_CALLBACK_URL || DEFAULT_CLIENT_APP_ORIGIN).trim();
+  return raw.replace(/\/$/, '');
 }
 
 async function fetchPaystack(url, options = {}, timeoutMs = 30000) {
@@ -288,6 +297,10 @@ app.get('/api/public/config', (req, res) => {
   });
 });
 
+app.get('/', (req, res) => {
+  res.redirect(302, `${resolveClientAppOrigin()}${req.originalUrl}`);
+});
+
 // ——— Auth ———
 function normalizePhoneDigits(s) {
   return String(s || '').replace(/\D/g, '');
@@ -419,8 +432,8 @@ app.post('/api/wallet/topup', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Use Paystack to top up your wallet' });
   }
   const amount = parseFloat(req.body.amount);
-  if (!Number.isFinite(amount) || amount < 10) {
-    return res.status(400).json({ error: 'Minimum top-up is 10' });
+  if (!Number.isFinite(amount) || amount < MIN_WALLET_TOPUP_GHS) {
+    return res.status(400).json({ error: `Minimum top-up is GHS ${MIN_WALLET_TOPUP_GHS}` });
   }
   withDb((db) => {
     const u = db.users.find((x) => x.id === req.userId);
@@ -451,12 +464,12 @@ app.post('/api/wallet/paystack/initialize', requireAuth, async (req, res) => {
     return res.status(503).json({ error: 'Paystack is not configured on this server' });
   }
   const amount = parseFloat(req.body.amount);
-  if (!Number.isFinite(amount) || amount < 10) {
-    return res.status(400).json({ error: 'Minimum top-up is GHS 10' });
+  if (!Number.isFinite(amount) || amount < MIN_WALLET_TOPUP_GHS) {
+    return res.status(400).json({ error: `Minimum top-up is GHS ${MIN_WALLET_TOPUP_GHS}` });
   }
   const amountPesewas = Math.round(amount * 100);
-  if (amountPesewas < 1000) {
-    return res.status(400).json({ error: 'Minimum top-up is GHS 10' });
+  if (amountPesewas < MIN_WALLET_TOPUP_PESEWAS) {
+    return res.status(400).json({ error: `Minimum top-up is GHS ${MIN_WALLET_TOPUP_GHS}` });
   }
   const db = readDb();
   const u = db.users.find((x) => x.id === req.userId);
@@ -470,7 +483,7 @@ app.post('/api/wallet/paystack/initialize', requireAuth, async (req, res) => {
       reference,
       metadata: { user_id: String(u.id) },
       /** Must match your app URL so Paystack redirects back with ?reference= for wallet verify */
-      callbackUrl: process.env.PAYSTACK_CALLBACK_URL || process.env.CLIENT_PUBLIC_URL || undefined,
+      callbackUrl: resolveClientAppOrigin(),
     });
     res.json({
       access_code: data.access_code,

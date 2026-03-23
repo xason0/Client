@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
 
+/** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
+const MIN_WALLET_TOPUP_GHS = 1;
+
 function getTheme() {
   if (typeof window === 'undefined') return 'light';
   const s = localStorage.getItem('theme');
@@ -1988,14 +1991,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
               <input
                 type="number"
-                min="10"
+                min={MIN_WALLET_TOPUP_GHS}
                 step="0.01"
-                placeholder="10.00"
+                placeholder="1.00"
                 value={topUpAmount}
                 onChange={(e) => { setTopUpAmount(e.target.value); setTopUpError(null); setTopUpSuccess(null); }}
                 className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
               />
-              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Minimum amount: GHS 10</p>
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Minimum amount: GHS {MIN_WALLET_TOPUP_GHS}</p>
               {topUpSuccess && (
                 <p className="text-sm text-emerald-500 mt-2" role="status">
                   {topUpSuccess}
@@ -2007,8 +2010,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 disabled={topUpBusy || paystackConfigLoading}
                 onClick={async () => {
                   const amt = parseFloat(topUpAmount);
-                  if (!Number.isFinite(amt) || amt < 10) {
-                    setTopUpError('Minimum amount is GHS 10');
+                  if (!Number.isFinite(amt) || amt < MIN_WALLET_TOPUP_GHS) {
+                    setTopUpError(`Minimum amount is GHS ${MIN_WALLET_TOPUP_GHS}`);
                     return;
                   }
                   setTopUpError(null);
