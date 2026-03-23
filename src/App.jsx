@@ -109,6 +109,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [agentApplicationsLoading, setAgentApplicationsLoading] = useState(false);
   const [agentApplicationsError, setAgentApplicationsError] = useState(null);
   const [agentApplicationsSearch, setAgentApplicationsSearch] = useState('');
+  const [afaApplications, setAfaApplications] = useState([]);
+  const [afaApplicationsLoading, setAfaApplicationsLoading] = useState(false);
+  const [afaModalOpen, setAfaModalOpen] = useState(false);
+  const [afaSubmitting, setAfaSubmitting] = useState(false);
+  const [afaError, setAfaError] = useState(null);
+  const [afaSuccess, setAfaSuccess] = useState(null);
+  const [afaForm, setAfaForm] = useState({
+    full_name: '',
+    phone: '',
+    ghana_card_number: '',
+    occupation: '',
+    date_of_birth: '',
+  });
   const [agentAppReview, setAgentAppReview] = useState(null);
   const [agentAppReviewSaving, setAgentAppReviewSaving] = useState(false);
   const [agentAppReviewError, setAgentAppReviewError] = useState(null);
@@ -300,6 +313,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         .then((list) => setOrders(Array.isArray(list) ? list : []))
         .catch(() => setOrders([]))
         .finally(() => setOrdersLoading(false));
+    }
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (currentPage === 'afa-registration' && api.getToken()) {
+      setAfaApplicationsLoading(true);
+      api.getAfaApplications()
+        .then((list) => setAfaApplications(Array.isArray(list) ? list : []))
+        .catch(() => setAfaApplications([]))
+        .finally(() => setAfaApplicationsLoading(false));
     }
   }, [currentPage]);
 
@@ -1559,68 +1582,153 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             </div>
           </>
         ) : currentPage === 'afa-registration' ? (
-          <>
-            <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <h1 className="page-title text-2xl sm:text-3xl truncate">AFA Registration</h1>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className={`w-2 h-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`} aria-hidden />
-                <span className={`text-sm font-medium hidden sm:inline ${isDark ? 'text-white/90' : 'text-slate-700'}`}>Open now</span>
+          (() => {
+            const fee = 14;
+            const statusChip = (status) => {
+              const s = (status || 'pending').toLowerCase();
+              if (s === 'approved') return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-200' : 'bg-emerald-100 text-emerald-800'}`}>approved</span>;
+              if (s === 'rejected') return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-200' : 'bg-red-100 text-red-800'}`}>rejected</span>;
+              return <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${isDark ? 'bg-sky-500/20 text-sky-200' : 'bg-sky-100 text-sky-800'}`}>pending</span>;
+            };
+            const fmtDate = (iso) => {
+              if (!iso) return '—';
+              const t = Date.parse(iso);
+              if (Number.isNaN(t)) return '—';
+              return new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            };
+            const pendingCount = afaApplications.filter((x) => (x.status || 'pending').toLowerCase() === 'pending').length;
+            const approvedCount = afaApplications.filter((x) => (x.status || '').toLowerCase() === 'approved').length;
+            return (
+              <>
+                <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <h1 className="page-title text-2xl sm:text-3xl truncate">AFA Registration</h1>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage('dashboard')}
+                    className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
+                    aria-label="Back to dashboard"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+                    </svg>
+                  </button>
+                </div>
+                <div className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border mb-5 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>AFA Registration Fee</p>
+                      <p className={`text-sm mt-1 ${isDark ? 'text-white/65' : 'text-slate-600'}`}>Available balance: ₵{walletBalance.toFixed(2)}</p>
+                    </div>
+                    <p className={`text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>₵{fee.toFixed(2)}</p>
+                  </div>
+                  {walletBalance < fee && (
+                    <div className={`mt-4 px-3 py-2.5 rounded-lg text-sm ${isDark ? 'bg-red-500/15 border border-red-500/30 text-red-200' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                      Insufficient balance. Please top up your wallet.
+                    </div>
+                  )}
+                </div>
+                {afaSuccess && <p className={`text-sm mb-4 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>{afaSuccess}</p>}
+                {afaError && <p className={`text-sm mb-4 ${isDark ? 'text-red-300' : 'text-red-700'}`}>{afaError}</p>}
                 <button
                   type="button"
-                  onClick={() => setCurrentPage('dashboard')}
-                  className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
-                  aria-label="Back to dashboard"
+                  onClick={() => { setAfaError(null); setAfaSuccess(null); setAfaModalOpen(true); }}
+                  className={`w-auto px-6 py-3.5 rounded-xl font-semibold inline-flex items-center justify-center gap-2 mb-5 transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                  </svg>
+                  <Svg.Plus />
+                  Register New AFA
                 </button>
-              </div>
-            </div>
-
-            <p className={`text-lg mb-1 ${isDark ? 'text-white/90' : 'text-slate-800'}`}>AFA Registration</p>
-            <p className={`text-sm mb-5 sm:mb-6 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Register new AFA applications and view your registration history.</p>
-
-            <button
-              type="button"
-              className={`w-auto px-6 py-3.5 sm:py-4 rounded-xl font-semibold inline-flex items-center justify-center gap-2 mb-5 sm:mb-6 transition-colors ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              REGISTER NEW AFA
-            </button>
-
-            <div className={`flex flex-wrap gap-2 mb-5 sm:mb-6 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
-              {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors border ${label === 'Today' ? (isDark ? 'bg-white text-black border-white' : 'bg-black text-white border-black') : isDark ? 'bg-white/10 border-white/20 text-white hover:bg-white/20' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-4">
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
-                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Total Registrations</p>
-                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
-              </div>
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
-                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Completed</p>
-                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
-              </div>
-              <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`}>
-                <p className={`text-sm font-medium mb-1 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>Pending</p>
-                <p className={`text-2xl sm:text-3xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>0</p>
-              </div>
-            </div>
-          </>
+                <div className="grid grid-cols-3 gap-3 mb-5">
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}><p className={`text-xs ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Total</p><p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{afaApplications.length}</p></div>
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}><p className={`text-xs ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Pending</p><p className={`text-2xl font-bold ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>{pendingCount}</p></div>
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}><p className={`text-xs ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Approved</p><p className={`text-2xl font-bold ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>{approvedCount}</p></div>
+                </div>
+                <div className={`rounded-xl border overflow-hidden ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div className={`px-4 py-3 text-sm font-semibold ${isDark ? 'border-b border-white/10 text-white/80' : 'border-b border-slate-200 text-slate-700'}`}>My AFA applications</div>
+                  {afaApplicationsLoading ? (
+                    <div className={`px-4 py-10 text-sm text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading…</div>
+                  ) : afaApplications.length === 0 ? (
+                    <div className={`px-4 py-10 text-sm text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No applications yet.</div>
+                  ) : (
+                    <div className={`divide-y ${isDark ? 'divide-white/10' : 'divide-slate-100'}`}>
+                      {afaApplications.map((row) => (
+                        <div key={row.id} className="px-4 py-3 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.full_name || '—'}</p>
+                            <p className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.phone || '—'} · {fmtDate(row.applied_at)}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold ${isDark ? 'text-white/70' : 'text-slate-600'}`}>₵{Number(row.payment_amount || 0).toFixed(2)}</span>
+                            {statusChip(row.status)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {afaModalOpen && (
+                  <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { if (!afaSubmitting) setAfaModalOpen(false); }} />
+                    <div className={`relative w-full max-w-lg rounded-2xl p-5 sm:p-6 max-h-[90vh] overflow-y-auto ${isDark ? 'bg-black border border-white/10' : 'bg-white border border-slate-200'}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className={`text-xl font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>Register New AFA Application</h3>
+                        <button type="button" onClick={() => { if (!afaSubmitting) setAfaModalOpen(false); }} className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Close</button>
+                      </div>
+                      <div className="space-y-4">
+                        {[
+                          ['full_name', 'Full Name', 'Enter full name', 'text'],
+                          ['phone', 'Phone Number', 'Enter phone number', 'tel'],
+                          ['ghana_card_number', 'Ghana Card Number', 'GHA-XXXXXXXXX-X', 'text'],
+                          ['occupation', 'Occupation', 'Enter occupation', 'text'],
+                          ['date_of_birth', 'Date of Birth', '', 'date'],
+                        ].map(([key, label, placeholder, type]) => (
+                          <div key={key}>
+                            <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>{label}</label>
+                            <input
+                              type={type}
+                              value={afaForm[key]}
+                              onChange={(e) => setAfaForm((prev) => ({ ...prev, [key]: e.target.value }))}
+                              placeholder={placeholder}
+                              className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/40' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-5 flex gap-3">
+                        <button type="button" disabled={afaSubmitting} onClick={() => setAfaModalOpen(false)} className={`flex-1 py-3 rounded-xl font-semibold ${isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'}`}>Cancel</button>
+                        <button
+                          type="button"
+                          disabled={afaSubmitting}
+                          onClick={async () => {
+                            setAfaError(null);
+                            setAfaSuccess(null);
+                            setAfaSubmitting(true);
+                            try {
+                              const data = await api.createAfaApplication(afaForm);
+                              setWalletBalance(Number(data?.balance ?? walletBalance));
+                              setAfaApplications((prev) => [data.application, ...prev]);
+                              setAfaModalOpen(false);
+                              setAfaForm({ full_name: '', phone: '', ghana_card_number: '', occupation: '', date_of_birth: '' });
+                              setAfaSuccess('Application submitted successfully and sent to admin.');
+                              fetchWallet();
+                            } catch (err) {
+                              setAfaError(err?.message || 'Failed to submit application');
+                            } finally {
+                              setAfaSubmitting(false);
+                            }
+                          }}
+                          className={`flex-1 py-3 rounded-xl font-semibold text-white ${walletBalance < fee ? 'bg-slate-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                        >
+                          {afaSubmitting ? 'Submitting…' : 'Register AFA'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()
         ) : currentPage === 'join-us' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">
@@ -3632,6 +3740,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         {(agentAppReview.full_name || '').trim() || 'Applicant'} · {agentAppReview.phone || '—'}
                       </p>
                       <dl className={`space-y-2 text-sm mb-4 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Ghana card</dt>
+                          <dd className="font-medium">{agentAppReview.ghana_card_number || '—'}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Occupation</dt>
+                          <dd className="font-medium">{agentAppReview.occupation || '—'}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Date of birth</dt>
+                          <dd className="font-medium">{agentAppReview.date_of_birth || '—'}</dd>
+                        </div>
                         <div className="flex justify-between gap-4">
                           <dt className={isDark ? 'text-white/50' : 'text-slate-500'}>Payment</dt>
                           <dd className="font-semibold">₵{Number(agentAppReview.payment_amount ?? 0).toFixed(0)}</dd>

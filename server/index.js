@@ -676,6 +676,72 @@ app.post('/api/orders', requireAuth, (req, res) => {
   }).catch(() => res.status(500).json({ error: 'Server error' }));
 });
 
+const AFA_REGISTRATION_FEE = Math.max(0.01, Number(process.env.AFA_REGISTRATION_FEE_GHS ?? 14));
+
+app.get('/api/afa-applications', requireAuth, (req, res) => {
+  const db = readDb();
+  const list = Array.isArray(db.agentApplications) ? db.agentApplications : [];
+  const rows = list
+    .filter((x) => String(x.user_id) === String(req.userId))
+    .sort((a, b) => Date.parse(b.applied_at || b.created_at || 0) - Date.parse(a.applied_at || a.created_at || 0))
+    .map(formatAgentApplication);
+  res.json(rows);
+});
+
+app.post('/api/afa-applications', requireAuth, (req, res) => {
+  const fullName = String(req.body?.full_name || req.body?.name || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const ghanaCardNumber = String(req.body?.ghana_card_number || '').trim();
+  const occupation = String(req.body?.occupation || '').trim();
+  const dateOfBirth = String(req.body?.date_of_birth || '').trim();
+  if (!fullName || !phone || !ghanaCardNumber || !occupation || !dateOfBirth) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  withDb((db) => {
+    if (!Array.isArray(db.agentApplications)) db.agentApplications = [];
+    if (!Array.isArray(db.walletTransactions)) db.walletTransactions = [];
+    const user = db.users.find((x) => String(x.id) === String(req.userId));
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    const bal = Number(user.balance ?? 0);
+    if (bal < AFA_REGISTRATION_FEE) {
+      res.status(400).json({ error: 'Insufficient balance', balance: bal, fee: AFA_REGISTRATION_FEE });
+      return;
+    }
+    user.balance = bal - AFA_REGISTRATION_FEE;
+    user.wallet_updated_at = new Date().toISOString();
+    const row = {
+      id: randomUUID(),
+      user_id: user.id,
+      full_name: fullName,
+      phone,
+      ghana_card_number: ghanaCardNumber,
+      occupation,
+      date_of_birth: dateOfBirth,
+      payment_amount: AFA_REGISTRATION_FEE,
+      status: 'pending',
+      applied_at: new Date().toISOString(),
+      updated_at: null,
+    };
+    db.agentApplications.push(row);
+    db.walletTransactions.push({
+      id: randomUUID(),
+      user_id: user.id,
+      user_email: user.email,
+      full_name: user.full_name,
+      type: 'payment',
+      amount: -AFA_REGISTRATION_FEE,
+      reference: `AFA-${Date.now()}`,
+      description: `AFA registration fee (${fullName})`,
+      status: 'completed',
+      created_at: new Date().toISOString(),
+    });
+    res.json({ ok: true, application: formatAgentApplication(row), balance: user.balance });
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
+});
+
 // ——— Bundles (public) ———
 app.get('/api/bundles', (req, res) => {
   const db = readDb();
@@ -740,8 +806,12 @@ function formatAgentApplication(row) {
   if (!row) return null;
   return {
     id: row.id,
+    user_id: row.user_id,
     full_name: row.full_name || row.name || '',
     phone: row.phone || '',
+    ghana_card_number: row.ghana_card_number || '',
+    occupation: row.occupation || '',
+    date_of_birth: row.date_of_birth || '',
     payment_amount: row.payment_amount ?? row.amount ?? 0,
     status: (row.status || 'pending').toLowerCase(),
     applied_at: row.applied_at || row.created_at || null,

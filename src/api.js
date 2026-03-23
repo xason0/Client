@@ -235,6 +235,26 @@ export const api = {
     return data;
   },
 
+  async getAfaApplications() {
+    const res = await fetch(`${API_URL}/api/afa-applications?t=${Date.now()}`, { headers: headers(), cache: 'no-store' });
+    if (res.status === 401) return [];
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to load AFA applications');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createAfaApplication(payload) {
+    const res = await fetch(`${API_URL}/api/afa-applications`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error(data.error || 'Failed to submit AFA application');
+    return data;
+  },
+
   async getBundles() {
     const res = await fetch(`${API_URL}/api/bundles`);
     const data = await res.json().catch(() => ({}));
