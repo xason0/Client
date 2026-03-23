@@ -357,7 +357,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         return { ...order, created_at: cached || normalizedCreatedAt };
       }
       if (cached) return { ...order, created_at: cached };
-      return { ...order, created_at: null };
+      // Some upstream order rows do not include any timestamp field.
+      // Keep a stable first-seen fallback so UI never shows moving/dash time.
+      const firstSeenCreatedAt = new Date().toISOString();
+      orderCreatedAtByIdRef.current.set(key, firstSeenCreatedAt);
+      return { ...order, created_at: firstSeenCreatedAt };
     });
   };
 
@@ -553,6 +557,22 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
     return (h >>> 0).toString(16).padStart(8, '0').slice(0, 8).toUpperCase();
   };
+  const formatOrderDisplayId = (order, fallbackCreatedAt) => {
+    const rawOrd = (order?.order_number || order?.orderNumber || order?.order_id || '').toString().trim();
+    if (rawOrd) return rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`;
+    const refRaw = (
+      order?.reference ||
+      order?.payment_reference ||
+      order?.paystack_reference ||
+      order?.transaction_reference ||
+      ''
+    ).toString();
+    const seqMatch = refRaw.match(/(?:^|[-_])(\\d{1,9})(?:[-_]|$)/);
+    if (seqMatch && seqMatch[1]) return `ORD-${seqMatch[1].padStart(6, '0')}`;
+    const rawId = (order?.id ?? '').toString().trim();
+    if (/^\d+$/.test(rawId)) return `ORD-${rawId.padStart(6, '0')}`;
+    return `ORD-${stableOrderCodeSuffix(order?.id, fallbackCreatedAt || order?.created_at || order?.createdAt)}`;
+  };
   const normalizeAdminOrderRow = (o) => {
     const netKey = o.network;
     const net = networkLabel(typeof netKey === 'string' && netKey.length <= 24 ? netKey.toLowerCase() : 'mtn');
@@ -566,10 +586,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       o.recipient ||
       ''
     ).toString();
-    const rawOrd = (o.order_number || o.orderNumber || o.order_id || '').toString().trim();
-    const orderIdDisplay = rawOrd
-      ? (rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`)
-      : `ORD-${stableOrderCodeSuffix(o.id, o.created_at)}`;
+    const orderIdDisplay = formatOrderDisplayId(o, o.created_at);
     const ref =
       o.reference ||
       o.payment_reference ||
@@ -2595,10 +2612,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             };
             const normalized = orders.map((o) => {
               const dateIso = getOrderCreatedAtIso(o);
-              const rawOrd = (o.order_number || o.orderNumber || o.order_id || '').toString().trim();
-              const orderDisplayId = rawOrd
-                ? (rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`)
-                : `ORD-${stableOrderCodeSuffix(o.id, dateIso || o.created_at || o.createdAt)}`;
+              const orderDisplayId = formatOrderDisplayId(o, dateIso);
               return {
                 id: String(o.id),
                 orderDisplayId,
