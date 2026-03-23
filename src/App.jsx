@@ -5,7 +5,7 @@ import { api } from './api';
 import UltraxasChatBar from './components/UltraxasChatBar';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
-const MIN_WALLET_TOPUP_GHS = 1;
+const MIN_WALLET_TOPUP_GHS = 10;
 const DASHBOARD_HEADLINES = [
   'Welcome to DataPlus',
   'Powering Smart Business Connectivity',
@@ -185,7 +185,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const profileDisplayName = useOwnerAdminPresentation
     ? adminDisplayName(user?.full_name || user?.email || 'User')
     : (user?.full_name || user?.email || 'User');
-  const adminAvatarSrc = useOwnerAdminPresentation ? brandLogoUrl : profileImage;
+  /** On /admin, owner admins default to brand logo, but a saved profile photo must win after refresh. */
+  const adminAvatarSrc = useOwnerAdminPresentation ? (profileImage || brandLogoUrl) : profileImage;
 
   useEffect(() => {
     mountedRef.current = true;
