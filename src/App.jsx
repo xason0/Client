@@ -4405,11 +4405,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Name</th>
                               <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Role</th>
                               <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Joined</th>
+                              <th className={`px-4 py-3 font-medium ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Action</th>
                             </tr>
                           </thead>
                           <tbody>
                             {adminUsers.length === 0 ? (
-                              <tr><td colSpan={4} className={`px-4 py-6 text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No users</td></tr>
+                              <tr><td colSpan={5} className={`px-4 py-6 text-center ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No users</td></tr>
                             ) : (
                               adminUsers.map((u) => (
                                 <tr key={u.id} className={`border-b last:border-0 ${isDark ? 'border-white/5' : 'border-slate-100'}`}>
@@ -4417,6 +4418,35 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.full_name || '—'}</td>
                                   <td className={`px-4 py-3 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{u.role || 'user'}</td>
                                   <td className={`px-4 py-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                                  <td className="px-4 py-3">
+                                    {String(u.id) === String(user?.id) ? (
+                                      <span className={`text-xs ${isDark ? 'text-white/40' : 'text-slate-400'}`}>—</span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={adminDeleteUserUpdating === u.id || adminRoleUpdating === u.id}
+                                        onClick={async () => {
+                                          const label = (u.full_name || u.email || 'this user').trim();
+                                          const ok = window.confirm(`Delete ${label}'s account?\n\nThey will no longer be able to log in.`);
+                                          if (!ok) return;
+                                          setAdminDeleteUserUpdating(u.id);
+                                          try {
+                                            await api.deleteAdminUser(u.id);
+                                            setAdminUsers((prev) => prev.filter((x) => x.id !== u.id));
+                                          } catch (err) {
+                                            alert(err?.message || 'Failed to delete user');
+                                          } finally {
+                                            setAdminDeleteUserUpdating(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                                          isDark ? 'bg-rose-700 hover:bg-rose-600 text-white' : 'bg-rose-700 hover:bg-rose-800 text-white'
+                                        }`}
+                                      >
+                                        {adminDeleteUserUpdating === u.id ? '…' : 'Delete'}
+                                      </button>
+                                    )}
+                                  </td>
                                 </tr>
                               ))
                             )}
