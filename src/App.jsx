@@ -5200,7 +5200,7 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const [authEmojiMode, setAuthEmojiMode] = useState('idle'); // idle | typing | happy | angry
+  const [authEmojiMode, setAuthEmojiMode] = useState('idle'); // idle | typing | angry
   const passwordEmojiTimerRef = useRef(null);
   const passwordDoneTimerRef = useRef(null);
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
@@ -5286,7 +5286,7 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
     setLoading(true);
     try {
       const result = await api.login({ email: trimmedEmail, password: trimmedPassword });
-      setAuthEmojiMode('happy');
+      setAuthEmojiMode('idle');
       onSignIn(result);
     } catch (err) {
       const msg = err.message || 'Invalid email or password. Please try again or register.';
@@ -5301,31 +5301,52 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center min-h-full w-full p-6">
-      <img
-        src={appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg'}
-        alt="DataPlus"
-        className={`w-20 h-20 rounded-full object-cover border mb-6 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
-      />
-      <div className={`relative -mt-6 mb-4 h-8 flex items-center justify-center ${authEmojiMode === 'idle' ? 'opacity-0' : 'opacity-100'} transition-opacity`}>
-        {authEmojiMode === 'typing' && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none">
-            <span className="animate-bounce">🙈</span>
-            <span className="animate-bounce" style={{ animationDelay: '120ms' }}>🙉</span>
-            <span className="animate-bounce" style={{ animationDelay: '240ms' }}>🙊</span>
-            <span className="animate-pulse text-base ml-1">🔒</span>
-          </div>
-        )}
-        {authEmojiMode === 'happy' && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none animate-pulse">
-            <span>😄</span><span>🎉</span><span>✨</span>
-          </div>
-        )}
-        {authEmojiMode === 'angry' && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 text-xl select-none pointer-events-none animate-pulse">
-            <span>😡</span><span>🚫</span><span>⛔</span>
+      <div className="relative mb-6 w-24 h-24 flex items-center justify-center">
+        <img
+          src={appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg'}
+          alt="DataPlus"
+          className={`w-20 h-20 rounded-full object-cover border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+        />
+        {authEmojiMode !== 'idle' && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none select-none"
+            aria-hidden="true"
+          >
+            <span
+              className={authEmojiMode === 'typing' ? 'auth-emoji auth-emoji-typing' : 'auth-emoji auth-emoji-angry'}
+            >
+              {authEmojiMode === 'typing' ? '🙈' : '😡'}
+            </span>
           </div>
         )}
       </div>
+      <style>{`
+        .auth-emoji {
+          font-size: 84px;
+          line-height: 1;
+          filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.35));
+          transform-origin: center;
+        }
+        .auth-emoji-typing {
+          animation: authEmojiTyping 900ms ease-in-out infinite;
+        }
+        .auth-emoji-angry {
+          animation: authEmojiAngry 650ms ease-in-out infinite;
+        }
+        @keyframes authEmojiTyping {
+          0% { transform: scale(0.94) translateY(2px); opacity: 0.92; }
+          50% { transform: scale(1.06) translateY(-2px); opacity: 1; }
+          100% { transform: scale(0.94) translateY(2px); opacity: 0.92; }
+        }
+        @keyframes authEmojiAngry {
+          0% { transform: translateX(0) scale(1); }
+          20% { transform: translateX(-3px) scale(1.02); }
+          40% { transform: translateX(3px) scale(1.02); }
+          60% { transform: translateX(-2px) scale(1.01); }
+          80% { transform: translateX(2px) scale(1.01); }
+          100% { transform: translateX(0) scale(1); }
+        }
+      `}</style>
       <h1 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h1>
       <p className={`text-sm mb-8 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
         {isRegister ? 'Create an account' : 'Sign in to your account'}
@@ -5375,8 +5396,8 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
               }
               setAuthEmojiMode('typing');
               passwordEmojiTimerRef.current = setTimeout(() => {
-                setAuthEmojiMode('happy');
-                passwordDoneTimerRef.current = setTimeout(() => setAuthEmojiMode('idle'), 1200);
+                setAuthEmojiMode('idle');
+                passwordDoneTimerRef.current = null;
               }, 700);
             }}
             className={`${inputClass} pr-11`}
