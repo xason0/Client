@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -52,4 +53,17 @@ html:not([data-auth-screen]) #root {
 }
 [data-theme="dark"] .page-title {
   color: #c7d2fe; /* indigo-200 */
+}
+
+.dashboard-animated-title {
+  font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+[data-theme="light"] .dashboard-animated-title {
+  color: #312e81;
+}
+[data-theme="dark"] .dashboard-animated-title {
+  color: #e0e7ff;
+  text-shadow: 0 2px 16px rgba(129, 140, 248, 0.25);
 }

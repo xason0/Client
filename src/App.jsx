@@ -1920,7 +1920,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <h1 className={`page-title text-2xl sm:text-3xl transition-all duration-300 ${dashboardHeadlineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'}`}>
+                  <h1 className={`page-title dashboard-animated-title text-2xl sm:text-3xl transition-all duration-300 ${dashboardHeadlineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'}`}>
                     {DASHBOARD_HEADLINES[dashboardHeadlineIndex]}
                   </h1>
                 </div>
