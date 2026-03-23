@@ -4272,7 +4272,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
-              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Admin</p>
+              <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{hasAdminRole ? 'Admin' : 'User'}</p>
             </div>
           </div>
           <nav className="space-y-0.5">
