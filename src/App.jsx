@@ -2941,6 +2941,21 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                   All customer wallet activity: top-ups (credits) and bundle payments (debits), with dates and users when the API provides them.
                 </p>
+                <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 ${isDark ? 'bg-sky-500/10 border-sky-500/30 text-sky-100' : 'bg-sky-50 border-sky-200 text-sky-900'}`}>
+                  <p className="text-xs sm:text-sm">
+                    This page is only for wallet transaction history. To approve order delivery, open <span className="font-semibold">Order Management</span> and use the Processing/Completed/Failed action buttons.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPage('admin-orders');
+                      setSelectedMenu('admin-orders');
+                    }}
+                    className={`shrink-0 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold ${isDark ? 'bg-sky-400/25 text-sky-100 hover:bg-sky-400/35' : 'bg-sky-100 text-sky-900 hover:bg-sky-200'}`}
+                  >
+                    Go to Order Management
+                  </button>
+                </div>
 
                 {adminAllTxError && (
                   <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
