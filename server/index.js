@@ -279,6 +279,15 @@ function txForAdmin(t) {
   };
 }
 
+// ——— Public client config (Paystack publishable key; safe to expose) ———
+app.get('/api/public/config', (req, res) => {
+  const paystackPublicKey = (process.env.PAYSTACK_PUBLIC_KEY || process.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim();
+  res.json({
+    paystackPublicKey,
+    paystackEnabled: paystackConfigured(),
+  });
+});
+
 // ——— Auth ———
 app.post('/api/auth/register', (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();

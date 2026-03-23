@@ -67,6 +67,14 @@ export const api = {
   setAdminToken,
   clearAdminToken,
 
+  /** Paystack publishable key + flags (no auth). Lets production hosts work without VITE_PAYSTACK_PUBLIC_KEY at build time. */
+  async getPublicConfig() {
+    const res = await fetch(`${API_URL}/api/public/config`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { paystackPublicKey: '', paystackEnabled: false };
+    return data;
+  },
+
   async register({ email, password, fullName }) {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',

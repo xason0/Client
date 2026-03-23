@@ -47,6 +47,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [topUpError, setTopUpError] = useState(null);
   const [topUpSuccess, setTopUpSuccess] = useState(null);
   const [topUpBusy, setTopUpBusy] = useState(false);
+  /** Falls back to GET /api/public/config when VITE_PAYSTACK_PUBLIC_KEY was not baked into the build */
+  const [paystackPublicKey, setPaystackPublicKey] = useState(() => import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '');
+  const [paystackConfigLoading, setPaystackConfigLoading] = useState(() => !import.meta.env.VITE_PAYSTACK_PUBLIC_KEY);
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
     const w = window.innerWidth;
@@ -147,6 +150,23 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
   useEffect(() => {
     api.getBundles().then((b) => setBundlesData(b)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY) return;
+    let cancelled = false;
+    api
+      .getPublicConfig()
+      .then((c) => {
+        if (!cancelled && c?.paystackPublicKey) setPaystackPublicKey(String(c.paystackPublicKey).trim());
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setPaystackConfigLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /** After Paystack redirect, URL contains ?reference=… — verify and credit wallet */
@@ -1961,9 +1981,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             <div className={`rounded-xl sm:rounded-2xl p-5 sm:p-6 mb-5 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Up Wallet</h2>
               <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
-                {import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                {paystackPublicKey
                   ? 'Enter an amount, then continue — you will be taken to Paystack to pay. After payment you return here and your balance updates automatically.'
-                  : 'Enter an amount and continue to complete your payment (dev mode: instant balance without Paystack).'}
+                  : 'Enter an amount and continue to complete your payment (instant balance only when the server has no Paystack keys).'}
               </p>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
               <input
@@ -1984,7 +2004,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               {topUpError && <p className="text-sm text-red-500 mt-2">{topUpError}</p>}
               <button
                 type="button"
-                disabled={topUpBusy}
+                disabled={topUpBusy || paystackConfigLoading}
                 onClick={async () => {
                   const amt = parseFloat(topUpAmount);
                   if (!Number.isFinite(amt) || amt < 10) {
@@ -1994,7 +2014,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   setTopUpError(null);
                   setTopUpSuccess(null);
                   setTopUpBusy(true);
-                  const pk = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+                  const pk = paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
                   try {
                     if (pk) {
                       const init = await api.initPaystackWalletTopUp(amt);
@@ -2020,10 +2040,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`w-full mt-4 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
                 {topUpBusy
-                  ? import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                  ? paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
                     ? 'Contacting server…'
                     : 'Please wait…'
-                  : import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                  : paystackPublicKey || import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
                     ? 'Continue to Paystack'
                     : 'Top Up'}
               </button>
