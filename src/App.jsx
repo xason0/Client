@@ -936,13 +936,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setCurrentPage('profile');
       setProfileOpen(false);
     } else if (menu === 'dashboard') {
-      if (showAdminNav) {
-        navigate('/admin');
-        setCurrentPage('admin-analytics');
-        setSelectedMenu('admin-analytics');
-      } else {
-        setCurrentPage('dashboard');
-      }
+      setCurrentPage('dashboard');
       setProfileOpen(false);
     } else if (menu === 'wallet' || menu === 'topup') {
       setCurrentPage('topup');
@@ -1408,7 +1402,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
           <nav className="space-y-1.5">
-            <MenuItem id={showAdminNav ? 'admin-analytics' : 'dashboard'} icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
+            <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
             {!showAdminNav && <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />}
             {!showAdminNav && <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />}
             {!showAdminNav && (
@@ -1441,7 +1435,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 )}
               </div>
             )}
-            {!showAdminNav && <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />}
+            <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
             {!showAdminNav && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
             {showAdminNav && (
               <>
@@ -2683,7 +2677,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     <>
                       <button
                         type="button"
-                        onClick={() => { navigate('/admin'); setCurrentPage('admin-analytics'); setSelectedMenu('admin-analytics'); }}
+                        onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
                         className={`inline-flex items-center gap-2 text-sm font-medium mb-3 transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
