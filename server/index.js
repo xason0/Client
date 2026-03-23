@@ -242,6 +242,7 @@ function computeStats(db) {
     .filter((t) => t.type === 'payment' && t.amount < 0 && Date.parse(t.created_at) >= startToday)
     .reduce((s, t) => s + Math.abs(t.amount), 0);
   const dailyNetFlow = dailyTopUps - dailyPaymentsOut;
+  const totalWalletBalance = users.reduce((s, u) => s + (Number(u.balance) || 0), 0);
 
   return {
     userCount: users.length,
@@ -258,6 +259,7 @@ function computeStats(db) {
     dailyTransactionCount: txs.filter((t) => Date.parse(t.created_at) >= startToday).length,
     dailyNetFlow,
     dailyTopUps,
+    totalWalletBalance,
   };
 }
 

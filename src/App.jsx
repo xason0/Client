@@ -106,6 +106,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminWalletsLoading, setAdminWalletsLoading] = useState(false);
   const [adminWalletsError, setAdminWalletsError] = useState(null);
   const [adminWalletsSearch, setAdminWalletsSearch] = useState('');
+  const [adminTotalWalletBalance, setAdminTotalWalletBalance] = useState(0);
   const [agentApplications, setAgentApplications] = useState([]);
   const [agentApplicationsLoading, setAgentApplicationsLoading] = useState(false);
   const [agentApplicationsError, setAgentApplicationsError] = useState(null);
@@ -297,7 +298,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [token]);
 
   useEffect(() => {
-    if ((currentPage === 'topup' || currentPage === 'transactions') && api.getToken()) {
+    if ((currentPage === 'topup' || currentPage === 'transactions' || currentPage === 'dashboard') && api.getToken()) {
       api.getTransactions()
         .then(setTransactions)
         .catch((e) => {
@@ -308,7 +309,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [currentPage]);
 
   useEffect(() => {
-    if (currentPage === 'orders' && api.getToken()) {
+    if ((currentPage === 'orders' || currentPage === 'dashboard') && api.getToken()) {
       setOrdersLoading(true);
       api.getOrders()
         .then((list) => setOrders(Array.isArray(list) ? list : []))
@@ -342,16 +343,23 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (currentPage === 'admin-analytics' && hasAdminAccess) {
       setAdminStatsLoading(true);
       setAdminStatsError(null);
-      Promise.all([api.getAdminStats(), api.getAdminUsers()])
-        .then(([stats, users]) => {
+      Promise.all([api.getAdminStats(), api.getAdminUsers(), api.getAdminWallets()])
+        .then(([stats, users, wallets]) => {
           setAdminStats(stats);
           setAdminUsers(Array.isArray(users) ? users : []);
+          const walletTotal = (Array.isArray(wallets) ? wallets : []).reduce((sum, w) => {
+            const raw = w?.balance;
+            const parsed = typeof raw === 'number' ? raw : parseFloat(raw);
+            return sum + (Number.isFinite(parsed) ? parsed : 0);
+          }, 0);
+          setAdminTotalWalletBalance(walletTotal);
         })
         .catch((err) => {
           const msg = err?.message || 'Failed to load admin data';
           setAdminStatsError(msg);
           setAdminStats(null);
           setAdminUsers([]);
+          setAdminTotalWalletBalance(0);
           const isTokenInvalid = /invalid|expired|token|unauthorized|401|403/i.test(msg);
           if (isTokenInvalid) {
             api.clearAdminToken();
@@ -537,6 +545,39 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       statusLabel,
     };
   };
+  const userTodayStats = (() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const startMs = start.getTime();
+    const isToday = (value) => {
+      const t = Date.parse(value || '');
+      return Number.isFinite(t) && t >= startMs;
+    };
+    const todayOrders = (orders || []).filter((o) => isToday(o.created_at));
+    const todaySpent = (transactions || []).reduce((sum, t) => {
+      if (!isToday(t.created_at)) return sum;
+      const rawAmount = t.amount ?? t.bundle_price ?? t.price ?? t.value;
+      const parsed = typeof rawAmount === 'number' ? rawAmount : parseFloat(rawAmount);
+      if (!Number.isFinite(parsed) || parsed >= 0) return sum;
+      return sum + Math.abs(parsed);
+    }, 0);
+    const amount = todayOrders.reduce((sum, o) => {
+      const p = typeof o.bundle_price === 'number' ? o.bundle_price : parseFloat(o.bundle_price);
+      return sum + (Number.isFinite(p) ? p : 0);
+    }, 0);
+    const bundles = todayOrders.reduce((sum, o) => {
+      const rawSize = String(o.bundle_size || o.bundle || o.data_bundle || '').trim();
+      const match = rawSize.match(/(\d+(\.\d+)?)/);
+      const parsed = match ? parseFloat(match[1]) : NaN;
+      return sum + (Number.isFinite(parsed) ? parsed : 0);
+    }, 0);
+    return {
+      spent: todaySpent,
+      orders: todayOrders.length,
+      amount,
+      bundles,
+    };
+  })();
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
 
   const validGhanaPrefixes = ['020', '024', '026', '027', '054', '055', '059'];
@@ -1866,7 +1907,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   </div>
                   <div className="min-w-0">
                     <p className={`text-sm ${isDark ? 'text-white/70' : 'text-neutral-400'}`}>Today's Spent</p>
-                    <p className="text-xl sm:text-3xl font-bold truncate">¢ 0.00</p>
+                    <p className="text-xl sm:text-3xl font-bold truncate">¢ {userTodayStats.spent.toFixed(2)}</p>
                   </div>
                 </div>
               </div>
@@ -1881,13 +1922,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
             <div className="rounded-xl sm:rounded-2xl p-5 sm:p-7 mb-5 sm:mb-6 bg-black text-white">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-                {['Wallet Balance', "Today's Orders", "Today's Amount", "Today's Bundle"].map((label, i) => (
-                  <div key={i} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} border-white/10`}>
+                {[
+                  { label: 'Wallet Balance', value: `¢ ${walletBalance.toFixed(2)}` },
+                  { label: "Today's Orders", value: String(userTodayStats.orders) },
+                  { label: "Today's Amount", value: `¢ ${userTodayStats.amount.toFixed(2)}` },
+                  { label: "Today's Bundle", value: `${userTodayStats.bundles} GB` },
+                ].map((item, i) => (
+                  <div key={item.label} className={`text-center ${i < 2 ? 'pb-4 sm:pb-6 border-b md:border-b-0 md:pb-0' : 'pt-4 sm:pt-6'} ${i < 3 ? 'md:border-r' : ''} border-white/10`}>
                     <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-full flex items-center justify-center mx-auto mb-3 bg-white/10">
                       <Svg.Wallet stroke="#ffffff" />
                     </div>
-                    <p className="text-sm font-medium opacity-80">{label}</p>
-                    <p className="text-lg sm:text-xl font-bold">{i === 0 ? `¢ ${walletBalance.toFixed(2)}` : i === 1 ? '0' : i === 2 ? '¢ 0.00' : '0 GB'}</p>
+                    <p className="text-sm font-medium opacity-80">{item.label}</p>
+                    <p className="text-lg sm:text-xl font-bold">{item.value}</p>
                   </div>
                 ))}
               </div>
@@ -4000,6 +4046,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       { label: 'Completed', value: adminStats.completedOrders ?? 0, key: 'completed' },
                       { label: 'Revenue (¢)', value: Number(adminStats.totalRevenue ?? 0).toFixed(2), key: 'revenue' },
                       { label: 'Top-ups / credits (¢)', value: Number(adminStats.totalTopUps ?? 0).toFixed(2), key: 'topups' },
+                      { label: 'Total wallet balance (¢)', value: Number(adminTotalWalletBalance ?? 0).toFixed(2), key: 'walletBal' },
                       { label: 'Data packages sold', value: adminStats.orderCount ?? 0, key: 'packages' },
                       { label: 'Admins', value: adminStats.adminCount ?? 0, key: 'admins' },
                     ].map(({ label, value, key }) => (
