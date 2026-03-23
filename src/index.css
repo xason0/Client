@@ -3,6 +3,51 @@
 @tailwind components;
 @tailwind utilities;
 
+.telesopy-chat-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.telesopy-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.telesopy-grid-btn-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.telesopy-sidebar-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.telesopy-sidebar-btn:hover {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.telesopy-chat-bar-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
