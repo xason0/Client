@@ -735,6 +735,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     // Do NOT redirect non-admin users away from /admin — they can still enter the admin PIN to get access.
   }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate, currentPage]);
 
+  /** Leaving /admin must drop admin-only pages from state; PIN sessions are not admin UI on `/`. */
+  useEffect(() => {
+    if (location.pathname === '/admin') return;
+    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
+    setCurrentPage((p) => (adminPages.includes(p) ? 'dashboard' : p));
+    setSelectedMenu((m) => (adminPages.includes(m) ? 'dashboard' : m));
+  }, [location.pathname]);
+
   const toggleSidebar = () => setSidebarOpen((prev) => !prev);
   const toggleProfile = () => setProfileOpen((prev) => !prev);
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
@@ -2237,7 +2245,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             );
           })()
-        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(currentPage) && (adminRoute || adminPinVerified || (isSignedIn && user?.role === 'admin'))) ? (
+        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
           <>
             {(() => {
               const adminPageTitles = {
