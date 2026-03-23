@@ -288,12 +288,30 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     }
     const raw = String(value).trim();
     if (!raw) return NaN;
-    if (/^\d{10,13}$/.test(raw)) {
+    if (/^\d{10,16}$/.test(raw)) {
       const asNum = Number(raw);
-      if (Number.isFinite(asNum)) return raw.length <= 10 ? asNum * 1000 : asNum;
+      if (Number.isFinite(asNum)) {
+        if (raw.length <= 10) return asNum * 1000;
+        if (raw.length === 13) return asNum;
+        if (raw.length > 13) return Math.floor(asNum / (10 ** (raw.length - 13)));
+      }
     }
     const parsed = Date.parse(raw);
     return Number.isFinite(parsed) ? parsed : NaN;
+  };
+
+  const parseTimestampFromText = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return NaN;
+    const matches = raw.match(/\d{10,16}/g) || [];
+    for (const token of matches) {
+      const ms = parseTimestampMs(token);
+      if (!Number.isFinite(ms)) continue;
+      if (ms < Date.parse('2019-01-01T00:00:00.000Z')) continue;
+      if (ms > Date.now() + 7 * 86400000) continue;
+      return ms;
+    }
+    return NaN;
   };
 
   const getOrderCreatedAtIso = (order) => {
@@ -308,6 +326,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     ];
     for (const value of candidates) {
       const ms = parseTimestampMs(value);
+      if (Number.isFinite(ms)) return new Date(ms).toISOString();
+    }
+    const referenceCandidates = [
+      order.reference,
+      order.payment_reference,
+      order.paystack_reference,
+      order.transaction_reference,
+      order.ref,
+      order.order_ref,
+    ];
+    for (const value of referenceCandidates) {
+      const ms = parseTimestampFromText(value);
       if (Number.isFinite(ms)) return new Date(ms).toISOString();
     }
     return null;
