@@ -84,6 +84,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [orderHistorySearch, setOrderHistorySearch] = useState('');
   const [orderDateFilter, setOrderDateFilter] = useState('Today');
+  const [orderCustomStart, setOrderCustomStart] = useState('');
+  const [orderCustomEnd, setOrderCustomEnd] = useState('');
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [transactionDateFilter, setTransactionDateFilter] = useState('Today');
@@ -2463,6 +2465,37 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           </>
         ) : currentPage === 'orders' ? (
           (() => {
+            const now = new Date();
+            const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            const getOrderRange = () => {
+              if (orderDateFilter === 'Today') {
+                const s = startOfDay(now);
+                return { start: s.getTime(), end: now.getTime() + 86400000 };
+              }
+              if (orderDateFilter === 'Yesterday') {
+                const s = startOfDay(now);
+                return { start: s.getTime() - 86400000, end: s.getTime() };
+              }
+              if (orderDateFilter === 'Last 7 Days') {
+                return { start: now.getTime() - 7 * 86400000, end: now.getTime() + 86400000 };
+              }
+              if (orderDateFilter === 'This Month') {
+                const s = new Date(now.getFullYear(), now.getMonth(), 1);
+                return { start: s.getTime(), end: now.getTime() + 86400000 };
+              }
+              if (orderDateFilter === 'Custom' && orderCustomStart && orderCustomEnd) {
+                const start = new Date(orderCustomStart).getTime();
+                const end = new Date(orderCustomEnd).getTime() + 86400000;
+                return { start, end };
+              }
+              return { start: 0, end: Infinity };
+            };
+            const { start, end } = getOrderRange();
+            const inRange = (iso) => {
+              const t = Date.parse(iso || '');
+              if (!Number.isFinite(t)) return false;
+              return t >= start && t < end;
+            };
             const formatOrderDate = (iso) => {
               const d = new Date(iso);
               return { date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) };
@@ -2489,9 +2522,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 (o.network && o.network.toLowerCase().includes(searchLower)) ||
                 (o.bundleSize && o.bundleSize.toLowerCase().includes(searchLower));
             };
-            const completedOrders = normalized.filter((o) => o.status === 'Completed');
+            const rangedOrders = normalized.filter((o) => inRange(o.dateIso));
+            const completedOrders = rangedOrders.filter((o) => o.status === 'Completed');
             const filteredHistory = completedOrders.filter(bySearch);
-            const ordersToShow = normalized.filter(byStatus).filter(bySearch);
+            const ordersToShow = rangedOrders.filter(byStatus).filter(bySearch);
 
             return (
               <>
@@ -2512,6 +2546,32 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 </div>
 
                 <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>View order status and your completed order history.</p>
+
+                <div className={`flex flex-wrap gap-2 mb-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>
+                  {['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom'].map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setOrderDateFilter(label)}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${orderDateFilter === label ? (isDark ? 'bg-white text-black' : 'bg-black text-white') : isDark ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {orderDateFilter === 'Custom' && (
+                  <div className={`flex flex-wrap items-center gap-3 mb-4 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>
+                    <label className="flex items-center gap-2 text-sm">
+                      From
+                      <input type="date" value={orderCustomStart} onChange={(e) => setOrderCustomStart(e.target.value)} className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-slate-200 text-slate-900'}`} />
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      To
+                      <input type="date" value={orderCustomEnd} onChange={(e) => setOrderCustomEnd(e.target.value)} className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-black border-white/20 text-white' : 'bg-white border-slate-200 text-slate-900'}`} />
+                    </label>
+                  </div>
+                )}
 
                 <div className={`relative flex gap-0.5 p-0.5 rounded-2xl mb-5 sm:mb-6 overflow-hidden ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`} role="tablist" aria-label="Order status filter">
                   {['all', 'processing', 'completed', 'failed'].map((status) => {
