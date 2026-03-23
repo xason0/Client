@@ -2294,6 +2294,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             className={`rounded-xl border p-4 sm:p-5 transition-colors ${
                               isFailed
                                 ? (isDark ? 'bg-red-500/10 border-red-500/40 hover:bg-red-500/15' : 'bg-red-50 border-red-200 hover:border-red-300')
+                                : isCompleted
+                                  ? (isDark ? 'bg-emerald-500/10 border-emerald-500/35 hover:bg-emerald-500/15' : 'bg-emerald-50 border-emerald-200 hover:border-emerald-300')
                                 : isDark
                                   ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.06]'
                                   : 'bg-white border-slate-200 hover:border-slate-300'
@@ -2313,7 +2315,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 {isCompleted ? (
-                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-white/15 text-white/90' : 'bg-slate-200 text-slate-800'}`}>
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}>
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                                     Completed
                                   </span>
@@ -2325,7 +2327,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <span className="text-xs font-medium text-green-600 dark:text-green-400">Processing</span>
                                 )}
                                 <span className={`font-semibold ${
-                                  isFailed ? (isDark ? 'text-red-200' : 'text-red-700') : (isDark ? 'text-white' : 'text-slate-900')
+                                  isFailed
+                                    ? (isDark ? 'text-red-200' : 'text-red-700')
+                                    : isCompleted
+                                      ? (isDark ? 'text-emerald-300' : 'text-emerald-700')
+                                      : (isDark ? 'text-white' : 'text-slate-900')
                                 }`}>¢ {order.amount}</span>
                               </div>
                             </div>
