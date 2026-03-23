@@ -82,6 +82,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [transactionDateFilter, setTransactionDateFilter] = useState('Today');
   const [transactionCustomStart, setTransactionCustomStart] = useState('');
   const [transactionCustomEnd, setTransactionCustomEnd] = useState('');
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState('All Types');
+  const [transactionStatusFilter, setTransactionStatusFilter] = useState('All Status');
   const [transactionSearch, setTransactionSearch] = useState('');
   const [adminStats, setAdminStats] = useState(null);
   const [adminStatsLoading, setAdminStatsLoading] = useState(false);
@@ -1825,18 +1827,61 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             };
             const { start, end } = getRange();
             const searchLower = transactionSearch.trim().toLowerCase();
+            const normalizeStatus = (raw) => {
+              const s = String(raw || '').trim().toLowerCase();
+              if (!s) return 'completed';
+              if (['success', 'successful', 'completed', 'complete', 'done', 'paid'].includes(s)) return 'completed';
+              if (['pending', 'processing', 'in-progress', 'queued'].includes(s)) return 'pending';
+              if (['failed', 'error', 'rejected', 'cancelled', 'canceled'].includes(s)) return 'failed';
+              return s;
+            };
+            const typeLabel = (t) => {
+              const typ = String(t.type || '').toLowerCase();
+              if (typ === 'topup') return 'Credit';
+              if (typ === 'payment') return 'Order payment';
+              return t.type || '—';
+            };
+            const modeLabel = (t) => {
+              if (t.mode) return String(t.mode);
+              const ref = String(t.reference || '').toUpperCase();
+              if (ref.startsWith('WT-') || ref.startsWith('PAYSTACK') || ref.startsWith('PS-')) return 'Paystack';
+              if (ref.startsWith('TOPUP-') || ref.startsWith('ADMIN-') || ref.startsWith('DP-')) return 'Wallet';
+              if (String(t.type || '').toLowerCase() === 'topup') return 'Wallet';
+              return 'Wallet';
+            };
+            const narrationLabel = (t) =>
+              (t.description || t.narration || t.note || (String(t.type || '').toLowerCase() === 'topup' ? 'Wallet top-up' : 'Order payment')).toString();
+            const txStatusLabel = (t) => {
+              const s = normalizeStatus(t.status);
+              return s.charAt(0).toUpperCase() + s.slice(1);
+            };
+
             const filtered = transactions.filter((t) => {
               const tTime = t.created_at ? new Date(t.created_at).getTime() : 0;
               if (tTime < start || tTime >= end) return false;
+              if (transactionTypeFilter !== 'All Types' && typeLabel(t) !== transactionTypeFilter) return false;
+              if (transactionStatusFilter !== 'All Status' && txStatusLabel(t) !== transactionStatusFilter) return false;
               if (!searchLower) return true;
-              const type = (t.type || '').toLowerCase();
+              const type = typeLabel(t).toLowerCase();
+              const mode = modeLabel(t).toLowerCase();
+              const narration = narrationLabel(t).toLowerCase();
+              const status = txStatusLabel(t).toLowerCase();
               const ref = (t.reference || '').toLowerCase();
               const amt = String(t.amount || '');
-              return type.includes(searchLower) || ref.includes(searchLower) || amt.includes(searchLower);
+              return (
+                type.includes(searchLower) ||
+                mode.includes(searchLower) ||
+                narration.includes(searchLower) ||
+                status.includes(searchLower) ||
+                ref.includes(searchLower) ||
+                amt.includes(searchLower)
+              );
             });
-            const typeLabel = (t) => (t.type === 'topup' ? 'Top-up' : t.type === 'payment' ? 'Payment' : t.type || '—');
-            const modeLabel = (t) => (t.reference || (t.type === 'topup' ? 'Paystack' : 'Wallet'));
-            const narrationLabel = (t) => (t.reference || (t.type === 'topup' ? 'Wallet top-up' : 'Bundle purchase'));
+            const creditsTotal = filtered.filter((t) => Number(t.amount) > 0).reduce((s, t) => s + (Number(t.amount) || 0), 0);
+            const debitsTotal = filtered.filter((t) => Number(t.amount) < 0).reduce((s, t) => s + Math.abs(Number(t.amount) || 0), 0);
+            const creditsCount = filtered.filter((t) => Number(t.amount) > 0).length;
+            const debitsCount = filtered.filter((t) => Number(t.amount) < 0).length;
+            const net = creditsTotal - debitsTotal;
 
             const openPrintView = () => {
               const win = window.open('', '_blank', 'width=800,height=600');
@@ -1850,7 +1895,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   const d = t.created_at ? new Date(t.created_at).toLocaleString() : '—';
                   const amt = t.amount >= 0 ? `+¢ ${t.amount.toFixed(2)}` : `−¢ ${Math.abs(t.amount).toFixed(2)}`;
                   const amtClass = t.amount >= 0 ? 'amount--pos' : 'amount--neg';
-                  return `<tr><td>${d}</td><td>${typeLabel(t)}</td><td>${narrationLabel(t)}</td><td>${modeLabel(t)}</td><td class="${amtClass}">${amt}</td><td>Completed</td></tr>`;
+                  return `<tr><td>${d}</td><td>${typeLabel(t)}</td><td>${narrationLabel(t)}</td><td>${modeLabel(t)}</td><td class="${amtClass}">${amt}</td><td>${txStatusLabel(t)}</td></tr>`;
                 }).join('')}
                 </tbody></table></body></html>`);
               win.document.close();
@@ -1915,6 +1960,48 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   />
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <select
+                    value={transactionTypeFilter}
+                    onChange={(e) => setTransactionTypeFilter(e.target.value)}
+                    className={`w-full px-4 py-3 rounded-xl border text-sm ${isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                    aria-label="Filter transaction type"
+                  >
+                    <option>All Types</option>
+                    <option>Credit</option>
+                    <option>Order payment</option>
+                  </select>
+                  <select
+                    value={transactionStatusFilter}
+                    onChange={(e) => setTransactionStatusFilter(e.target.value)}
+                    className={`w-full px-4 py-3 rounded-xl border text-sm ${isDark ? 'bg-black/30 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                    aria-label="Filter transaction status"
+                  >
+                    <option>All Status</option>
+                    <option>Completed</option>
+                    <option>Pending</option>
+                    <option>Failed</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <p className={`text-xs uppercase tracking-wide ${isDark ? 'text-emerald-200/80' : 'text-emerald-700'}`}>Credits</p>
+                    <p className={`text-2xl font-bold ${isDark ? 'text-emerald-200' : 'text-emerald-700'}`}>¢ {creditsTotal.toFixed(2)}</p>
+                    <p className={`text-xs ${isDark ? 'text-emerald-200/70' : 'text-emerald-700/80'}`}>Count: {creditsCount}</p>
+                  </div>
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50 border-amber-200'}`}>
+                    <p className={`text-xs uppercase tracking-wide ${isDark ? 'text-amber-200/80' : 'text-amber-700'}`}>Debits</p>
+                    <p className={`text-2xl font-bold ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>¢ {debitsTotal.toFixed(2)}</p>
+                    <p className={`text-xs ${isDark ? 'text-amber-200/70' : 'text-amber-700/80'}`}>Count: {debitsCount}</p>
+                  </div>
+                  <div className={`rounded-xl p-4 border ${isDark ? 'bg-violet-500/10 border-violet-500/20' : 'bg-violet-50 border-violet-200'}`}>
+                    <p className={`text-xs uppercase tracking-wide ${isDark ? 'text-violet-200/80' : 'text-violet-700'}`}>Net</p>
+                    <p className={`text-2xl font-bold ${net >= 0 ? (isDark ? 'text-violet-200' : 'text-violet-700') : (isDark ? 'text-red-300' : 'text-red-600')}`}>¢ {net.toFixed(2)}</p>
+                    <p className={`text-xs ${isDark ? 'text-violet-200/70' : 'text-violet-700/80'}`}>{transactionDateFilter}</p>
+                  </div>
+                </div>
+
                 <div className="flex justify-end mb-4">
                   <button
                     type="button"
@@ -1952,7 +2039,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               <td className={`py-3 px-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{narrationLabel(t)}</td>
                               <td className={`py-3 px-4 ${isDark ? 'text-white/80' : 'text-slate-600'}`}>{modeLabel(t)}</td>
                               <td className={`py-3 px-4 text-right font-medium ${t.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>{t.amount >= 0 ? '+' : ''}¢ {Math.abs(t.amount).toFixed(2)}</td>
-                              <td className={`py-3 px-4 ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Completed</td>
+                              <td className={`py-3 px-4 ${txStatusLabel(t) === 'Completed' ? 'text-emerald-500' : txStatusLabel(t) === 'Pending' ? 'text-amber-500' : 'text-red-500'}`}>{txStatusLabel(t)}</td>
                             </tr>
                           ))}
                         </tbody>

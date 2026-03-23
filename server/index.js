@@ -269,6 +269,8 @@ function txForClient(t) {
     reference: t.reference || '',
     created_at: t.created_at,
     status: t.status || 'completed',
+    description: t.description || '',
+    narration: t.description || '',
   };
 }
 
@@ -285,6 +287,8 @@ function txForAdmin(t) {
     narration: t.description || '',
     created_at: t.created_at,
     status: t.status || 'completed',
+    description: t.description || '',
+    narration: t.description || '',
   };
 }
 
