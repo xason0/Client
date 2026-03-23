@@ -235,10 +235,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
   const clearSession = () => {
     api.setToken(null);
+    api.clearAdminToken();
     setToken(null);
     setIsSignedIn(false);
+    setAdminPinVerified(false);
     setUser(null);
     setWalletBalance(0);
+    setCurrentPage('dashboard');
+    setSelectedMenu('dashboard');
+    setProfileOpen(false);
+    setSidebarOpen(false);
     localStorage.removeItem('dataplus_signed_in');
   };
 
@@ -3798,13 +3804,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             <button
               type="button"
               onClick={() => {
-                api.setToken(null);
-                setToken(null);
-                setUser(null);
-                setIsSignedIn(false);
-                setProfileOpen(false);
-                setWalletBalance(0);
-                localStorage.removeItem('dataplus_signed_in');
+                clearSession();
               }}
               className="w-full flex items-center gap-3 py-2.5 px-3 rounded-lg text-base transition-colors text-red-500 hover:bg-red-500/10 font-medium"
             >
