@@ -153,6 +153,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminPackagesNetwork, setAdminPackagesNetwork] = useState('mtn');
   const [editingBundle, setEditingBundle] = useState(null);
   const [editBundleForm, setEditBundleForm] = useState({ size: '', price: 0 });
+  const [ultraxasChatInput, setUltraxasChatInput] = useState('');
+  const [ultraxasChatSending, setUltraxasChatSending] = useState(false);
+  const [ultraxasChatMessages, setUltraxasChatMessages] = useState([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      text: 'Welcome to ULTRAXAS MODE chat. Ask about orders, bundles, wallets, or admin actions.',
+    },
+  ]);
   const [headerShowWelcome, setHeaderShowWelcome] = useState(true);
   const adminLogoInputRef = useRef(null);
   const headerWelcomeEnteredAtRef = useRef(null);
@@ -372,6 +381,28 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       .catch((e) => {
         if (/unauthorized|expired|401/i.test(String(e?.message || ''))) clearSession();
       });
+  };
+
+  const sendUltraxasChatMessage = async () => {
+    const text = ultraxasChatInput.trim();
+    if (!text || ultraxasChatSending) return;
+    const userMsg = { id: `u-${Date.now()}`, role: 'user', text };
+    setUltraxasChatMessages((prev) => [...prev, userMsg]);
+    setUltraxasChatInput('');
+    setUltraxasChatSending(true);
+    try {
+      // Keep the same chatbox experience in ULTRAXAS MODE even without an AI endpoint in this app.
+      await new Promise((r) => setTimeout(r, 350));
+      const lower = text.toLowerCase();
+      let reply = 'Received. You can manage this in ULTRAXAS MODE from Orders, Data Packages, Wallet, and Users.';
+      if (lower.includes('order')) reply = 'For orders, open Order Management to update status and track processing/completed rows.';
+      else if (lower.includes('package') || lower.includes('bundle')) reply = 'For packages, use Data Packages. Edits there update what users see.';
+      else if (lower.includes('wallet')) reply = 'For wallets, use Wallet Management to credit/debit and review balances.';
+      else if (lower.includes('user')) reply = 'For users and roles, open User Management in the sidebar.';
+      setUltraxasChatMessages((prev) => [...prev, { id: `a-${Date.now()}`, role: 'assistant', text: reply }]);
+    } finally {
+      setUltraxasChatSending(false);
+    }
   };
 
   useEffect(() => {
@@ -4347,6 +4378,52 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
               </>
             ) : null}
+
+            {currentPage === 'admin' && (
+              <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                <div className={`px-4 sm:px-5 py-3 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <h3 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>X2S2 Chatbox</h3>
+                  <p className={`text-sm ${isDark ? 'text-white/60' : 'text-slate-500'}`}>Same chat-style control panel inside ULTRAXAS MODE.</p>
+                </div>
+                <div className={`h-[340px] sm:h-[420px] overflow-y-auto px-4 py-3 space-y-2 ${isDark ? 'bg-black/20' : 'bg-slate-50/70'}`}>
+                  {ultraxasChatMessages.map((m) => (
+                    <div key={m.id} className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user' ? 'ml-auto bg-blue-600 text-white' : (isDark ? 'bg-white/10 text-white' : 'bg-white border border-slate-200 text-slate-800')}`}>
+                      {m.text}
+                    </div>
+                  ))}
+                  {ultraxasChatSending && (
+                    <div className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${isDark ? 'bg-white/10 text-white/80' : 'bg-white border border-slate-200 text-slate-600'}`}>
+                      Typing...
+                    </div>
+                  )}
+                </div>
+                <div className={`p-3 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={ultraxasChatInput}
+                      onChange={(e) => setUltraxasChatInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          sendUltraxasChatMessage();
+                        }
+                      }}
+                      placeholder="Ask in ULTRAXAS MODE..."
+                      className={`flex-1 px-3 py-2.5 rounded-xl border text-sm ${isDark ? 'bg-black border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    />
+                    <button
+                      type="button"
+                      onClick={sendUltraxasChatMessage}
+                      disabled={ultraxasChatSending || !ultraxasChatInput.trim()}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-semibold ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'} disabled:opacity-50`}
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <>
