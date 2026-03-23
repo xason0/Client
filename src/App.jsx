@@ -5188,6 +5188,104 @@ function AdminPinPage({ isDark, onVerified, appSettings }) {
   );
 }
 
+/** Password-field mascot: hands move up to cover eyes while typing; eyes open when paused. */
+function AuthPeekFace({ covered }) {
+  return (
+    <svg viewBox="0 0 100 100" className="w-[88px] h-[88px] drop-shadow-lg" aria-hidden>
+      <defs>
+        <linearGradient id="peekFace" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#FFDB5C" />
+          <stop offset="100%" stopColor="#F5AB35" />
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="44" fill="url(#peekFace)" stroke="#E5A842" strokeWidth="1.2" />
+      <g style={{ opacity: covered ? 0 : 1, transition: 'opacity 0.22s ease' }}>
+        <ellipse cx="38" cy="42" rx="7.5" ry="9" fill="white" />
+        <ellipse cx="62" cy="42" rx="7.5" ry="9" fill="white" />
+        <ellipse cx="38" cy="44" rx="4" ry="5" fill="#292F33" />
+        <ellipse cx="62" cy="44" rx="4" ry="5" fill="#292F33" />
+        <ellipse cx="37" cy="43" rx="1.2" ry="1.2" fill="white" opacity="0.9" />
+        <ellipse cx="61" cy="43" rx="1.2" ry="1.2" fill="white" opacity="0.9" />
+      </g>
+      <g style={{ opacity: covered ? 1 : 0, transition: 'opacity 0.2s ease' }}>
+        <path d="M31 44 Q37 40 43 44" stroke="#292F33" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+        <path d="M57 44 Q63 40 69 44" stroke="#292F33" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      </g>
+      <path
+        d="M36 62 Q50 72 64 62"
+        stroke="#292F33"
+        strokeWidth="2.5"
+        fill="none"
+        strokeLinecap="round"
+        style={{ opacity: covered ? 0.55 : 1, transition: 'opacity 0.2s' }}
+      />
+      <g style={{ transformOrigin: '50px 50px' }}>
+        <g
+          style={{
+            transform: covered ? 'translate(-10px, -40px) rotate(-18deg)' : 'translate(0, 0) rotate(0deg)',
+            transformOrigin: '28px 76px',
+            transformBox: 'fill-box',
+            transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}
+        >
+          <ellipse cx="28" cy="76" rx="14" ry="18" fill="#E8A74A" stroke="#C48E2F" strokeWidth="0.8" />
+        </g>
+        <g
+          style={{
+            transform: covered ? 'translate(10px, -40px) rotate(18deg)' : 'translate(0, 0) rotate(0deg)',
+            transformOrigin: '72px 76px',
+            transformBox: 'fill-box',
+            transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}
+        >
+          <ellipse cx="72" cy="76" rx="14" ry="18" fill="#E8A74A" stroke="#C48E2F" strokeWidth="0.8" />
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+/** Banned/deleted error: face stays angry; ramps up shake + steam while user types. */
+function AuthAngryFace({ rageTyping }) {
+  return (
+    <svg viewBox="0 0 100 100" className={`w-[88px] h-[88px] drop-shadow-lg ${rageTyping ? 'auth-angry-rage' : ''}`} aria-hidden>
+      <defs>
+        <linearGradient id="angryFace" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#FF6B6B" />
+          <stop offset="100%" stopColor="#C62828" />
+        </linearGradient>
+      </defs>
+      <g className="auth-angry-face-root">
+        {rageTyping && (
+          <g className="auth-angry-steam" opacity="0.85">
+            <path d="M30 18 Q24 8 30 0" stroke="#B0BEC5" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+            <path d="M50 20 Q44 10 50 0" stroke="#B0BEC5" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+            <path d="M70 18 Q76 8 70 0" stroke="#B0BEC5" strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          </g>
+        )}
+        <circle cx="50" cy="52" r="44" fill="url(#angryFace)" stroke="#8E0000" strokeWidth="1.4" />
+        <path d="M24 28 L38 38 L34 22 Z" fill="#4A0000" />
+        <path d="M76 28 L62 38 L66 22 Z" fill="#4A0000" />
+        <path d="M26 28 L42 36" stroke="#2A0000" strokeWidth="4" strokeLinecap="round" />
+        <path d="M74 28 L58 36" stroke="#2A0000" strokeWidth="4" strokeLinecap="round" />
+        <ellipse cx="36" cy="46" rx="9" ry="6" fill="white" />
+        <ellipse cx="64" cy="46" rx="9" ry="6" fill="white" />
+        <ellipse cx="37" cy="46" rx="3.5" ry="4" fill="#1a1a1a" />
+        <ellipse cx="63" cy="46" rx="3.5" ry="4" fill="#1a1a1a" />
+        <path d="M30 68 Q50 56 70 68" stroke="#2A0000" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        <path d="M34 68 L38 74 M42 68 L46 74 M46 68 L50 74 M54 68 L58 74 M58 68 L62 74" stroke="#2A0000" strokeWidth="2.5" strokeLinecap="round" />
+        {rageTyping && (
+          <g className="auth-angry-sparks">
+            <path d="M18 48 L20 52 L16 52 Z" fill="#FFD54F" />
+            <path d="M82 44 L80 48 L84 48 Z" fill="#FFD54F" />
+            <path d="M50 78 L48 74 L52 74 Z" fill="#FFD54F" />
+          </g>
+        )}
+      </g>
+    </svg>
+  );
+}
+
 function SignInPage({ isDark, onSignIn, appSettings }) {
   const [mode, setMode] = useState('signin'); // 'signin' | 'register'
   const [fullName, setFullName] = useState('');
@@ -5200,16 +5298,15 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const [authEmojiMode, setAuthEmojiMode] = useState('idle'); // idle | typing | angry
-  const passwordEmojiTimerRef = useRef(null);
-  const passwordDoneTimerRef = useRef(null);
+  const [authEmojiMode, setAuthEmojiMode] = useState('idle'); // idle | angry
+  const [isPasswordTyping, setIsPasswordTyping] = useState(false);
+  const passwordTypingTimerRef = useRef(null);
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
   const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
 
   useEffect(() => () => {
-    if (passwordEmojiTimerRef.current) clearTimeout(passwordEmojiTimerRef.current);
-    if (passwordDoneTimerRef.current) clearTimeout(passwordDoneTimerRef.current);
+    if (passwordTypingTimerRef.current) clearTimeout(passwordTypingTimerRef.current);
   }, []);
 
   const clearError = () => {
@@ -5307,44 +5404,44 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
           alt="DataPlus"
           className={`w-20 h-20 rounded-full object-cover border ${isDark ? 'border-white/10' : 'border-slate-200'}`}
         />
-        {authEmojiMode !== 'idle' && (
+        {(authEmojiMode === 'angry' || password.length > 0) && (
           <div
             className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none select-none"
             aria-hidden="true"
           >
-            <span
-              className={authEmojiMode === 'typing' ? 'auth-emoji auth-emoji-typing' : 'auth-emoji auth-emoji-angry'}
-            >
-              {authEmojiMode === 'typing' ? '🙈' : '😡'}
-            </span>
+            {authEmojiMode === 'angry' ? (
+              <AuthAngryFace rageTyping={isPasswordTyping} />
+            ) : (
+              <AuthPeekFace covered={isPasswordTyping} />
+            )}
           </div>
         )}
       </div>
       <style>{`
-        .auth-emoji {
-          font-size: 84px;
-          line-height: 1;
-          filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.35));
-          transform-origin: center;
+        .auth-angry-rage .auth-angry-face-root {
+          animation: authAngryRageShake 0.11s ease-in-out infinite;
+          transform-origin: 50px 52px;
         }
-        .auth-emoji-typing {
-          animation: authEmojiTyping 900ms ease-in-out infinite;
+        .auth-angry-rage .auth-angry-steam {
+          animation: authAngrySteam 0.45s ease-in-out infinite;
         }
-        .auth-emoji-angry {
-          animation: authEmojiAngry 650ms ease-in-out infinite;
+        .auth-angry-rage .auth-angry-sparks {
+          animation: authAngrySparks 0.2s ease-in-out infinite;
         }
-        @keyframes authEmojiTyping {
-          0% { transform: scale(0.94) translateY(2px); opacity: 0.92; }
-          50% { transform: scale(1.06) translateY(-2px); opacity: 1; }
-          100% { transform: scale(0.94) translateY(2px); opacity: 0.92; }
+        @keyframes authAngryRageShake {
+          0%, 100% { transform: translate(0, 0) rotate(0deg); }
+          20% { transform: translate(-2px, 2px) rotate(-1.4deg); }
+          40% { transform: translate(2px, -1px) rotate(1.2deg); }
+          60% { transform: translate(-1px, -2px) rotate(-0.8deg); }
+          80% { transform: translate(2px, 1px) rotate(1deg); }
         }
-        @keyframes authEmojiAngry {
-          0% { transform: translateX(0) scale(1); }
-          20% { transform: translateX(-3px) scale(1.02); }
-          40% { transform: translateX(3px) scale(1.02); }
-          60% { transform: translateX(-2px) scale(1.01); }
-          80% { transform: translateX(2px) scale(1.01); }
-          100% { transform: translateX(0) scale(1); }
+        @keyframes authAngrySteam {
+          0%, 100% { opacity: 0.55; transform: translateY(2px); }
+          50% { opacity: 1; transform: translateY(-3px); }
+        }
+        @keyframes authAngrySparks {
+          0%, 100% { opacity: 0.85; }
+          50% { opacity: 1; transform: scale(1.15); }
         }
       `}</style>
       <h1 className={`text-2xl font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈</h1>
@@ -5388,17 +5485,19 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
               const v = e.target.value;
               setPassword(v);
               clearError();
-              if (passwordEmojiTimerRef.current) clearTimeout(passwordEmojiTimerRef.current);
-              if (passwordDoneTimerRef.current) clearTimeout(passwordDoneTimerRef.current);
+              if (passwordTypingTimerRef.current) clearTimeout(passwordTypingTimerRef.current);
               if (v.length === 0) {
-                setAuthEmojiMode('idle');
+                setIsPasswordTyping(false);
                 return;
               }
-              setAuthEmojiMode('typing');
-              passwordEmojiTimerRef.current = setTimeout(() => {
-                setAuthEmojiMode('idle');
-                passwordDoneTimerRef.current = null;
-              }, 700);
+              setIsPasswordTyping(true);
+              passwordTypingTimerRef.current = setTimeout(() => {
+                setIsPasswordTyping(false);
+              }, 420);
+            }}
+            onBlur={() => {
+              if (passwordTypingTimerRef.current) clearTimeout(passwordTypingTimerRef.current);
+              setIsPasswordTyping(false);
             }}
             className={`${inputClass} pr-11`}
           />
