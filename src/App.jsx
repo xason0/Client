@@ -222,9 +222,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     }
     api.me()
       .then((u) => {
+        // me() returns null on 401 — must not leave isSignedIn true with a dead token
+        if (!u) {
+          api.setToken(null);
+          setToken(null);
+          setIsSignedIn(false);
+          setUser(null);
+          setWalletBalance(0);
+          localStorage.removeItem('dataplus_signed_in');
+          return;
+        }
         setUser(u);
         setIsSignedIn(true);
-        if (u?.profile_avatar) setProfileImage(u.profile_avatar);
+        if (u.profile_avatar) setProfileImage(u.profile_avatar);
         fetchWallet();
       })
       .catch(() => {

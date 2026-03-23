@@ -48,8 +48,9 @@ function requireAuth(req, res, next) {
   try {
     const p = jwt.verify(tok, JWT_SECRET);
     if (p.a === 1) return res.status(403).json({ error: 'Use user session for this action' });
-    if (!p.sub) return res.status(401).json({ error: 'Unauthorized' });
-    req.userId = p.sub;
+    const uid = p.sub ?? p.userId;
+    if (uid == null || uid === '') return res.status(401).json({ error: 'Unauthorized' });
+    req.userId = uid;
     return next();
   } catch {
     return res.status(401).json({ error: 'Invalid token' });
@@ -69,9 +70,10 @@ function requireAdmin(req, res, next) {
       req.adminPin = true;
       return next();
     }
-    if (p.sub) {
+    const adminUid = p.sub ?? p.userId;
+    if (adminUid != null && adminUid !== '') {
       const db = readDb();
-      const u = db.users.find((x) => x.id === p.sub);
+      const u = db.users.find((x) => x.id === adminUid);
       if (u && u.role === 'admin') {
         req.userId = u.id;
         req.adminUser = u;

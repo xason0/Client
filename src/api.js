@@ -1,6 +1,11 @@
-/** Default API when running Vite on localhost — points at VPS Node (see VITE_API_URL in .env.local). */
+/** Local dev default when hostname is localhost (override with VITE_API_URL in .env.local). */
 const LOCAL_DEV_API_DEFAULT = 'http://87.106.69.120:3001';
 
+/**
+ * VITE_API_URL — set in the host (Vercel/Netlify/VPS build) when the API is on another origin.
+ * VITE_PAYSTACK_PUBLIC_KEY — must be present at `npm run build` or Paystack checkout is disabled in the bundle.
+ * Server JWT_SECRET must not change between deploys or every user must sign in again.
+ */
 const API_URL =
   import.meta.env.VITE_API_URL ||
   (typeof window !== 'undefined' && window.location?.hostname !== 'localhost'
