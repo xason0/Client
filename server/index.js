@@ -94,8 +94,23 @@ function paystackConfigured() {
   return Boolean(PAYSTACK_SECRET_KEY);
 }
 
+async function fetchPaystack(url, options = {}, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      throw new Error('Paystack API timed out — check outbound HTTPS from this server');
+    }
+    throw e;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function paystackInitializeTransaction({ email, amountPesewas, reference, metadata, callbackUrl }) {
-  const res = await fetch('https://api.paystack.co/transaction/initialize', {
+  const res = await fetchPaystack('https://api.paystack.co/transaction/initialize', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -120,7 +135,7 @@ async function paystackInitializeTransaction({ email, amountPesewas, reference, 
 
 async function paystackVerifyTransaction(reference) {
   const enc = encodeURIComponent(reference);
-  const res = await fetch(`https://api.paystack.co/transaction/verify/${enc}`, {
+  const res = await fetchPaystack(`https://api.paystack.co/transaction/verify/${enc}`, {
     headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
   });
   const data = await res.json().catch(() => ({}));
@@ -427,7 +442,8 @@ app.post('/api/wallet/paystack/initialize', requireAuth, async (req, res) => {
       amountPesewas,
       reference,
       metadata: { user_id: String(u.id) },
-      callbackUrl: process.env.PAYSTACK_CALLBACK_URL || undefined,
+      /** Must match your app URL so Paystack redirects back with ?reference= for wallet verify */
+      callbackUrl: process.env.PAYSTACK_CALLBACK_URL || process.env.CLIENT_PUBLIC_URL || undefined,
     });
     res.json({
       access_code: data.access_code,
@@ -450,7 +466,16 @@ app.post('/api/wallet/paystack/verify', requireAuth, async (req, res) => {
     if (verified.status !== 'success') {
       return res.status(400).json({ error: 'Payment was not successful' });
     }
-    const metaUid = verified.metadata?.user_id ?? verified.metadata?.userId;
+    let meta = verified.metadata;
+    if (typeof meta === 'string') {
+      try {
+        meta = JSON.parse(meta);
+      } catch {
+        meta = {};
+      }
+    }
+    if (!meta || typeof meta !== 'object') meta = {};
+    const metaUid = meta.user_id ?? meta.userId ?? meta.custom_fields?.user_id;
     if (String(metaUid) !== String(req.userId)) {
       return res.status(403).json({ error: 'This payment does not belong to your account' });
     }

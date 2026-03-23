@@ -14,40 +14,6 @@ function getTheme() {
   }
 }
 
-function loadPaystackInlineScript() {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined') {
-      reject(new Error('Paystack requires a browser'));
-      return;
-    }
-    if (window.PaystackPop) {
-      resolve();
-      return;
-    }
-    const existing = document.querySelector('script[data-paystack-inline]');
-    if (existing) {
-      const done = () => (window.PaystackPop ? resolve() : reject(new Error('Paystack failed to load')));
-      if (window.PaystackPop) {
-        resolve();
-        return;
-      }
-      existing.addEventListener('load', done);
-      existing.addEventListener('error', () => reject(new Error('Paystack script failed')));
-      return;
-    }
-    const s = document.createElement('script');
-    s.src = 'https://js.paystack.co/v1/inline.js';
-    s.async = true;
-    s.dataset.paystackInline = 'true';
-    s.onload = () => {
-      if (window.PaystackPop) resolve();
-      else reject(new Error('PaystackPop not available'));
-    };
-    s.onerror = () => reject(new Error('Failed to load Paystack'));
-    document.body.appendChild(s);
-  });
-}
-
 export default function App({ adminRoute: adminRouteProp = false }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,6 +45,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [topUpAmount, setTopUpAmount] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [topUpError, setTopUpError] = useState(null);
+  const [topUpSuccess, setTopUpSuccess] = useState(null);
   const [topUpBusy, setTopUpBusy] = useState(false);
   const [cartPosition, setCartPosition] = useState(() => {
     if (typeof window === 'undefined') return { x: 24, y: 80 };
@@ -182,6 +149,39 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     api.getBundles().then((b) => setBundlesData(b)).catch(() => {});
   }, []);
 
+  /** After Paystack redirect, URL contains ?reference=… — verify and credit wallet */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const ref = (params.get('reference') || params.get('trxref') || '').trim();
+    if (!ref || !api.getToken()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api.verifyPaystackWalletTopUp(ref);
+        if (cancelled) return;
+        setWalletBalance(r.balance);
+        setTopUpSuccess('Payment successful. Your wallet balance has been updated.');
+        setTopUpError(null);
+        setCurrentPage('topup');
+        const list = await api.getTransactions();
+        if (!cancelled) setTransactions(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!cancelled) {
+          setTopUpError(e?.message || 'Could not verify payment');
+          setCurrentPage('topup');
+        }
+      } finally {
+        if (!cancelled && typeof window !== 'undefined') {
+          const path = window.location.pathname || '/';
+          window.history.replaceState({}, '', path + (window.location.hash || ''));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Switch header from welcome back to brand name after 10 seconds. Do NOT clear the timeout in cleanup when effect re-runs (e.g. auth state) so the timer keeps running.
   useEffect(() => {
@@ -1952,7 +1952,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               <h2 className={`text-lg font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Top Up Wallet</h2>
               <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
                 {import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
-                  ? 'Enter an amount and pay securely with Paystack (card, bank, or mobile money where available).'
+                  ? 'Enter an amount, then continue — you will be taken to Paystack to pay. After payment you return here and your balance updates automatically.'
                   : 'Enter an amount and continue to complete your payment (dev mode: instant balance without Paystack).'}
               </p>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Amount (GHS)</label>
@@ -1962,10 +1962,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 step="0.01"
                 placeholder="10.00"
                 value={topUpAmount}
-                onChange={(e) => { setTopUpAmount(e.target.value); setTopUpError(null); }}
+                onChange={(e) => { setTopUpAmount(e.target.value); setTopUpError(null); setTopUpSuccess(null); }}
                 className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
               />
               <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Minimum amount: GHS 10</p>
+              {topUpSuccess && (
+                <p className="text-sm text-emerald-500 mt-2" role="status">
+                  {topUpSuccess}
+                </p>
+              )}
               {topUpError && <p className="text-sm text-red-500 mt-2">{topUpError}</p>}
               <button
                 type="button"
@@ -1977,46 +1982,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     return;
                   }
                   setTopUpError(null);
+                  setTopUpSuccess(null);
                   setTopUpBusy(true);
                   const pk = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
                   try {
                     if (pk) {
                       const init = await api.initPaystackWalletTopUp(amt);
-                      await loadPaystackInlineScript();
-                      const PaystackPop = window.PaystackPop;
-                      if (!PaystackPop || typeof PaystackPop.setup !== 'function') {
-                        throw new Error('Paystack checkout could not start');
+                      const url = init.authorization_url && String(init.authorization_url).trim();
+                      if (!url) {
+                        throw new Error('Paystack did not return a checkout URL');
                       }
-                      const handler = PaystackPop.setup({
-                        key: pk,
-                        access_code: init.access_code,
-                        callback: (response) => {
-                          void (async () => {
-                            try {
-                              const ref = response.reference || response.trxref;
-                              if (!ref) throw new Error('Missing payment reference');
-                              const r = await api.verifyPaystackWalletTopUp(ref);
-                              setWalletBalance(r.balance);
-                              setTopUpAmount('');
-                              const list = await api.getTransactions();
-                              setTransactions(list);
-                            } catch (err) {
-                              setTopUpError(err.message || 'Could not confirm payment');
-                            } finally {
-                              setTopUpBusy(false);
-                            }
-                          })();
-                        },
-                        onClose: () => {
-                          setTopUpBusy(false);
-                        },
-                      });
-                      try {
-                        handler.openIframe();
-                      } catch (openErr) {
-                        setTopUpError(openErr?.message || 'Could not open Paystack');
-                        setTopUpBusy(false);
-                      }
+                      setTopUpBusy(false);
+                      window.location.assign(url);
                     } else {
                       const data = await api.topUp(amt);
                       setWalletBalance(data.balance);
@@ -2032,7 +2009,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 }}
                 className={`w-full mt-4 py-3 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
-                {topUpBusy ? 'Please wait…' : 'Top Up'}
+                {topUpBusy
+                  ? import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                    ? 'Contacting server…'
+                    : 'Please wait…'
+                  : import.meta.env.VITE_PAYSTACK_PUBLIC_KEY
+                    ? 'Continue to Paystack'
+                    : 'Top Up'}
               </button>
             </div>
 

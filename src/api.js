@@ -1,8 +1,11 @@
+/** Default API when running Vite on localhost — points at VPS Node (see VITE_API_URL in .env.local). */
+const LOCAL_DEV_API_DEFAULT = 'http://87.106.69.120:3001';
+
 const API_URL =
   import.meta.env.VITE_API_URL ||
   (typeof window !== 'undefined' && window.location?.hostname !== 'localhost'
     ? 'https://ok.ultraxas.com'
-    : 'http://localhost:3001');
+    : LOCAL_DEV_API_DEFAULT);
 
 const ADMIN_TOKEN_KEY = 'dataplus_admin_token';
 
@@ -34,6 +37,13 @@ function headers() {
     'Content-Type': 'application/json',
     ...(t ? { Authorization: `Bearer ${t}` } : {}),
   };
+}
+
+/** Abort fetch after ms so the UI does not hang forever on unreachable/slow API. */
+function fetchWithTimeout(url, init = {}, timeoutMs = 35000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(id));
 }
 
 function adminHeaders() {
@@ -134,13 +144,30 @@ export const api = {
   },
 
   async initPaystackWalletTopUp(amount) {
-    const res = await fetch(`${API_URL}/api/wallet/paystack/initialize`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ amount: parseFloat(amount) }),
-    });
+    let res;
+    try {
+      res = await fetchWithTimeout(
+        `${API_URL}/api/wallet/paystack/initialize`,
+        {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ amount: parseFloat(amount) }),
+        },
+        40000
+      );
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        throw new Error(
+          'Payment server did not respond in time. Check VPN/firewall, that the API is up, and VITE_API_URL.'
+        );
+      }
+      if (e instanceof TypeError) {
+        throw new Error('Cannot reach the API (network). Confirm VITE_API_URL and that the backend is running.');
+      }
+      throw e;
+    }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Could not start Paystack checkout');
+    if (!res.ok) throw new Error(data.error || `Could not start Paystack checkout (${res.status})`);
     return data;
   },
 
