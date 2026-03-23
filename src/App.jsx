@@ -1324,7 +1324,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
-            {!(hasAdminRole && adminRoute) && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
+            {!showAdminNav && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
             {showAdminNav && (
               <>
                 <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
