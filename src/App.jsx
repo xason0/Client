@@ -5,6 +5,12 @@ import { api } from './api';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 1;
+const DASHBOARD_HEADLINES = [
+  'Welcome to DataPlus',
+  'Powering Smart Business Connectivity',
+  'Fast. Trusted. Professional.',
+  'Advert-Ready Digital Service',
+];
 
 function getTheme() {
   if (typeof window === 'undefined') return 'light';
@@ -107,6 +113,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminWalletsError, setAdminWalletsError] = useState(null);
   const [adminWalletsSearch, setAdminWalletsSearch] = useState('');
   const [adminTotalWalletBalance, setAdminTotalWalletBalance] = useState(0);
+  const [dashboardHeadlineIndex, setDashboardHeadlineIndex] = useState(0);
+  const [dashboardHeadlineVisible, setDashboardHeadlineVisible] = useState(true);
   const [agentApplications, setAgentApplications] = useState([]);
   const [agentApplicationsLoading, setAgentApplicationsLoading] = useState(false);
   const [agentApplicationsError, setAgentApplicationsError] = useState(null);
@@ -316,6 +324,22 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         .catch(() => setOrders([]))
         .finally(() => setOrdersLoading(false));
     }
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (currentPage !== 'dashboard') return undefined;
+    let fadeTimer;
+    const timer = setInterval(() => {
+      setDashboardHeadlineVisible(false);
+      fadeTimer = setTimeout(() => {
+        setDashboardHeadlineIndex((prev) => (prev + 1) % DASHBOARD_HEADLINES.length);
+        setDashboardHeadlineVisible(true);
+      }, 220);
+    }, 3200);
+    return () => {
+      clearInterval(timer);
+      if (fadeTimer) clearTimeout(fadeTimer);
+    };
   }, [currentPage]);
 
   useEffect(() => {
@@ -1894,7 +1918,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <h1 className="page-title text-2xl sm:text-3xl">Dashboard</h1>
+                  <h1 className={`page-title text-2xl sm:text-3xl transition-all duration-300 ${dashboardHeadlineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'}`}>
+                    {DASHBOARD_HEADLINES[dashboardHeadlineIndex]}
+                  </h1>
                 </div>
                 <div className="relative w-4 h-4 flex items-center justify-center">
                   <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
