@@ -87,6 +87,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [orderCustomStart, setOrderCustomStart] = useState('');
   const [orderCustomEnd, setOrderCustomEnd] = useState('');
   const [orders, setOrders] = useState([]);
+  const orderCreatedAtByIdRef = useRef(new Map());
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [transactionDateFilter, setTransactionDateFilter] = useState('Today');
   const [transactionCustomStart, setTransactionCustomStart] = useState('');
@@ -271,7 +272,29 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     setSelectedMenu('dashboard');
     setProfileOpen(false);
     setSidebarOpen(false);
+    orderCreatedAtByIdRef.current = new Map();
     localStorage.removeItem('dataplus_signed_in');
+  };
+
+  const stabilizeOrdersList = (list) => {
+    if (!Array.isArray(list)) return [];
+    return list.map((order) => {
+      if (!order || typeof order !== 'object') return order;
+      const id = order.id ?? order.order_id ?? order.orderId;
+      if (id === undefined || id === null) return order;
+      const key = String(id);
+      const rawCreatedAt = order.created_at ?? order.createdAt ?? null;
+      const parsed = rawCreatedAt ? Date.parse(rawCreatedAt) : NaN;
+      const hasValidCreatedAt = Number.isFinite(parsed);
+      const cached = orderCreatedAtByIdRef.current.get(key) ?? null;
+      if (hasValidCreatedAt) {
+        const normalizedCreatedAt = new Date(parsed).toISOString();
+        if (!cached) orderCreatedAtByIdRef.current.set(key, normalizedCreatedAt);
+        return { ...order, created_at: cached || normalizedCreatedAt };
+      }
+      if (cached) return { ...order, created_at: cached };
+      return { ...order, created_at: null };
+    });
   };
 
   const fetchWallet = () => {
@@ -322,7 +345,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if ((currentPage === 'orders' || currentPage === 'dashboard') && api.getToken()) {
       setOrdersLoading(true);
       api.getOrders()
-        .then((list) => setOrders(Array.isArray(list) ? list : []))
+        .then((list) => setOrders(stabilizeOrdersList(list)))
         .catch(() => setOrders([]))
         .finally(() => setOrdersLoading(false));
     }
@@ -358,7 +381,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (currentPage !== 'orders' || !api.getToken()) return undefined;
     const timer = setInterval(() => {
       api.getOrders()
-        .then((list) => setOrders(Array.isArray(list) ? list : []))
+        .then((list) => setOrders(stabilizeOrdersList(list)))
         .catch(() => {});
     }, 10000);
     return () => clearInterval(timer);
@@ -751,7 +774,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setBulkOrderInput('');
       setBulkOrderSuccess(`${added.length} bulk order(s) sent. They are now in admin management as separate lines.`);
       fetchWallet();
-      api.getOrders().then((list) => setOrders(Array.isArray(list) ? list : [])).catch(() => {});
+      api.getOrders().then((list) => setOrders(stabilizeOrdersList(list))).catch(() => {});
       if (adminPinVerified || user?.role === 'admin') {
         api.getAdminOrders().then((list) => setAdminOrders(Array.isArray(list) ? list : [])).catch(() => {});
       }
@@ -4690,7 +4713,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     setCartOpen(false);
                     setCart([]);
                     fetchWallet();
-                    api.getOrders().then((list) => setOrders(Array.isArray(list) ? list : [])).catch(() => {});
+                    api.getOrders().then((list) => setOrders(stabilizeOrdersList(list))).catch(() => {});
                     if (adminPinVerified || user?.role === 'admin') {
                       api.getAdminOrders()
                         .then((list) => setAdminOrders(Array.isArray(list) ? list : []))
