@@ -53,7 +53,7 @@
   100% { background-position: -200% 0; }
 }
 
-/* Prevent zoom; allow copy/paste on login/register only */
+/* Reduce accidental pinch-zoom on mobile; copy/paste and selection are allowed site-wide */
 html {
   touch-action: manipulation;
 }
@@ -66,13 +66,6 @@ html, body, #root {
   min-height: 100dvh;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-}
-/* Disable selection/copy only when user is in the app (dashboard, etc.) */
-html:not([data-auth-screen]) body,
-html:not([data-auth-screen]) #root {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
 }
 #root {
   display: flex;

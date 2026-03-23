@@ -1084,15 +1084,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  /* Allow copy/paste on login/register; disable in main app */
-  useEffect(() => {
-    if (isSignedIn) {
-      document.documentElement.removeAttribute('data-auth-screen');
-    } else {
-      document.documentElement.setAttribute('data-auth-screen', 'true');
-    }
-  }, [isSignedIn]);
-
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
