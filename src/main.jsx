@@ -1,16 +1,17 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { registerSW } from 'virtual:pwa-register'
 import App from './App.jsx'
 import './index.css'
 
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    updateSW(true)
-  },
-})
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  // Force-clear stale SW clients that keep old mobile bundles.
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((r) => r.unregister())
+    }).catch(() => {})
+  })
+}
 
 function DisableCopyPaste() {
   useEffect(() => {

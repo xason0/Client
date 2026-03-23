@@ -13,6 +13,7 @@ const API_URL =
     : LOCAL_DEV_API_DEFAULT);
 
 const ADMIN_TOKEN_KEY = 'dataplus_admin_token';
+const withNoStoreTs = (url) => `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
 
 function getToken() {
   return localStorage.getItem('dataplus_token');
@@ -293,7 +294,7 @@ export const api = {
   },
 
   async getAdminStats() {
-    const res = await fetch(`${API_URL}/api/admin/stats`, { headers: adminHeaders() });
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/stats`), { headers: adminHeaders(), cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load admin stats');
@@ -301,7 +302,7 @@ export const api = {
   },
 
   async getAdminUsers() {
-    const res = await fetch(`${API_URL}/api/admin/users`, { headers: adminHeaders() });
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/users`), { headers: adminHeaders(), cache: 'no-store' });
     const data = await res.json().catch(() => ([]));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load users');
@@ -327,12 +328,12 @@ export const api = {
       if (data && Array.isArray(data.data)) return data.data;
       return [];
     };
-    let res = await fetch(`${API_URL}/api/admin/orders`, { headers: adminHeaders() });
+    let res = await fetch(withNoStoreTs(`${API_URL}/api/admin/orders`), { headers: adminHeaders(), cache: 'no-store' });
     let data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.ok) return parseList(data);
 
-    res = await fetch(`${API_URL}/api/orders`, { headers: adminHeaders() });
+    res = await fetch(withNoStoreTs(`${API_URL}/api/orders`), { headers: adminHeaders(), cache: 'no-store' });
     data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.ok) return parseList(data);
@@ -360,17 +361,17 @@ export const api = {
       if (data && Array.isArray(data.rows)) return data.rows;
       return [];
     };
-    let res = await fetch(`${API_URL}/api/admin/transactions`, { headers: adminHeaders() });
+    let res = await fetch(withNoStoreTs(`${API_URL}/api/admin/transactions`), { headers: adminHeaders(), cache: 'no-store' });
     let data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.ok) return parseList(data);
 
-    res = await fetch(`${API_URL}/api/admin/wallet/transactions`, { headers: adminHeaders() });
+    res = await fetch(withNoStoreTs(`${API_URL}/api/admin/wallet/transactions`), { headers: adminHeaders(), cache: 'no-store' });
     data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.ok) return parseList(data);
 
-    res = await fetch(`${API_URL}/api/transactions`, { headers: adminHeaders() });
+    res = await fetch(withNoStoreTs(`${API_URL}/api/transactions`), { headers: adminHeaders(), cache: 'no-store' });
     data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.ok) return parseList(data);
@@ -382,7 +383,7 @@ export const api = {
   },
 
   async getAdminWallets() {
-    const res = await fetch(`${API_URL}/api/admin/wallets`, { headers: adminHeaders() });
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/wallets`), { headers: adminHeaders(), cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load wallets');
@@ -390,7 +391,7 @@ export const api = {
   },
 
   async getAgentApplications() {
-    const res = await fetch(`${API_URL}/api/admin/agent-applications`, { headers: adminHeaders() });
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/agent-applications`), { headers: adminHeaders(), cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load agent applications');
