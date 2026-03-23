@@ -210,7 +210,7 @@ export const api = {
   },
 
   async getOrders() {
-    const res = await fetch(`${API_URL}/api/orders`, { headers: headers() });
+    const res = await fetch(`${API_URL}/api/orders?t=${Date.now()}`, { headers: headers(), cache: 'no-store' });
     if (res.status === 401) return [];
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Failed to load orders');

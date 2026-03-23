@@ -304,6 +304,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [currentPage]);
 
   useEffect(() => {
+    if (currentPage !== 'orders' || !api.getToken()) return undefined;
+    const timer = setInterval(() => {
+      api.getOrders()
+        .then((list) => setOrders(Array.isArray(list) ? list : []))
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [currentPage, token]);
+
+  useEffect(() => {
     const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
     if (currentPage === 'admin-analytics' && hasAdminAccess) {
       setAdminStatsLoading(true);
@@ -821,6 +831,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setProfileOpen(false);
     } else if (menu === 'my-orders') {
       setCurrentPage('orders');
+      setOrderStatusFilter('all');
       setProfileOpen(false);
     } else if (menu === 'pending-orders') {
       setCurrentPage('orders');
@@ -2202,7 +2213,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               bundleSize: o.bundle_size || '',
               amount: typeof o.bundle_price === 'number' ? o.bundle_price.toFixed(2) : String(o.bundle_price || '0'),
               dateIso: o.created_at || new Date().toISOString(),
-              status: (o.status && o.status.toLowerCase()) === 'completed' ? 'Completed' : 'Processing',
+              status: (() => {
+                const s = (o.status || '').toString().toLowerCase();
+                if (s === 'completed' || s === 'success') return 'Completed';
+                if (s === 'failed' || s === 'cancelled' || s === 'reversed') return 'Failed';
+                return 'Processing';
+              })(),
             }));
             const byStatus = (o) => orderStatusFilter === 'all' || o.status.toLowerCase() === orderStatusFilter;
             const searchLower = orderHistorySearch.trim().toLowerCase();
@@ -2237,8 +2253,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>View order status and your completed order history.</p>
 
                 <div className={`relative flex gap-0.5 p-0.5 rounded-2xl mb-5 sm:mb-6 overflow-hidden ${isDark ? 'bg-white/5 border border-white/10' : 'bg-slate-100 border border-slate-200'}`} role="tablist" aria-label="Order status filter">
-                  {['all', 'processing', 'completed'].map((status) => {
-                    const label = status === 'all' ? 'All' : status === 'processing' ? 'Processing' : 'Completed';
+                  {['all', 'processing', 'completed', 'failed'].map((status) => {
+                    const label = status === 'all' ? 'All' : status === 'processing' ? 'Processing' : status === 'completed' ? 'Completed' : 'Failed';
                     const active = orderStatusFilter === status;
                     return (
                       <button
@@ -2270,17 +2286,30 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       ordersToShow.map((order) => {
                         const { date, time } = formatOrderDate(order.dateIso);
                         const isCompleted = order.status === 'Completed';
+                        const isFailed = order.status === 'Failed';
                         const processingSteps = ['Submitted', 'Confirming', 'Completing'];
                         return (
                           <div
                             key={order.id}
-                            className={`rounded-xl border p-4 sm:p-5 transition-colors ${isDark ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.06]' : 'bg-white border-slate-200 hover:border-slate-300'}`}
+                            className={`rounded-xl border p-4 sm:p-5 transition-colors ${
+                              isFailed
+                                ? (isDark ? 'bg-red-500/10 border-red-500/40 hover:bg-red-500/15' : 'bg-red-50 border-red-200 hover:border-red-300')
+                                : isDark
+                                  ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.06]'
+                                  : 'bg-white border-slate-200 hover:border-slate-300'
+                            }`}
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className={`font-mono text-base font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{order.recipientNumber}</p>
-                                <p className={`text-sm mt-0.5 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{order.network} · {order.bundleSize}</p>
-                                <p className={`text-xs mt-2 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>{date} · {time}</p>
+                                <p className={`font-mono text-base font-medium ${
+                                  isFailed ? (isDark ? 'text-red-200' : 'text-red-900') : (isDark ? 'text-white' : 'text-slate-900')
+                                }`}>{order.recipientNumber}</p>
+                                <p className={`text-sm mt-0.5 ${
+                                  isFailed ? (isDark ? 'text-red-200/80' : 'text-red-700') : (isDark ? 'text-white/60' : 'text-slate-500')
+                                }`}>{order.network} · {order.bundleSize}</p>
+                                <p className={`text-xs mt-2 ${
+                                  isFailed ? (isDark ? 'text-red-300/70' : 'text-red-600/80') : (isDark ? 'text-white/40' : 'text-slate-400')
+                                }`}>{date} · {time}</p>
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
                                 {isCompleted ? (
@@ -2288,13 +2317,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                                     Completed
                                   </span>
+                                ) : isFailed ? (
+                                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-800'}`}>
+                                    Failed
+                                  </span>
                                 ) : (
                                   <span className="text-xs font-medium text-green-600 dark:text-green-400">Processing</span>
                                 )}
-                                <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>¢ {order.amount}</span>
+                                <span className={`font-semibold ${
+                                  isFailed ? (isDark ? 'text-red-200' : 'text-red-700') : (isDark ? 'text-white' : 'text-slate-900')
+                                }`}>¢ {order.amount}</span>
                               </div>
                             </div>
-                            {!isCompleted && (
+                            {!isCompleted && !isFailed && (
                               <div className={`mt-4 pt-4 border-t ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                                 <div className="flex items-center justify-between gap-2 mb-2">
                                   {processingSteps.map((step, i) => (
