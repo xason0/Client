@@ -1588,13 +1588,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             {!showAdminNav && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
             {showAdminNav && (
               <>
-                <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="Admin" />
                 <MenuItem id="admin-users" icon={<Svg.User stroke={stroke} />} label="User Management" />
                 <MenuItem id="admin-orders" icon={<Svg.Cart stroke={stroke} />} label="Order Management" />
                 <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
+                <MenuItem id="admin" icon={<Svg.Shield stroke={stroke} />} label="ULTRAXAS MODE" />
               </>
             )}
           </nav>
@@ -2862,7 +2862,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           <>
             {(() => {
               const adminPageTitles = {
-                admin: 'Admin',
+                admin: 'ULTRAXAS MODE',
                 'admin-users': 'User Management',
                 'admin-orders': 'Order Management',
                 'admin-packages': 'Data Packages',
