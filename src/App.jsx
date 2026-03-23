@@ -175,7 +175,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return name || 'Gyamfi Bless';
   };
   const brandLogoUrl = appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg';
-  const adminAvatarSrc = adminRoute && (hasAdminRole || adminPinVerified) ? brandLogoUrl : profileImage;
+  const adminAvatarSrc = profileImage;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1634,7 +1634,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           </button>
           <h1 className={`flex-1 text-center text-xl sm:text-2xl md:text-3xl font-semibold truncate px-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
             {headerShowWelcome
-              ? (hasAdminRole && adminRoute ? `Welcome, ${adminDisplayName(user?.full_name).trim().split(/\s+/)[0]}` : (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome')
+              ? (user?.full_name || user?.email) ? `Welcome, ${(user?.full_name || '').trim().split(/\s+/)[0] || (user?.email || '').split('@')[0]}` : 'Welcome'
               : '𝒟𝒶𝓉𝒶𝒫𝓁𝓊𝓈'}
           </h1>
           <button
@@ -4455,12 +4455,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                   </button>
                 </div>
-                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
-                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{hasAdminRole && adminRoute ? 'Administrator' : 'Account'}</p>
+                <h3 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
+                <p className={`text-base ${isDark ? 'text-white/70' : 'text-slate-500'}`}>Account</p>
               </div>
               <div className="px-5 sm:px-6 pb-5 sm:pb-6 space-y-5">
                 {[
-                  ['Full Name', hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || '—')],
+                  ['Full Name', user?.full_name || '—'],
                   ['Email Address', user?.email || '—'],
                   ['Phone Number', user?.phone || '—'],
                   ['User ID', profileUserId],
@@ -4480,7 +4480,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   <button
                     type="button"
                     onClick={() => {
-                      setProfileEditFullName(hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || ''));
+                      setProfileEditFullName(user?.full_name || '');
                       setProfileEditEmail(user?.email || '');
                       setProfileEditPhone(user?.phone || '');
                       setProfileEditError(null);
@@ -4550,10 +4550,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <div className="p-4">
           <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
-              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || 'User')).trim()[0] || 'U').toUpperCase()}
+              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((user?.full_name || 'User').trim()[0] || 'U').toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{hasAdminRole && adminRoute ? adminDisplayName(user?.full_name) : (user?.full_name || user?.email || 'User')}</h3>
+              <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{user?.full_name || user?.email || 'User'}</h3>
               <p className={`text-sm truncate ${isDark ? 'text-white/70' : 'text-slate-500'}`}>{hasAdminRole ? 'Admin' : 'User'}</p>
             </div>
           </div>
