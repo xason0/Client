@@ -2981,6 +2981,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                         <span aria-hidden>✉</span>
                                         <span className="truncate">{email}</span>
                                       </p>
+                                      <p className={`text-[11px] mt-0.5 font-mono ${isDark ? 'text-white/35' : 'text-slate-400'}`}>User ID: {w.id}</p>
                                     </div>
                                     <div className="col-span-2 flex justify-center">
                                       <span className="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold text-white bg-violet-600 shadow-sm">
@@ -3022,6 +3023,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                           <span aria-hidden>✉</span>
                                           <span className="break-all">{email}</span>
                                         </p>
+                                        <p className={`text-[11px] mt-0.5 font-mono ${isDark ? 'text-white/35' : 'text-slate-400'}`}>User ID: {w.id}</p>
                                       </div>
                                       <span className="inline-flex shrink-0 items-center rounded-full px-3 py-1 text-sm font-semibold text-white bg-violet-600 shadow-sm">
                                         ₵{bal.toFixed(2)}
