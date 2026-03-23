@@ -276,6 +276,43 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     localStorage.removeItem('dataplus_signed_in');
   };
 
+  const parseTimestampMs = (value) => {
+    if (value === null || value === undefined || value === '') return NaN;
+    if (value instanceof Date) {
+      const ms = value.getTime();
+      return Number.isFinite(ms) ? ms : NaN;
+    }
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) return NaN;
+      return value < 1e12 ? value * 1000 : value;
+    }
+    const raw = String(value).trim();
+    if (!raw) return NaN;
+    if (/^\d{10,13}$/.test(raw)) {
+      const asNum = Number(raw);
+      if (Number.isFinite(asNum)) return raw.length <= 10 ? asNum * 1000 : asNum;
+    }
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : NaN;
+  };
+
+  const getOrderCreatedAtIso = (order) => {
+    if (!order || typeof order !== 'object') return null;
+    const candidates = [
+      order.created_at,
+      order.createdAt,
+      order.date,
+      order.ordered_at,
+      order.order_date,
+      order.timestamp,
+    ];
+    for (const value of candidates) {
+      const ms = parseTimestampMs(value);
+      if (Number.isFinite(ms)) return new Date(ms).toISOString();
+    }
+    return null;
+  };
+
   const stabilizeOrdersList = (list) => {
     if (!Array.isArray(list)) return [];
     return list.map((order) => {
@@ -283,12 +320,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       const id = order.id ?? order.order_id ?? order.orderId;
       if (id === undefined || id === null) return order;
       const key = String(id);
-      const rawCreatedAt = order.created_at ?? order.createdAt ?? null;
-      const parsed = rawCreatedAt ? Date.parse(rawCreatedAt) : NaN;
-      const hasValidCreatedAt = Number.isFinite(parsed);
+      const normalizedCreatedAt = getOrderCreatedAtIso(order);
       const cached = orderCreatedAtByIdRef.current.get(key) ?? null;
-      if (hasValidCreatedAt) {
-        const normalizedCreatedAt = new Date(parsed).toISOString();
+      if (normalizedCreatedAt) {
         if (!cached) orderCreatedAtByIdRef.current.set(key, normalizedCreatedAt);
         return { ...order, created_at: cached || normalizedCreatedAt };
       }
@@ -2530,13 +2564,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               };
             };
             const normalized = orders.map((o) => {
-              const rawCreated = o.created_at;
-              const parsedMs = rawCreated ? Date.parse(rawCreated) : NaN;
-              const dateIso = Number.isFinite(parsedMs) ? rawCreated : null;
+              const dateIso = getOrderCreatedAtIso(o);
               const rawOrd = (o.order_number || o.orderNumber || o.order_id || '').toString().trim();
               const orderDisplayId = rawOrd
                 ? (rawOrd.toUpperCase().startsWith('ORD-') ? rawOrd : `ORD-${rawOrd.replace(/^ORD-?/i, '')}`)
-                : `ORD-${stableOrderCodeSuffix(o.id, o.created_at)}`;
+                : `ORD-${stableOrderCodeSuffix(o.id, dateIso || o.created_at || o.createdAt)}`;
               return {
                 id: String(o.id),
                 orderDisplayId,
