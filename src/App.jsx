@@ -233,9 +233,22 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     // Intentionally no cleanup: when effect re-runs (e.g. isSignedIn updates), we keep the existing timeout so it can fire after 3 min. Timeout is cleared only when hasMainApp becomes false above.
   }, [isSignedIn, adminRoute, adminPinVerified]);
 
+  const clearSession = () => {
+    api.setToken(null);
+    setToken(null);
+    setIsSignedIn(false);
+    setUser(null);
+    setWalletBalance(0);
+    localStorage.removeItem('dataplus_signed_in');
+  };
+
   const fetchWallet = () => {
     if (!api.getToken()) return;
-    api.getWallet().then((d) => setWalletBalance(d.balance)).catch(() => {});
+    api.getWallet()
+      .then((d) => setWalletBalance(d.balance))
+      .catch((e) => {
+        if (/unauthorized|expired|401/i.test(String(e?.message || ''))) clearSession();
+      });
   };
 
   useEffect(() => {
@@ -249,12 +262,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       .then((u) => {
         // me() returns null on 401 — must not leave isSignedIn true with a dead token
         if (!u) {
-          api.setToken(null);
-          setToken(null);
-          setIsSignedIn(false);
-          setUser(null);
-          setWalletBalance(0);
-          localStorage.removeItem('dataplus_signed_in');
+          clearSession();
           return;
         }
         setUser(u);
@@ -263,18 +271,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         fetchWallet();
       })
       .catch(() => {
-        api.setToken(null);
-        setToken(null);
-        setIsSignedIn(false);
-        setUser(null);
-        setWalletBalance(0);
-        localStorage.removeItem('dataplus_signed_in');
+        clearSession();
       });
   }, [token]);
 
   useEffect(() => {
     if ((currentPage === 'topup' || currentPage === 'transactions') && api.getToken()) {
-      api.getTransactions().then(setTransactions).catch(() => setTransactions([]));
+      api.getTransactions()
+        .then(setTransactions)
+        .catch((e) => {
+          if (/unauthorized|expired|401/i.test(String(e?.message || ''))) clearSession();
+          setTransactions([]);
+        });
     }
   }, [currentPage]);
 
@@ -2123,6 +2131,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       setTopUpBusy(false);
                     }
                   } catch (err) {
+                    if (/unauthorized|expired|401/i.test(String(err?.message || ''))) {
+                      clearSession();
+                    }
                     setTopUpError(err.message || 'Top-up failed');
                     setTopUpBusy(false);
                   }
