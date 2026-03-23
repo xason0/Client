@@ -289,14 +289,30 @@ app.get('/api/public/config', (req, res) => {
 });
 
 // ——— Auth ———
+function normalizePhoneDigits(s) {
+  return String(s || '').replace(/\D/g, '');
+}
+
 app.post('/api/auth/register', (req, res) => {
   const email = (req.body.email || '').trim().toLowerCase();
   const password = req.body.password;
   const fullName = (req.body.fullName || '').trim();
+  const phoneRaw = (req.body.phone || '').trim();
+  const phoneDigits = normalizePhoneDigits(phoneRaw);
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (!phoneRaw || phoneDigits.length < 8) {
+    return res.status(400).json({ error: 'Valid phone number required (at least 8 digits)' });
+  }
   withDb((db) => {
     if (db.users.some((u) => u.email === email)) {
       res.status(400).json({ error: 'Email already registered' });
+      return;
+    }
+    if (db.users.some((u) => {
+      const d = normalizePhoneDigits(u.phone);
+      return d.length >= 8 && d === phoneDigits;
+    })) {
+      res.status(400).json({ error: 'Phone number already registered' });
       return;
     }
     const id = randomUUID();
@@ -304,7 +320,7 @@ app.post('/api/auth/register', (req, res) => {
       id,
       email,
       full_name: fullName || email.split('@')[0],
-      phone: '',
+      phone: phoneRaw,
       role: 'user',
       profile_avatar: null,
       password_hash: bcrypt.hashSync(password, 10),

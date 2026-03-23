@@ -4250,6 +4250,7 @@ function AdminPinPage({ isDark, onVerified, appSettings }) {
 function SignInPage({ isDark, onSignIn, appSettings }) {
   const [mode, setMode] = useState('signin'); // 'signin' | 'register'
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -4276,8 +4277,17 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
         setError('Please enter your full name.');
         return;
       }
+      const trimmedPhone = phone.trim();
+      if (!trimmedPhone) {
+        setError('Please enter your phone number.');
+        return;
+      }
+      if (String(trimmedPhone).replace(/\D/g, '').length < 8) {
+        setError('Please enter a valid phone number (at least 8 digits).');
+        return;
+      }
       if (!trimmedEmail) {
-        setError('Please enter your email or phone.');
+        setError('Please enter your email.');
         return;
       }
       if (!trimmedPassword) {
@@ -4294,7 +4304,12 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
       }
       setLoading(true);
       try {
-        await api.register({ email: trimmedEmail, password: trimmedPassword, fullName: trimmedName });
+        await api.register({
+          email: trimmedEmail,
+          password: trimmedPassword,
+          fullName: trimmedName,
+          phone: trimmedPhone,
+        });
         setSuccess('Account created. Please sign in.');
         setMode('signin');
         setPassword('');
@@ -4347,9 +4362,20 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
             className={inputClass}
           />
         )}
+        {isRegister && (
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="Phone number"
+            value={phone}
+            onChange={(e) => { setPhone(e.target.value); clearError(); }}
+            className={inputClass}
+          />
+        )}
         <input
           type="email"
-          placeholder="Email or phone"
+          placeholder={isRegister ? 'Email' : 'Email or phone'}
           value={email}
           onChange={(e) => { setEmail(e.target.value); clearError(); }}
           className={inputClass}
