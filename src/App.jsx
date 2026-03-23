@@ -6,6 +6,16 @@ import UltraxasChatBar from './components/UltraxasChatBar';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 10;
+
+/** Per-user cache so two accounts / tabs on the same origin do not share one profile photo. */
+const PROFILE_IMG_STORAGE_PREFIX = 'dataplus_profile_img_';
+function profileImageStorageKey(userId) {
+  if (userId == null || userId === '') return null;
+  const n = Number(userId);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${PROFILE_IMG_STORAGE_PREFIX}${Math.trunc(n)}`;
+}
+
 const DASHBOARD_HEADLINES = [
   'Welcome to DataPlus',
   'Powering Smart Business Connectivity',
@@ -185,8 +195,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const profileDisplayName = useOwnerAdminPresentation
     ? adminDisplayName(user?.full_name || user?.email || 'User')
     : (user?.full_name || user?.email || 'User');
+  const canShowUserPhoto = Boolean(isSignedIn && user?.id);
+  const photoForUi = canShowUserPhoto ? profileImage : null;
+  const pinOnlyAdminShell = adminRoute && adminPinVerified && !isSignedIn;
   /** On /admin, owner admins default to brand logo, but a saved profile photo must win after refresh. */
-  const adminAvatarSrc = useOwnerAdminPresentation ? (profileImage || brandLogoUrl) : profileImage;
+  const adminAvatarSrc = useOwnerAdminPresentation
+    ? (photoForUi || brandLogoUrl)
+    : (pinOnlyAdminShell ? brandLogoUrl : photoForUi);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -278,12 +293,21 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [isSignedIn, adminRoute, adminPinVerified]);
 
   const clearSession = () => {
+    try {
+      const uid = user?.id;
+      if (uid != null) {
+        const k = profileImageStorageKey(uid);
+        if (k) localStorage.removeItem(k);
+      }
+      localStorage.removeItem('profileImage');
+    } catch (_) {}
     api.setToken(null);
     api.clearAdminToken();
     setToken(null);
     setIsSignedIn(false);
     setAdminPinVerified(false);
     setUser(null);
+    setProfileImage(null);
     setWalletBalance(0);
     setCurrentPage('dashboard');
     setSelectedMenu('dashboard');
@@ -403,6 +427,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (!token) {
       setIsSignedIn(false);
       setUser(null);
+      setProfileImage(null);
       setWalletBalance(0);
       return;
     }
@@ -415,7 +440,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         }
         setUser(u);
         setIsSignedIn(true);
-        if (u.profile_avatar) setProfileImage(u.profile_avatar);
         fetchWallet();
       })
       .catch(() => {
@@ -989,14 +1013,41 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   };
 
   useEffect(() => {
-    const savedImage = localStorage.getItem('profileImage');
-    if (savedImage) setProfileImage(savedImage);
-  }, []);
-
-  // After user is loaded from api.me(), prefer VPS avatar over localStorage
-  useEffect(() => {
-    if (user?.profile_avatar) setProfileImage(user.profile_avatar);
-  }, [user?.profile_avatar]);
+    if (!user?.id) {
+      setProfileImage(null);
+      return;
+    }
+    const key = profileImageStorageKey(user.id);
+    const fromApi = user.profile_avatar;
+    if (fromApi) {
+      setProfileImage(fromApi);
+      if (key) {
+        try {
+          localStorage.setItem(key, fromApi);
+        } catch (_) {}
+      }
+      return;
+    }
+    if (key) {
+      const scoped = localStorage.getItem(key);
+      if (scoped) {
+        setProfileImage(scoped);
+        return;
+      }
+    }
+    const legacy = localStorage.getItem('profileImage');
+    if (legacy) {
+      setProfileImage(legacy);
+      if (key) {
+        try {
+          localStorage.setItem(key, legacy);
+          localStorage.removeItem('profileImage');
+        } catch (_) {}
+      }
+      return;
+    }
+    setProfileImage(null);
+  }, [user?.id, user?.profile_avatar]);
 
   // Apply theme before first paint and subscribe to system preference
   useLayoutEffect(() => {
@@ -1146,7 +1197,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       reader.onloadend = async () => {
         const base64String = reader.result;
         setProfileImage(base64String);
-        localStorage.setItem('profileImage', base64String);
+        const key = profileImageStorageKey(user?.id);
+        if (key) {
+          try {
+            localStorage.setItem(key, base64String);
+            localStorage.removeItem('profileImage');
+          } catch (_) {}
+        }
         try {
           await api.uploadProfileImage(base64String);
         } catch (_) {
