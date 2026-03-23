@@ -1356,7 +1356,6 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
-                <MenuItem id="admin-applications" icon={<Svg.User stroke={stroke} />} label="Agent Applications" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
               </>
             )}
