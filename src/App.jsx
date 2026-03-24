@@ -5344,10 +5344,10 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
         : 'https://files.catbox.moe/r1m0uh.png'
   );
   const profileOrbitBubbles = [
-    { id: 'mtn', network: 'mtn', x: '-42%', y: '-22%', delay: '0s', duration: '6.2s' },
-    { id: 'telecel', network: 'telecel', x: '88%', y: '-16%', delay: '0.7s', duration: '6.8s' },
-    { id: 'bigtime', network: 'bigtime', x: '-48%', y: '72%', delay: '1.1s', duration: '7.3s' },
-    { id: 'ishare', network: 'ishare', x: '86%', y: '74%', delay: '1.8s', duration: '7.0s' },
+    { id: 'mtn', network: 'mtn', x: '-24%', y: '-6%', delay: '0s', duration: '6.2s' },
+    { id: 'telecel', network: 'telecel', x: '68%', y: '-8%', delay: '0.7s', duration: '6.8s' },
+    { id: 'bigtime', network: 'bigtime', x: '-26%', y: '56%', delay: '1.1s', duration: '7.3s' },
+    { id: 'ishare', network: 'ishare', x: '66%', y: '58%', delay: '1.8s', duration: '7.0s' },
   ];
 
   const clearError = () => {
@@ -5435,13 +5435,13 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   return (
     <div className="relative flex-1 flex flex-col items-center justify-center min-h-full w-full p-6 overflow-hidden">
       <div className="relative mb-6 w-24 h-24 flex items-center justify-center">
-        <div className="pointer-events-none absolute -inset-12 sm:-inset-20 block" aria-hidden>
+        <div className="pointer-events-none absolute -inset-6 sm:-inset-12 block" aria-hidden>
           {profileOrbitBubbles.map((bubble) => (
             <img
               key={bubble.id}
               src={networkLogo(bubble.network)}
               alt={`${bubble.network} logo`}
-              className="absolute w-9 h-9 sm:w-14 sm:h-14 rounded-full object-cover shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)]"
+              className="absolute w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)]"
               style={{
                 left: bubble.x,
                 top: bubble.y,
