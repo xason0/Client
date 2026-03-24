@@ -5435,13 +5435,13 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   return (
     <div className="relative flex-1 flex flex-col items-center justify-center min-h-full w-full p-6 overflow-hidden">
       <div className="relative mb-6 w-24 h-24 flex items-center justify-center">
-        <div className="pointer-events-none absolute -inset-20 hidden sm:block" aria-hidden>
+        <div className="pointer-events-none absolute -inset-12 sm:-inset-20 block" aria-hidden>
           {profileOrbitBubbles.map((bubble) => (
             <img
               key={bubble.id}
               src={networkLogo(bubble.network)}
               alt={`${bubble.network} logo`}
-              className="absolute w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)]"
+              className="absolute w-9 h-9 sm:w-14 sm:h-14 rounded-full object-cover shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)]"
               style={{
                 left: bubble.x,
                 top: bubble.y,
