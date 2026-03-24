@@ -1545,6 +1545,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           background-size: 200% 100%;
           animation: gradient-flow 2.5s ease infinite;
         }
+        @keyframes datapod-float {
+          0% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(0, -10px, 0); }
+          100% { transform: translate3d(0, 0, 0); }
+        }
       `}</style>
 
       {adminRoute && !adminPinVerified && !(isSignedIn && user?.role === 'admin') ? (
@@ -5331,6 +5336,19 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   const inputClass = `w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${isDark ? 'bg-black border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`;
   const linkClass = `text-sm font-medium transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-700 hover:text-slate-900'}`;
   const isRegister = mode === 'register';
+  const networkLogo = (network) => (
+    network === 'telecel'
+      ? 'https://files.catbox.moe/yzcokj.jpg'
+      : (network === 'bigtime' || network === 'ishare')
+        ? 'https://files.catbox.moe/riugtj.png'
+        : 'https://files.catbox.moe/r1m0uh.png'
+  );
+  const profileOrbitBubbles = [
+    { id: 'mtn', network: 'mtn', x: '-42%', y: '-22%', delay: '0s', duration: '6.2s' },
+    { id: 'telecel', network: 'telecel', x: '88%', y: '-16%', delay: '0.7s', duration: '6.8s' },
+    { id: 'bigtime', network: 'bigtime', x: '-48%', y: '72%', delay: '1.1s', duration: '7.3s' },
+    { id: 'ishare', network: 'ishare', x: '86%', y: '74%', delay: '1.8s', duration: '7.0s' },
+  ];
 
   const clearError = () => {
     setError('');
@@ -5415,8 +5433,24 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center min-h-full w-full p-6">
+    <div className="relative flex-1 flex flex-col items-center justify-center min-h-full w-full p-6 overflow-hidden">
       <div className="relative mb-6 w-24 h-24 flex items-center justify-center">
+        <div className="pointer-events-none absolute -inset-20 hidden sm:block" aria-hidden>
+          {profileOrbitBubbles.map((bubble) => (
+            <img
+              key={bubble.id}
+              src={networkLogo(bubble.network)}
+              alt={`${bubble.network} logo`}
+              className="absolute w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover shadow-[0_8px_20px_-8px_rgba(0,0,0,0.45)]"
+              style={{
+                left: bubble.x,
+                top: bubble.y,
+                animation: `datapod-float ${bubble.duration} ease-in-out infinite`,
+                animationDelay: bubble.delay,
+              }}
+            />
+          ))}
+        </div>
         <img
           src={appSettings?.sidebarLogoUrl || 'https://files.catbox.moe/l3islw.jpg'}
           alt="DataPlus"
