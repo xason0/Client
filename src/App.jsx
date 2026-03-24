@@ -23,6 +23,12 @@ const DASHBOARD_HEADLINES = [
   'Advert-Ready Digital Service',
 ];
 
+/** Rotating credit lines — literal "ULTRAXAS" becomes the link. */
+const ULTRAXAS_AD_LINES = [
+  'Digital platforms and web products by ULTRAXAS.',
+  'Engineering and design — ULTRAXAS.',
+];
+
 function getTheme() {
   if (typeof window === 'undefined') return 'light';
   const s = localStorage.getItem('theme');
@@ -32,6 +38,68 @@ function getTheme() {
   } catch (_) {
     return window.__INITIAL_THEME__ || 'light';
   }
+}
+
+function renderUltraxasAdLine(line, isDark) {
+  const parts = line.split('ULTRAXAS');
+  const linkClass = `mx-0.5 inline font-semibold tracking-wide transition-colors ${
+    isDark
+      ? 'text-indigo-300 hover:text-indigo-200'
+      : 'text-indigo-800 hover:text-indigo-950'
+  } underline decoration-indigo-400/30 underline-offset-[5px] hover:decoration-indigo-500/60`;
+  return parts.map((part, i) => (
+    <React.Fragment key={i}>
+      {part}
+      {i < parts.length - 1 && (
+        <a
+          href="https://ultraxas.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClass}
+          aria-label="ULTRAXAS — visit ultraxas.com"
+        >
+          ULTRAXAS
+        </a>
+      )}
+    </React.Fragment>
+  ));
+}
+
+/** Site credit strip — calm typography, soft fade between lines (same timing idea as dashboard headlines). */
+function UltraxasAdBanner({ isDark }) {
+  const [lineIndex, setLineIndex] = useState(0);
+  const [lineVisible, setLineVisible] = useState(true);
+
+  useEffect(() => {
+    if (ULTRAXAS_AD_LINES.length < 2) return undefined;
+    const timer = setInterval(() => {
+      setLineVisible(false);
+      setTimeout(() => {
+        setLineIndex((prev) => (prev + 1) % ULTRAXAS_AD_LINES.length);
+        setLineVisible(true);
+      }, 280);
+    }, 5500);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div
+      className={`w-full max-w-full rounded-lg border px-4 py-3 sm:px-5 sm:py-3.5 ${
+        isDark
+          ? 'border-white/[0.08] bg-white/[0.03]'
+          : 'border-slate-200/90 bg-white shadow-sm'
+      }`}
+    >
+      <p
+        aria-live="polite"
+        className={`max-w-[min(100%,48rem)] mx-auto text-center text-[13px] sm:text-sm leading-relaxed transition-opacity duration-500 ease-out ${
+          lineVisible ? 'opacity-100' : 'opacity-0'
+        } ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
+      >
+        {renderUltraxasAdLine(ULTRAXAS_AD_LINES[lineIndex], isDark)}
+      </p>
+    </div>
+  );
 }
 
 export default function App({ adminRoute: adminRouteProp = false }) {
@@ -4658,6 +4726,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           </>
         )}
 
+        <footer
+          role="contentinfo"
+          className="mt-6 w-full max-w-full -mx-3 px-3 sm:-mx-4 sm:px-4 md:-mx-6 md:px-6 lg:-mx-8 lg:px-8"
+        >
+          <UltraxasAdBanner isDark={isDark} />
+        </footer>
+
         </main>
       </div>
 
@@ -4669,7 +4744,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <div className="p-4">
           <div className={`flex items-center gap-3 mb-4 pb-4 border-b ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-base font-bold shadow-lg flex-shrink-0 overflow-hidden">
-              {adminAvatarSrc ? <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" /> : ((profileDisplayName || 'User').trim()[0] || 'U').toUpperCase()}
+              {adminAvatarSrc ? (
+                <img src={adminAvatarSrc} alt="Profile" className="w-full h-full object-cover" />
+              ) : (
+                ((profileDisplayName || 'User').trim()[0] || 'U').toUpperCase()
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className={`font-semibold text-base truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>{profileDisplayName}</h3>
@@ -5236,6 +5315,9 @@ function AdminPinPage({ isDark, onVerified, appSettings }) {
           {loading ? 'Checking…' : 'Continue'}
         </button>
       </div>
+      <footer className="mt-8 w-full max-w-lg px-1 sm:px-0" role="contentinfo">
+        <UltraxasAdBanner isDark={isDark} />
+      </footer>
     </div>
   );
 }
@@ -5453,6 +5535,9 @@ function SignInPage({ isDark, onSignIn, appSettings }) {
           </p>
         )}
       </div>
+      <footer className="mt-6 w-full max-w-lg px-1 sm:px-0" role="contentinfo">
+        <UltraxasAdBanner isDark={isDark} />
+      </footer>
     </div>
   );
 }
