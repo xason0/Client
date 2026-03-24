@@ -83,18 +83,12 @@ function UltraxasAdBanner({ isDark }) {
   }, []);
 
   return (
-    <div
-      className={`w-full max-w-full rounded-lg border px-4 py-3 sm:px-5 sm:py-3.5 ${
-        isDark
-          ? 'border-white/[0.08] bg-white/[0.03]'
-          : 'border-slate-200/90 bg-white shadow-sm'
-      }`}
-    >
+    <div className="w-full max-w-full py-3 sm:py-4">
       <p
         aria-live="polite"
-        className={`max-w-[min(100%,48rem)] mx-auto text-center text-[13px] sm:text-sm leading-relaxed transition-opacity duration-500 ease-out ${
-          lineVisible ? 'opacity-100' : 'opacity-0'
-        } ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
+        className={`mx-auto w-full text-center text-lg sm:text-2xl md:text-3xl font-semibold tracking-tight leading-[1.25] transition-all duration-500 ease-out ${
+          lineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[2px]'
+        } ${isDark ? 'text-slate-200' : 'text-slate-700'}`}
       >
         {renderUltraxasAdLine(ULTRAXAS_AD_LINES[lineIndex], isDark)}
       </p>
