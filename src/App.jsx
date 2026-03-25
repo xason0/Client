@@ -5,7 +5,7 @@ import { api } from './api';
 import UltraxasChatBar from './components/UltraxasChatBar';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
-const MIN_WALLET_TOPUP_GHS = 10;
+const MIN_WALLET_TOPUP_GHS = 1;
 
 /** Per-user cache so two accounts / tabs on the same origin do not share one profile photo. */
 const PROFILE_IMG_STORAGE_PREFIX = 'dataplus_profile_img_';
@@ -260,9 +260,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const canShowUserPhoto = Boolean(isSignedIn && user?.id);
   const photoForUi = canShowUserPhoto ? profileImage : null;
   const pinOnlyAdminShell = adminRoute && adminPinVerified && !isSignedIn;
-  /** On /admin, owner admins default to brand logo, but a saved profile photo must win after refresh. */
-  const adminAvatarSrc = useOwnerAdminPresentation
-    ? (photoForUi || brandLogoUrl)
+  /** Keep /admin visuals consistent: always use brand logo there. */
+  const adminAvatarSrc = adminRoute
+    ? brandLogoUrl
     : (pinOnlyAdminShell ? brandLogoUrl : photoForUi);
 
   useEffect(() => {

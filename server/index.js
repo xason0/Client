@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-dataplus-secret-change-me';
 const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
 const PAYSTACK_SECRET_KEY = (process.env.PAYSTACK_SECRET_KEY || '').trim();
 /** Keep in sync with `MIN_WALLET_TOPUP_GHS` in `src/App.jsx`. Override via WALLET_MIN_TOPUP_GHS. */
-const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 10));
+const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 1));
 const MIN_WALLET_TOPUP_PESEWAS = Math.round(MIN_WALLET_TOPUP_GHS * 100);
 
 if (JWT_SECRET === 'dev-dataplus-secret-change-me' || ADMIN_PIN === '1234') {
@@ -99,10 +99,18 @@ function paystackConfigured() {
   return Boolean(PAYSTACK_SECRET_KEY);
 }
 
-const DEFAULT_CLIENT_APP_ORIGIN = (process.env.NODE_ENV === 'production' ? 'https://client.ultraxas.com' : 'http://localhost:5173');
-function resolveClientAppOrigin() {
-  const raw = (process.env.CLIENT_PUBLIC_URL || process.env.PAYSTACK_CALLBACK_URL || DEFAULT_CLIENT_APP_ORIGIN).trim();
-  return raw.replace(/\/$/, '');
+const DEFAULT_CLIENT_APP_ORIGIN = (process.env.NODE_ENV === 'production' ? 'https://www.dataplusghs.com' : 'http://localhost:5173');
+function resolveClientAppOrigin(req) {
+  const configured = (process.env.CLIENT_PUBLIC_URL || process.env.PAYSTACK_CALLBACK_URL || '').trim();
+  if (configured) return configured.replace(/\/$/, '');
+
+  if (req && process.env.NODE_ENV === 'production') {
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').trim();
+    const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim() || 'https';
+    if (host) return `${proto}://${host}`.replace(/\/$/, '');
+  }
+
+  return DEFAULT_CLIENT_APP_ORIGIN.replace(/\/$/, '');
 }
 
 async function fetchPaystack(url, options = {}, timeoutMs = 30000) {
@@ -304,7 +312,7 @@ app.get('/api/public/config', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.redirect(302, `${resolveClientAppOrigin()}${req.originalUrl}`);
+  res.redirect(302, `${resolveClientAppOrigin(req)}${req.originalUrl}`);
 });
 
 // ——— Auth ———
@@ -496,7 +504,7 @@ app.post('/api/wallet/paystack/initialize', requireAuth, async (req, res) => {
       reference,
       metadata: { user_id: String(u.id) },
       /** Must match your app URL so Paystack redirects back with ?reference= for wallet verify */
-      callbackUrl: resolveClientAppOrigin(),
+      callbackUrl: resolveClientAppOrigin(req),
     });
     res.json({
       access_code: data.access_code,
