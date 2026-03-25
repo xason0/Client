@@ -5,7 +5,7 @@ import { api } from './api';
 import UltraxasChatBar from './components/UltraxasChatBar';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
-const MIN_WALLET_TOPUP_GHS = 1;
+const MIN_WALLET_TOPUP_GHS = 10;
 
 /** Per-user cache so two accounts / tabs on the same origin do not share one profile photo. */
 const PROFILE_IMG_STORAGE_PREFIX = 'dataplus_profile_img_';

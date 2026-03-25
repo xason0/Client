@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-dataplus-secret-change-me';
 const ADMIN_PIN = process.env.ADMIN_PIN || '1234';
 const PAYSTACK_SECRET_KEY = (process.env.PAYSTACK_SECRET_KEY || '').trim();
 /** Keep in sync with `MIN_WALLET_TOPUP_GHS` in `src/App.jsx`. Override via WALLET_MIN_TOPUP_GHS. */
-const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 1));
+const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 10));
 const MIN_WALLET_TOPUP_PESEWAS = Math.round(MIN_WALLET_TOPUP_GHS * 100);
 
 if (JWT_SECRET === 'dev-dataplus-secret-change-me' || ADMIN_PIN === '1234') {
