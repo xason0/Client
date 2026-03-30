@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <script>
       (function() {
-        var stored = localStorage.getItem('theme');
+        var path = (typeof location !== 'undefined' && location.pathname) || '';
+        var isAdmin = path === '/admin';
+        var key = isAdmin ? 'dataplus_theme_admin' : 'dataplus_theme_customer';
+        var stored = localStorage.getItem(key);
+        if (!isAdmin && (stored !== 'dark' && stored !== 'light')) {
+          stored = localStorage.getItem('theme');
+        }
         var t;
         if (stored === 'dark' || stored === 'light') t = stored;
         else try { t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { t = 'light'; }

@@ -112,14 +112,52 @@ const FOOTER_CREDIT_LINES = [
   `Engineering and design — ${FOOTER_BRAND_NAME}.`,
 ];
 
-function getTheme() {
+const THEME_KEY_LEGACY = 'theme';
+const THEME_KEY_CUSTOMER = 'dataplus_theme_customer';
+const THEME_KEY_ADMIN = 'dataplus_theme_admin';
+
+function getSystemTheme() {
   if (typeof window === 'undefined') return 'light';
-  const s = localStorage.getItem('theme');
-  if (s === 'dark' || s === 'light') return s;
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   } catch (_) {
     return window.__INITIAL_THEME__ || 'light';
+  }
+}
+
+/** Customer vs /admin use separate localStorage keys so toggling theme in admin does not overwrite the customer UI preference (same device, different surfaces). */
+function readThemeForSurface(isAdminSurface) {
+  if (typeof window === 'undefined') return 'light';
+  if (isAdminSurface) {
+    const s = localStorage.getItem(THEME_KEY_ADMIN);
+    if (s === 'dark' || s === 'light') return s;
+    return getSystemTheme();
+  }
+  const scoped = localStorage.getItem(THEME_KEY_CUSTOMER);
+  if (scoped === 'dark' || scoped === 'light') return scoped;
+  const leg = localStorage.getItem(THEME_KEY_LEGACY);
+  if (leg === 'dark' || leg === 'light') return leg;
+  return getSystemTheme();
+}
+
+function persistThemeForSurface(isAdminSurface, value) {
+  if (typeof window === 'undefined') return;
+  if (isAdminSurface) {
+    localStorage.setItem(THEME_KEY_ADMIN, value);
+    return;
+  }
+  localStorage.setItem(THEME_KEY_CUSTOMER, value);
+  try {
+    localStorage.setItem(THEME_KEY_LEGACY, value);
+  } catch (_) {}
+}
+
+function clearManualThemeForSurface(isAdminSurface) {
+  if (typeof window === 'undefined') return;
+  if (isAdminSurface) localStorage.removeItem(THEME_KEY_ADMIN);
+  else {
+    localStorage.removeItem(THEME_KEY_CUSTOMER);
+    localStorage.removeItem(THEME_KEY_LEGACY);
   }
 }
 
@@ -171,7 +209,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const adminRoute = adminRouteProp || (typeof location?.pathname === 'string' && location.pathname === '/admin');
-  const [theme, setTheme] = useState(() => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || getTheme());
+  const adminRouteRef = useRef(adminRoute);
+  adminRouteRef.current = adminRoute;
+  const [theme, setTheme] = useState(
+    () => (typeof window !== 'undefined' && window.__INITIAL_THEME__) || readThemeForSurface(adminRoute)
+  );
   const [token, setToken] = useState(() => (typeof window !== 'undefined' ? api.getToken() : null));
   const [user, setUser] = useState(null);
   const [isSignedIn, setIsSignedIn] = useState(!!token);
@@ -1244,19 +1286,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     setProfileImage(null);
   }, [user?.id, user?.profile_avatar]);
 
-  // Apply theme before first paint and subscribe to system preference
+  // Apply stored theme for current surface (/admin vs customer) before paint and when route switches
   useLayoutEffect(() => {
-    const resolved = getTheme();
+    const resolved = readThemeForSurface(adminRoute);
     setTheme(resolved);
     document.documentElement.setAttribute('data-theme', resolved);
-  }, []);
+  }, [adminRoute]);
 
-  // When system dark/light mode changes, always follow it and clear any manual override
+  // OS theme change: clear manual override only for the surface you are on (admin vs customer stay independent)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const applySystemTheme = () => {
       const next = mq.matches ? 'dark' : 'light';
-      localStorage.removeItem('theme');
+      clearManualThemeForSurface(adminRouteRef.current);
       setTheme(next);
       document.documentElement.setAttribute('data-theme', next);
     };
@@ -1264,10 +1306,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return () => mq.removeEventListener('change', applySystemTheme);
   }, []);
 
-  // When user returns to the tab, re-sync theme (in case system changed while tab was in background)
   useEffect(() => {
     const onVisible = () => {
-      const resolved = getTheme();
+      if (document.visibilityState !== 'visible') return;
+      const resolved = readThemeForSurface(adminRouteRef.current);
       setTheme(resolved);
       document.documentElement.setAttribute('data-theme', resolved);
     };
@@ -1323,7 +1365,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const toggleOrders = () => setOrdersExpanded((prev) => !prev);
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('theme', next);
+    persistThemeForSurface(adminRoute, next);
     document.documentElement.setAttribute('data-theme', next);
     setTheme(next);
   };
