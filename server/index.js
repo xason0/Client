@@ -7,6 +7,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { readDb, writeDb, withDb, defaultBundles } from './store.js';
+import {
+  sanitizeBroadcastTitle,
+  splitBroadcastCaption,
+  normalizeBroadcastCaptionForStorage,
+  extractPackedTitleFromCaption,
+} from '../shared/broadcastSanitize.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, '../.env.local') });
@@ -1010,6 +1016,168 @@ app.put('/api/admin/settings', requireAdmin, (req, res) => {
 });
 
 app.get('/api/transactions', requireAdmin, sendAllWalletTransactions);
+
+const MAX_BROADCAST_IMAGE_LEN = 1_500_000;
+
+function clampBroadcastInt(value, min, max, fallback) {
+  const x = Number(value);
+  if (!Number.isFinite(x)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(x)));
+}
+
+function sanitizeBroadcastCtaUrl(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    s = `https://${s.replace(/^\/+/, '')}`;
+  }
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    return u.href.length > 2048 ? u.href.slice(0, 2048) : u.href;
+  } catch {
+    return '';
+  }
+}
+
+function sanitizeBroadcastCtaLabel(raw) {
+  return String(raw ?? '').trim().slice(0, 80);
+}
+
+app.get('/api/broadcasts', (req, res) => {
+  const db = readDb();
+  const list = Array.isArray(db.broadcasts) ? db.broadcasts : [];
+  const out = list
+    .filter((b) => b && b.active !== false && String(b.image_url || '').trim())
+    .map((b) => {
+      const cta_url = sanitizeBroadcastCtaUrl(b.cta_url);
+      const cta_label = sanitizeBroadcastCtaLabel(b.cta_label);
+      const cta_open_new_tab = b.cta_open_new_tab !== false;
+      const { title: outTitle, captionHtml } = splitBroadcastCaption(b.caption, b.title);
+      return {
+        id: b.id,
+        title: outTitle,
+        caption: captionHtml,
+        image_url: String(b.image_url).trim(),
+        created_at: b.created_at || null,
+        popup_delay_seconds: clampBroadcastInt(b.popup_delay_seconds, 0, 600, 2),
+        auto_close_seconds: clampBroadcastInt(b.auto_close_seconds, 0, 86400, 0),
+        reshow_after_days: clampBroadcastInt(b.reshow_after_days, 0, 365, 0),
+        ...(cta_url
+          ? { cta_url, cta_label: cta_label || 'Learn more', cta_open_new_tab }
+          : {}),
+      };
+    })
+    .sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0));
+  res.json(out);
+});
+
+app.get('/api/admin/broadcasts', requireAdmin, (req, res) => {
+  const db = readDb();
+  const list = Array.isArray(db.broadcasts) ? db.broadcasts : [];
+  res.json([...list].sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0)));
+});
+
+app.post('/api/admin/broadcasts', requireAdmin, (req, res) => {
+  const caption = normalizeBroadcastCaptionForStorage(req.body?.caption ?? '');
+  const titleFromBody = sanitizeBroadcastTitle(req.body?.title);
+  const titlePacked = extractPackedTitleFromCaption(caption);
+  const title = titleFromBody || titlePacked;
+  const image_url = String(req.body?.image_url ?? '').trim();
+  const active = req.body?.active !== false;
+  const popup_delay_seconds = clampBroadcastInt(req.body?.popup_delay_seconds, 0, 600, 2);
+  const auto_close_seconds = clampBroadcastInt(req.body?.auto_close_seconds, 0, 86400, 0);
+  const reshow_after_days = clampBroadcastInt(req.body?.reshow_after_days, 0, 365, 0);
+  const cta_url = sanitizeBroadcastCtaUrl(req.body?.cta_url);
+  const cta_label = sanitizeBroadcastCtaLabel(req.body?.cta_label);
+  const cta_open_new_tab = req.body?.cta_open_new_tab !== false;
+  if (!image_url) return res.status(400).json({ error: 'Image is required (upload a file or paste an image URL)' });
+  if (image_url.length > MAX_BROADCAST_IMAGE_LEN) {
+    return res.status(413).json({ error: 'Image data too large; use a smaller file or host the image elsewhere' });
+  }
+  withDb((db) => {
+    if (!Array.isArray(db.broadcasts)) db.broadcasts = [];
+    const row = {
+      id: randomUUID(),
+      title,
+      caption,
+      image_url,
+      active: !!active,
+      popup_delay_seconds,
+      auto_close_seconds,
+      reshow_after_days,
+      cta_url,
+      cta_label,
+      cta_open_new_tab,
+      created_at: new Date().toISOString(),
+    };
+    db.broadcasts.push(row);
+    res.status(201).json(row);
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
+});
+
+app.patch('/api/admin/broadcasts/:id', requireAdmin, (req, res) => {
+  withDb((db) => {
+    if (!Array.isArray(db.broadcasts)) db.broadcasts = [];
+    const row = db.broadcasts.find((x) => String(x.id) === String(req.params.id));
+    if (!row) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (req.body.caption != null) {
+      row.caption = normalizeBroadcastCaptionForStorage(req.body.caption);
+    }
+    if (req.body.title !== undefined) {
+      row.title = sanitizeBroadcastTitle(req.body.title);
+    } else if (req.body.caption != null) {
+      const packedT = extractPackedTitleFromCaption(row.caption);
+      if (packedT) row.title = packedT;
+    }
+    if (req.body.image_url != null) {
+      const u = String(req.body.image_url).trim();
+      if (u.length > MAX_BROADCAST_IMAGE_LEN) {
+        res.status(413).json({ error: 'Image data too large' });
+        return;
+      }
+      row.image_url = u;
+    }
+    if (req.body.active != null) row.active = !!req.body.active;
+    if (req.body.popup_delay_seconds != null) {
+      row.popup_delay_seconds = clampBroadcastInt(req.body.popup_delay_seconds, 0, 600, row.popup_delay_seconds ?? 2);
+    }
+    if (req.body.auto_close_seconds != null) {
+      row.auto_close_seconds = clampBroadcastInt(req.body.auto_close_seconds, 0, 86400, row.auto_close_seconds ?? 0);
+    }
+    if (req.body.reshow_after_days != null) {
+      row.reshow_after_days = clampBroadcastInt(req.body.reshow_after_days, 0, 365, row.reshow_after_days ?? 0);
+    }
+    if (req.body.cta_url !== undefined) {
+      row.cta_url = sanitizeBroadcastCtaUrl(req.body.cta_url);
+    }
+    if (req.body.cta_label !== undefined) {
+      row.cta_label = sanitizeBroadcastCtaLabel(req.body.cta_label);
+    }
+    if (req.body.cta_open_new_tab !== undefined) {
+      row.cta_open_new_tab = req.body.cta_open_new_tab !== false;
+    }
+    row.updated_at = new Date().toISOString();
+    res.json(row);
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
+});
+
+app.delete('/api/admin/broadcasts/:id', requireAdmin, (req, res) => {
+  withDb((db) => {
+    if (!Array.isArray(db.broadcasts)) db.broadcasts = [];
+    const i = db.broadcasts.findIndex((x) => String(x.id) === String(req.params.id));
+    if (i === -1) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    db.broadcasts.splice(i, 1);
+    res.json({ ok: true });
+  }).catch(() => res.status(500).json({ error: 'Server error' }));
+});
 
 app.listen(PORT, () => {
   console.log(`[dataplus-api] http://localhost:${PORT}`);

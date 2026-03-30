@@ -80,6 +80,29 @@ html, body, #root {
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
+/* Hide scrollbars app-wide; content still scrolls (trackpad, wheel, touch, keys) */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
 /* Page titles: distinct font and color */
 .page-title {
   font-weight: 600;
@@ -104,4 +127,126 @@ html, body, #root {
 [data-theme="dark"] .dashboard-animated-title {
   color: #e0e7ff;
   text-shadow: 0 2px 16px rgba(129, 140, 248, 0.25);
+}
+
+/* Broadcast popup / admin rich message */
+.broadcast-popup-body b,
+.broadcast-popup-body strong {
+  font-weight: 700;
+}
+.broadcast-popup-body i,
+.broadcast-popup-body em {
+  font-style: italic;
+}
+.broadcast-popup-body u {
+  text-decoration: underline;
+}
+.broadcast-popup-body s,
+.broadcast-popup-body strike {
+  text-decoration: line-through;
+}
+.broadcast-popup-body p {
+  margin: 0.35em 0;
+}
+.broadcast-popup-body p:first-child {
+  margin-top: 0;
+}
+.broadcast-popup-body p:last-child {
+  margin-bottom: 0;
+}
+
+.broadcast-popup-body a.broadcast-caption-link-btn,
+.broadcast-rich-editor a.broadcast-caption-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  margin: 0.4rem 0.35rem 0.25rem 0;
+  padding: 0.5rem 0.95rem;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  text-decoration: none !important;
+  word-break: break-word;
+  color: #fff !important;
+  background: #7c3aed;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08);
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.broadcast-popup-body a.broadcast-caption-link-btn:hover,
+.broadcast-rich-editor a.broadcast-caption-link-btn:hover {
+  background: #6d28d9;
+}
+.broadcast-popup-body a.broadcast-caption-link-btn:active,
+.broadcast-rich-editor a.broadcast-caption-link-btn:active {
+  background: #5b21b6;
+  transform: scale(0.98);
+}
+.broadcast-popup-body a.broadcast-caption-link-btn:focus-visible,
+.broadcast-rich-editor a.broadcast-caption-link-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #a78bfa;
+}
+
+.broadcast-popup-body div {
+  margin: 0.35em 0;
+}
+.broadcast-popup-body div:first-child {
+  margin-top: 0;
+}
+.broadcast-popup-body div:last-child {
+  margin-bottom: 0;
+}
+
+.broadcast-rich-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgb(100 116 139);
+  pointer-events: none;
+}
+[data-theme="dark"] .broadcast-rich-editor:empty::before {
+  color: rgb(255 255 255 / 0.38);
+}
+
+.broadcast-rich-editor b,
+.broadcast-rich-editor strong {
+  font-weight: 700;
+}
+.broadcast-rich-editor i,
+.broadcast-rich-editor em {
+  font-style: italic;
+}
+.broadcast-rich-editor u {
+  text-decoration: underline;
+}
+.broadcast-rich-editor s,
+.broadcast-rich-editor strike {
+  text-decoration: line-through;
+}
+.broadcast-rich-editor p,
+.broadcast-rich-editor div {
+  margin: 0.25em 0;
+}
+.broadcast-rich-editor p:first-child,
+.broadcast-rich-editor div:first-child {
+  margin-top: 0;
+}
+.broadcast-rich-editor p:last-child,
+.broadcast-rich-editor div:last-child {
+  margin-bottom: 0;
+}
+
+/* Broadcast admin timing fields (plain text, digits only): kill yellow autofill tint in WebKit. */
+input.broadcast-timing-input:-webkit-autofill,
+input.broadcast-timing-input:-webkit-autofill:hover,
+input.broadcast-timing-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: rgb(15 23 42);
+  transition: background-color 9999s ease-out;
+  box-shadow: 0 0 0 1000px rgb(255 255 255) inset;
+}
+[data-theme="dark"] input.broadcast-timing-input:-webkit-autofill,
+[data-theme="dark"] input.broadcast-timing-input:-webkit-autofill:hover,
+[data-theme="dark"] input.broadcast-timing-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: rgb(248 250 252);
+  box-shadow: 0 0 0 1000px rgb(39 39 42 / 0.85) inset;
 }

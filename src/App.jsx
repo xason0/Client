@@ -1,8 +1,15 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
 import UltraxasChatBar from './components/UltraxasChatBar';
+import BroadcastRichEditor from './components/BroadcastRichEditor';
+import {
+  sanitizeBroadcastTitle,
+  sanitizeBroadcastRichHtml,
+  formatBroadcastCaptionForDisplay,
+  broadcastPlainTextPreview,
+} from '../shared/broadcastSanitize.js';
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 10;
@@ -16,6 +23,81 @@ function profileImageStorageKey(userId) {
   return `${PROFILE_IMG_STORAGE_PREFIX}${Math.trunc(n)}`;
 }
 
+const BROADCAST_DISMISS_KEY = 'dataplus_broadcast_dismissed';
+
+function readDismissMap() {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(BROADCAST_DISMISS_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    if (Array.isArray(p)) {
+      const o = {};
+      for (const id of p) o[String(id)] = 'forever';
+      return o;
+    }
+    if (p && typeof p === 'object' && !Array.isArray(p)) return p;
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function isBroadcastDismissed(id, reshowAfterDays) {
+  const map = readDismissMap();
+  const key = String(id);
+  if (!(key in map)) return false;
+  const v = map[key];
+  if (v === 'forever') return true;
+  const days = Number(reshowAfterDays) || 0;
+  if (days <= 0) return true;
+  const t = typeof v === 'number' ? v : Date.parse(String(v));
+  if (!Number.isFinite(t)) return true;
+  return Date.now() < t + days * 86400000;
+}
+
+function dismissPublicBroadcast(id, reshowAfterDays) {
+  const map = readDismissMap();
+  const days = Number(reshowAfterDays) || 0;
+  map[String(id)] = days <= 0 ? 'forever' : Date.now();
+  localStorage.setItem(BROADCAST_DISMISS_KEY, JSON.stringify(map));
+}
+
+/** Let a broadcast show again after admin re-activates or resets dismiss state. */
+function clearBroadcastDismissEntry(id) {
+  if (typeof localStorage === 'undefined' || id == null || id === '') return;
+  const map = readDismissMap();
+  const key = String(id);
+  if (!(key in map)) return;
+  delete map[key];
+  if (Object.keys(map).length === 0) localStorage.removeItem(BROADCAST_DISMISS_KEY);
+  else localStorage.setItem(BROADCAST_DISMISS_KEY, JSON.stringify(map));
+}
+
+function broadcastPopupDelaySec(b) {
+  if (!b) return 2;
+  const n = Number(b.popup_delay_seconds);
+  if (Number.isFinite(n)) return Math.min(600, Math.max(0, n));
+  return 2;
+}
+
+/** Match server CTA rules so the button is not dropped when the user omits https:// */
+function normalizeBroadcastCtaUrlForApi(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    s = `https://${s.replace(/^\/+/, '')}`;
+  }
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
+    return u.href.length > 2048 ? u.href.slice(0, 2048) : u.href;
+  } catch {
+    return '';
+  }
+}
+
 const DASHBOARD_HEADLINES = [
   'Welcome to DataPlus',
   'Powering Smart Business Connectivity',
@@ -23,10 +105,11 @@ const DASHBOARD_HEADLINES = [
   'Advert-Ready Digital Service',
 ];
 
-/** Rotating credit lines — literal "ULTRAXAS" becomes the link. */
-const ULTRAXAS_AD_LINES = [
-  'Digital platforms and web products by ULTRAXAS.',
-  'Engineering and design — ULTRAXAS.',
+/** Footer credit — brand name is plain text (no link). */
+const FOOTER_BRAND_NAME = 'XSLUS';
+const FOOTER_CREDIT_LINES = [
+  `Digital platforms and web products by ${FOOTER_BRAND_NAME}.`,
+  `Engineering and design — ${FOOTER_BRAND_NAME}.`,
 ];
 
 function getTheme() {
@@ -40,27 +123,15 @@ function getTheme() {
   }
 }
 
-function renderUltraxasAdLine(line, isDark) {
-  const parts = line.split('ULTRAXAS');
-  const linkClass = `mx-0.5 inline font-semibold tracking-wide transition-colors ${
-    isDark
-      ? 'text-indigo-300 hover:text-indigo-200'
-      : 'text-indigo-800 hover:text-indigo-950'
-  } underline decoration-indigo-400/30 underline-offset-[5px] hover:decoration-indigo-500/60`;
+function renderFooterCreditLine(line, isDark) {
+  const parts = line.split(FOOTER_BRAND_NAME);
+  const brandClass = `mx-0.5 inline font-semibold tracking-wide ${
+    isDark ? 'text-indigo-200' : 'text-indigo-900'
+  }`;
   return parts.map((part, i) => (
     <React.Fragment key={i}>
       {part}
-      {i < parts.length - 1 && (
-        <a
-          href="https://ultraxas.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={linkClass}
-          aria-label="ULTRAXAS — visit ultraxas.com"
-        >
-          ULTRAXAS
-        </a>
-      )}
+      {i < parts.length - 1 ? <span className={brandClass}>{FOOTER_BRAND_NAME}</span> : null}
     </React.Fragment>
   ));
 }
@@ -71,11 +142,11 @@ function UltraxasAdBanner({ isDark }) {
   const [lineVisible, setLineVisible] = useState(true);
 
   useEffect(() => {
-    if (ULTRAXAS_AD_LINES.length < 2) return undefined;
+    if (FOOTER_CREDIT_LINES.length < 2) return undefined;
     const timer = setInterval(() => {
       setLineVisible(false);
       setTimeout(() => {
-        setLineIndex((prev) => (prev + 1) % ULTRAXAS_AD_LINES.length);
+        setLineIndex((prev) => (prev + 1) % FOOTER_CREDIT_LINES.length);
         setLineVisible(true);
       }, 280);
     }, 5500);
@@ -90,7 +161,7 @@ function UltraxasAdBanner({ isDark }) {
           lineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[2px]'
         } ${isDark ? 'text-slate-200' : 'text-slate-700'}`}
       >
-        {renderUltraxasAdLine(ULTRAXAS_AD_LINES[lineIndex], isDark)}
+        {renderFooterCreditLine(FOOTER_CREDIT_LINES[lineIndex], isDark)}
       </p>
     </div>
   );
@@ -225,6 +296,32 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminBundlesSaving, setAdminBundlesSaving] = useState(false);
   const [adminBundlesMessage, setAdminBundlesMessage] = useState(null);
   const [adminPackagesNetwork, setAdminPackagesNetwork] = useState('mtn');
+  const [publicBroadcasts, setPublicBroadcasts] = useState([]);
+  const [broadcastDismissTick, setBroadcastDismissTick] = useState(0);
+  const [adminBroadcasts, setAdminBroadcasts] = useState([]);
+  const [adminBroadcastsLoading, setAdminBroadcastsLoading] = useState(false);
+  const [adminBroadcastsError, setAdminBroadcastsError] = useState(null);
+  const [broadcastForm, setBroadcastForm] = useState({
+    title: '',
+    caption: '',
+    image_url: '',
+    active: true,
+    popup_delay_seconds: 2,
+    auto_close_seconds: 0,
+    reshow_after_days: 0,
+    cta_url: '',
+    cta_label: '',
+    cta_open_new_tab: true,
+  });
+  const [broadcastSaving, setBroadcastSaving] = useState(false);
+  /** When set, Publish saves via PATCH instead of POST (form filled from Edit). */
+  const [broadcastEditingId, setBroadcastEditingId] = useState(null);
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  /** Admin list: show same popup UI as customers (no dismiss / no analytics). */
+  const [adminBroadcastPreview, setAdminBroadcastPreview] = useState(null);
+  const broadcastDelayTimerRef = useRef(null);
+  const prevVisibleBroadcastIdRef = useRef(null);
+  const broadcastFileInputRef = useRef(null);
   const [editingBundle, setEditingBundle] = useState(null);
   const [editBundleForm, setEditBundleForm] = useState({ size: '', price: 0 });
   const [ultraxasChatInput, setUltraxasChatInput] = useState('');
@@ -277,6 +374,31 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   useEffect(() => {
     api.getBundles().then((b) => setBundlesData(b)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api
+        .getBroadcasts()
+        .then((list) => {
+          if (!cancelled) setPublicBroadcasts(Array.isArray(list) ? list : []);
+        })
+        .catch(() => {
+          if (!cancelled) setPublicBroadcasts([]);
+        });
+    };
+    load();
+    if (adminRoute) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const id = setInterval(load, 120000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [adminRoute]);
 
   useEffect(() => {
     if (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY) return;
@@ -655,6 +777,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           setAgentApplications([]);
         })
         .finally(() => setAgentApplicationsLoading(false));
+    } else if (currentPage === 'admin-broadcasts' && hasAdminAccess) {
+      setAdminBroadcastsLoading(true);
+      setAdminBroadcastsError(null);
+      api
+        .getAdminBroadcasts()
+        .then((list) => setAdminBroadcasts(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminBroadcastsError(err?.message || 'Failed to load broadcasts');
+          setAdminBroadcasts([]);
+        })
+        .finally(() => setAdminBroadcastsLoading(false));
     }
   }, [currentPage, user?.role, adminPinVerified]);
 
@@ -1167,7 +1300,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   useEffect(() => {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
-      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
+      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'];
       const mainAppPages = ['dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
       if (adminSubPages.includes(currentPage)) return;
       if (mainAppPages.includes(currentPage)) return;
@@ -1180,7 +1313,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** Leaving /admin must drop admin-only pages from state; PIN sessions are not admin UI on `/`. */
   useEffect(() => {
     if (location.pathname === '/admin') return;
-    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'];
+    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'];
     setCurrentPage((p) => (adminPages.includes(p) ? 'dashboard' : p));
     setSelectedMenu((m) => (adminPages.includes(m) ? 'dashboard' : m));
   }, [location.pathname]);
@@ -1234,7 +1367,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       navigate('/admin');
       setCurrentPage('admin');
       setProfileOpen(false);
-    } else if (['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(menu)) {
+    } else if (['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'].includes(menu)) {
       navigate('/admin');
       setCurrentPage(menu);
       setSelectedMenu(menu);
@@ -1511,8 +1644,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       </svg>
     ),
     Link: (props) => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-        <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden {...props}>
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+        <path d="M15 3h6v6" />
+        <path d="M10 14 21 3" />
       </svg>
     ),
     Chart: (props) => (
@@ -1521,9 +1656,107 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <polyline points="17 6 23 6 23 12" />
       </svg>
     ),
+    ArrowLeft: ({ width = 24, height = 24, ...props }) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
+      </svg>
+    ),
+    Megaphone: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="m3 11 18-5v12L3 13v-2z" />
+        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+      </svg>
+    ),
   };
 
   const stroke = isDark ? '#ffffff' : '#000000';
+
+  const visiblePublicBroadcast = useMemo(() => {
+    if (adminRoute) return null;
+    const list = Array.isArray(publicBroadcasts) ? publicBroadcasts : [];
+    for (const b of list) {
+      if (b?.id && b.image_url && !isBroadcastDismissed(b.id, b.reshow_after_days ?? 0)) return b;
+    }
+    return null;
+  }, [adminRoute, publicBroadcasts, broadcastDismissTick]);
+
+  const visibleBroadcastId = visiblePublicBroadcast?.id ?? null;
+  const visiblePopupDelayRaw = visiblePublicBroadcast?.popup_delay_seconds;
+  const visiblePopupDelayMs = useMemo(() => {
+    if (!visibleBroadcastId) return 2000;
+    const n = Number(visiblePopupDelayRaw);
+    const sec = Number.isFinite(n) ? Math.min(600, Math.max(0, n)) : 2;
+    return sec * 1000;
+  }, [visibleBroadcastId, visiblePopupDelayRaw]);
+
+  useEffect(() => {
+    if (broadcastDelayTimerRef.current) {
+      clearTimeout(broadcastDelayTimerRef.current);
+      broadcastDelayTimerRef.current = null;
+    }
+
+    if (adminRoute || !visibleBroadcastId) {
+      setBroadcastModalOpen(false);
+      prevVisibleBroadcastIdRef.current = visibleBroadcastId;
+      return undefined;
+    }
+
+    const prev = prevVisibleBroadcastIdRef.current;
+    const idChanged = prev !== null && prev !== visibleBroadcastId;
+    if (idChanged) {
+      setBroadcastModalOpen(false);
+    }
+    prevVisibleBroadcastIdRef.current = visibleBroadcastId;
+
+    if (!idChanged && broadcastModalOpen) {
+      return () => {
+        if (broadcastDelayTimerRef.current) {
+          clearTimeout(broadcastDelayTimerRef.current);
+          broadcastDelayTimerRef.current = null;
+        }
+      };
+    }
+
+    const ms = visiblePopupDelayMs;
+    broadcastDelayTimerRef.current = setTimeout(() => {
+      setBroadcastModalOpen(true);
+      broadcastDelayTimerRef.current = null;
+    }, ms);
+
+    return () => {
+      if (broadcastDelayTimerRef.current) {
+        clearTimeout(broadcastDelayTimerRef.current);
+        broadcastDelayTimerRef.current = null;
+      }
+    };
+  }, [adminRoute, visibleBroadcastId, broadcastDismissTick, broadcastModalOpen, visiblePopupDelayMs]);
+
+  const broadcastAutoCloseSec = useMemo(() => {
+    const b = visiblePublicBroadcast;
+    if (!b || !visibleBroadcastId || String(b.id) !== String(visibleBroadcastId)) return 0;
+    const raw = b.auto_close_seconds ?? b.autoCloseSeconds;
+    const ac = typeof raw === 'string' ? parseInt(String(raw).replace(/\D/g, ''), 10) : Math.round(Number(raw));
+    if (!Number.isFinite(ac) || ac <= 0) return 0;
+    return Math.min(86400, Math.max(1, ac));
+  }, [visiblePublicBroadcast, visibleBroadcastId]);
+
+  const broadcastAutoCloseReshowDays = useMemo(() => {
+    const b = visiblePublicBroadcast;
+    if (!b || !visibleBroadcastId || String(b.id) !== String(visibleBroadcastId)) return 0;
+    return Number(b.reshow_after_days ?? b.reshowAfterDays) || 0;
+  }, [visiblePublicBroadcast, visibleBroadcastId]);
+
+  useEffect(() => {
+    if (!broadcastModalOpen || !visibleBroadcastId || broadcastAutoCloseSec <= 0) return undefined;
+    const bid = visibleBroadcastId;
+    const reshow = broadcastAutoCloseReshowDays;
+    const t = setTimeout(() => {
+      dismissPublicBroadcast(bid, reshow);
+      setBroadcastDismissTick((x) => x + 1);
+      setBroadcastModalOpen(false);
+    }, broadcastAutoCloseSec * 1000);
+    return () => clearTimeout(t);
+  }, [broadcastModalOpen, visibleBroadcastId, broadcastAutoCloseSec, broadcastAutoCloseReshowDays]);
 
   return (
     <div className={`h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`} style={{ minHeight: '100dvh' }}>
@@ -1596,9 +1829,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             aria-label="Close menu"
           >
             <span className="rounded-full bg-white/20 p-2 text-white pointer-events-none">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-              </svg>
+              <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
             </span>
           </div>
       )}
@@ -1729,6 +1960,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
+                <MenuItem id="admin-broadcasts" icon={<Svg.Megaphone stroke={stroke} />} label="Broadcasts" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
               </>
             )}
@@ -1746,7 +1978,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         </div>
       </aside>
 
-      <main className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full min-w-0 pb-20 sm:pb-24 px-3 sm:px-4 md:px-6 lg:px-8`}>
+      <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 pb-20 sm:pb-24">
         <header
           className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl md:left-72 ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
           style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
@@ -1775,6 +2007,218 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             )}
           </button>
         </header>
+
+        {broadcastModalOpen && visiblePublicBroadcast && typeof document !== 'undefined' &&
+          createPortal(
+            <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="broadcast-popup-title">
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/45 backdrop-blur-md"
+                aria-label="Close announcement"
+                onClick={() => {
+                  dismissPublicBroadcast(visiblePublicBroadcast.id, Number(visiblePublicBroadcast.reshow_after_days) || 0);
+                  setBroadcastDismissTick((t) => t + 1);
+                  setBroadcastModalOpen(false);
+                }}
+              />
+              <div
+                className={`relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl isolate ${
+                  isDark
+                    ? 'bg-zinc-950/50 backdrop-blur-2xl border-white/15 shadow-black/50'
+                    : 'bg-white/45 backdrop-blur-2xl border-white/70 shadow-slate-900/15'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  className={`absolute top-3 right-3 z-10 w-10 h-10 rounded-full flex items-center justify-center text-lg leading-none font-semibold border backdrop-blur-md ${
+                    isDark
+                      ? 'bg-white/10 text-white border-white/25 hover:bg-white/15'
+                      : 'bg-white/60 text-slate-800 border-white/80 hover:bg-white/80'
+                  }`}
+                  aria-label="Close"
+                  onClick={() => {
+                    dismissPublicBroadcast(visiblePublicBroadcast.id, Number(visiblePublicBroadcast.reshow_after_days) || 0);
+                    setBroadcastDismissTick((t) => t + 1);
+                    setBroadcastModalOpen(false);
+                  }}
+                >
+                  ✕
+                </button>
+                <div
+                  className={`relative w-full h-[min(46vh,320px)] min-h-[72px] overflow-hidden rounded-t-2xl ${isDark ? 'bg-black/45' : 'bg-slate-100'}`}
+                >
+                  <img
+                    src={visiblePublicBroadcast.image_url}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                </div>
+                <div
+                  className={`p-5 pt-6 border-t backdrop-blur-sm ${
+                    isDark ? 'border-white/10 text-white bg-white/[0.04]' : 'border-white/50 text-slate-900 bg-white/25'
+                  }`}
+                >
+                  <p id="broadcast-popup-title" className="text-lg sm:text-xl font-semibold leading-snug tracking-tight">
+                    {sanitizeBroadcastTitle(visiblePublicBroadcast.title) || 'Announcement from DataPlus'}
+                  </p>
+                  {(() => {
+                    const capHtml = formatBroadcastCaptionForDisplay(visiblePublicBroadcast.caption || '');
+                    return capHtml ? (
+                      <div
+                        className={`broadcast-popup-body text-sm mt-2.5 leading-relaxed ${isDark ? 'text-white/90' : 'text-slate-700'}`}
+                        dangerouslySetInnerHTML={{ __html: capHtml }}
+                      />
+                    ) : null;
+                  })()}
+                  {String(visiblePublicBroadcast.cta_url || '').trim() ? (
+                    <div className="mt-4 flex justify-end">
+                      <a
+                        href={visiblePublicBroadcast.cta_url}
+                        {...(visiblePublicBroadcast.cta_open_new_tab !== false
+                          ? { target: '_blank', rel: 'noopener noreferrer' }
+                          : { rel: 'noopener' })}
+                        className="inline-flex max-w-full items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-white bg-violet-600 hover:bg-violet-500 active:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-900 transition-colors shadow-sm"
+                      >
+                        <Svg.Link width={18} height={18} className="shrink-0 text-white/95" stroke="currentColor" />
+                        {String(visiblePublicBroadcast.cta_label || '').trim() || 'Learn more'}
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+        {adminBroadcastPreview && typeof document !== 'undefined' &&
+          createPortal(
+            <div
+              className="fixed inset-0 z-[86] flex items-center justify-center p-4 sm:p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-broadcast-preview-title"
+            >
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/45 backdrop-blur-md"
+                aria-label="Close preview"
+                onClick={() => setAdminBroadcastPreview(null)}
+              />
+              <div
+                className={`relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl isolate ${
+                  isDark
+                    ? 'bg-zinc-950/50 backdrop-blur-2xl border-white/15 shadow-black/50'
+                    : 'bg-white/45 backdrop-blur-2xl border-white/70 shadow-slate-900/15'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div
+                  className={`flex items-center justify-between gap-3 px-4 py-3 border-b backdrop-blur-md ${
+                    isDark ? 'border-white/10 bg-white/[0.08]' : 'border-white/50 bg-white/35'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className={`text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-violet-300' : 'text-violet-700'}`}>
+                      {String(adminBroadcastPreview.id) === '__draft__' ? 'Draft preview' : 'Customer preview'}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      {String(adminBroadcastPreview.id) === '__draft__'
+                        ? 'Not published yet — same layout customers will see'
+                        : 'This is how the pop-up looks to users'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg leading-none font-semibold border backdrop-blur-md ${
+                      isDark
+                        ? 'bg-white/10 text-white border-white/25 hover:bg-white/15'
+                        : 'bg-white/60 text-slate-800 border-white/80 hover:bg-white/80'
+                    }`}
+                    aria-label="Close preview"
+                    onClick={() => setAdminBroadcastPreview(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {String(adminBroadcastPreview.id) === '__draft__' ? (
+                  <div
+                    className={`mx-4 mt-3 px-3 py-2 rounded-lg text-xs font-semibold border backdrop-blur-md ${
+                      isDark
+                        ? 'bg-sky-500/20 border-sky-400/30 text-sky-50'
+                        : 'bg-sky-400/25 border-sky-500/25 text-sky-950'
+                    }`}
+                  >
+                    Draft — click Publish to show this to customers.
+                  </div>
+                ) : null}
+                {String(adminBroadcastPreview.id) !== '__draft__' && adminBroadcastPreview.active === false ? (
+                  <div
+                    className={`mx-4 mt-3 px-3 py-2 rounded-lg text-xs font-semibold border backdrop-blur-md ${
+                      isDark
+                        ? 'bg-zinc-500/25 border-zinc-400/35 text-zinc-100'
+                        : 'bg-slate-100 border-slate-300 text-slate-800'
+                    }`}
+                  >
+                    Inactive — customers do not see this broadcast.
+                  </div>
+                ) : null}
+                <div
+                  className={`relative w-full h-[min(46vh,320px)] min-h-[72px] overflow-hidden ${isDark ? 'bg-black/45' : 'bg-slate-100'} ${String(adminBroadcastPreview.id) !== '__draft__' && adminBroadcastPreview.active === false ? 'opacity-60' : ''}`}
+                >
+                  <img
+                    src={adminBroadcastPreview.image_url}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover object-center"
+                  />
+                </div>
+                <div
+                  className={`p-5 pt-6 border-t backdrop-blur-sm ${
+                    isDark ? 'border-white/10 text-white bg-white/[0.04]' : 'border-white/50 text-slate-900 bg-white/25'
+                  }`}
+                >
+                  <p id="admin-broadcast-preview-title" className="text-lg sm:text-xl font-semibold leading-snug tracking-tight">
+                    {sanitizeBroadcastTitle(adminBroadcastPreview.title) || 'Announcement from DataPlus'}
+                  </p>
+                  {(() => {
+                    const prevCap = formatBroadcastCaptionForDisplay(adminBroadcastPreview.caption || '');
+                    return prevCap ? (
+                      <div
+                        className={`broadcast-popup-body text-sm mt-2.5 leading-relaxed ${isDark ? 'text-white/90' : 'text-slate-700'}`}
+                        dangerouslySetInnerHTML={{ __html: prevCap }}
+                      />
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const previewCta = normalizeBroadcastCtaUrlForApi(adminBroadcastPreview.cta_url);
+                    return previewCta ? (
+                      <div className="mt-4 flex justify-end">
+                        <a
+                          href={previewCta}
+                          {...(adminBroadcastPreview.cta_open_new_tab !== false
+                            ? { target: '_blank', rel: 'noopener noreferrer' }
+                            : { rel: 'noopener' })}
+                          className="inline-flex max-w-full items-center justify-center gap-2 px-5 py-3 rounded-xl font-semibold text-white bg-violet-600 hover:bg-violet-500 active:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-900 transition-colors shadow-sm pointer-events-auto"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Svg.Link width={18} height={18} className="shrink-0 text-white/95" stroke="currentColor" />
+                          {String(adminBroadcastPreview.cta_label || '').trim() || 'Learn more'}
+                        </a>
+                      </div>
+                    ) : String(adminBroadcastPreview.cta_url || '').trim() ? (
+                      <p className={`text-xs mt-3 ${isDark ? 'text-rose-200/90' : 'text-rose-700'}`}>
+                        Link field is set but not a valid http(s) URL — customers would not see a button.
+                      </p>
+                    ) : null;
+                  })()}
+                  <p className={`text-xs mt-4 ${isDark ? 'text-white/55' : 'text-slate-600'}`}>
+                    Preview only — closing does not affect customers.
+                  </p>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
 
       {buyBundle && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -1874,9 +2318,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                   aria-label="Back to dashboard"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                  </svg>
+                  <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
                 </button>
               </div>
             </div>
@@ -1994,9 +2436,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                     aria-label="Back to dashboard"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                    </svg>
+                    <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
                   </button>
                 </div>
                 <div className={`rounded-xl sm:rounded-2xl p-4 sm:p-5 border mb-5 ${isDark ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
@@ -2125,9 +2565,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                 aria-label="Back to dashboard"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                </svg>
+                <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
               </button>
             </div>
 
@@ -2448,9 +2886,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                     aria-label="Back to dashboard"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                    </svg>
+                    <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
                   </button>
                 </div>
 
@@ -2595,9 +3031,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                 aria-label="Back to dashboard"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                </svg>
+                <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
               </button>
             </div>
 
@@ -2795,9 +3229,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                     aria-label="Back to dashboard"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                    </svg>
+                    <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
                   </button>
                 </div>
 
@@ -2993,7 +3425,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             );
           })()
-        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
+        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
           <>
             {(() => {
               const adminPageTitles = {
@@ -3004,6 +3436,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-all-transactions': 'All Transactions',
                 'admin-wallet': 'Wallet Management',
                 'admin-applications': 'Agent Applications',
+                'admin-broadcasts': 'Broadcasts',
                 'admin-analytics': 'Analytics',
               };
               const adminPageSubtitles = {
@@ -3014,13 +3447,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-all-transactions': 'View all transactions',
                 'admin-wallet': 'Manage user wallet balances',
                 'admin-applications': 'Manage agent membership applications',
+                'admin-broadcasts': 'Pop-up announcements for customers — image, caption, optional link button, and timing',
                 'admin-analytics': 'Dashboard overview, metrics, and recent users',
               };
               const title = adminPageTitles[currentPage] || 'Admin';
               const subtitle = adminPageSubtitles[currentPage];
               return (
                 <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
-                  {currentPage === 'admin-applications' ? (
+                  {currentPage === 'admin-applications' || currentPage === 'admin-broadcasts' ? (
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="min-w-0 flex-1">
                         <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
@@ -3034,9 +3468,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           setCurrentPage('admin');
                           setSelectedMenu('admin');
                         }}
-                        className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'}`}
+                        className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-sm'}`}
+                        aria-label="Back to admin overview"
                       >
-                        ← Back to Admin
+                        <Svg.ArrowLeft width={18} height={18} aria-hidden className="shrink-0 opacity-90" />
+                        Admin overview
                       </button>
                     </div>
                   ) : (
@@ -3044,12 +3480,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       <button
                         type="button"
                         onClick={() => { navigate('/'); setCurrentPage('dashboard'); setSelectedMenu('dashboard'); }}
-                        className={`inline-flex items-center gap-2 text-sm font-medium mb-3 transition-colors ${isDark ? 'text-white/80 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`}
+                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold mb-3 border transition-colors ${isDark ? 'border-white/15 bg-white/5 text-white/90 hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-sm'}`}
+                        aria-label="Back to dashboard"
                       >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                        </svg>
-                        Back to Dashboard
+                        <Svg.ArrowLeft width={18} height={18} aria-hidden className="shrink-0 opacity-90" />
+                        Dashboard
                       </button>
                       <h1 className="page-title text-2xl sm:text-3xl truncate">{title}</h1>
                       {subtitle ? (
@@ -4414,7 +4849,513 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
-            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications'].includes(currentPage) && (
+            {currentPage === 'admin-broadcasts' && (
+              <div className="space-y-6 pb-10">
+                {adminBroadcastsError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-rose-500/15 border border-rose-500/35 text-rose-100' : 'bg-rose-50 border border-rose-200 text-rose-900'}`}>
+                    {adminBroadcastsError}
+                  </div>
+                )}
+
+                <div
+                  id="broadcast-editor-card"
+                  className={`rounded-xl sm:rounded-2xl border p-4 sm:p-6 ${isDark ? 'bg-white/[0.06] border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {broadcastEditingId ? 'Edit broadcast' : 'New broadcast'}
+                    </h2>
+                    {broadcastEditingId ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBroadcastEditingId(null);
+                          setBroadcastForm({
+                            title: '',
+                            caption: '',
+                            image_url: '',
+                            active: true,
+                            popup_delay_seconds: 2,
+                            auto_close_seconds: 0,
+                            reshow_after_days: 0,
+                            cta_url: '',
+                            cta_label: '',
+                            cta_open_new_tab: true,
+                          });
+                        }}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${isDark ? 'border-white/20 text-white/90 hover:bg-white/10' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                      >
+                        Cancel edit
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className={`text-sm mb-4 ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
+                    Upload an image, add a headline and optional message, then publish. Use Edit on a row below to load it here and save changes. Add a button link (https only), delay, auto-close, and how soon the promo can show again after they dismiss it.
+                  </p>
+                  <input
+                    ref={broadcastFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!f || !f.type.startsWith('image/')) return;
+                      if (f.size > 900 * 1024) {
+                        setAdminBroadcastsError('Image too large (max ~900KB). Choose a smaller file.');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        const url = typeof reader.result === 'string' ? reader.result : '';
+                        setBroadcastForm((prev) => ({ ...prev, image_url: url }));
+                      };
+                      reader.readAsDataURL(f);
+                    }}
+                  />
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => broadcastFileInputRef.current?.click()}
+                        className={`px-4 py-2.5 rounded-xl text-sm font-semibold border ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100'}`}
+                      >
+                        Choose image
+                      </button>
+                    </div>
+                    {broadcastForm.image_url ? (
+                      <div className="flex gap-3 items-start">
+                        <img src={broadcastForm.image_url} alt="Preview" className="w-24 h-24 rounded-lg object-cover border border-white/10" />
+                        <button
+                          type="button"
+                          title="Remove image"
+                          aria-label="Remove image"
+                          onClick={() => setBroadcastForm((p) => ({ ...p, image_url: '' }))}
+                          className={`shrink-0 w-10 h-10 rounded-xl border flex items-center justify-center transition-colors ${
+                            isDark
+                              ? 'border-white/20 text-red-300 hover:bg-red-500/15 hover:border-red-400/40'
+                              : 'border-slate-200 text-red-600 hover:bg-red-50 hover:border-red-200'
+                          }`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                        </button>
+                      </div>
+                    ) : null}
+                    <label className={`block text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      Title (headline)
+                    </label>
+                    <input
+                      type="text"
+                      value={broadcastForm.title}
+                      onChange={(e) => setBroadcastForm((p) => ({ ...p, title: e.target.value.slice(0, 160) }))}
+                      placeholder="e.g. New data bundles, Holiday promo"
+                      maxLength={160}
+                      className={`w-full px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-violet-500/45 focus:border-violet-500/55 ${
+                        isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/40' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                      }`}
+                    />
+                    <p className={`text-[11px] ${isDark ? 'text-white/35' : 'text-slate-500'}`}>
+                      Shown as the main line under the image. If empty, customers see “Announcement from DataPlus”.
+                    </p>
+                    <label className={`block text-xs font-semibold uppercase tracking-wide mt-3 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      Message (optional)
+                    </label>
+                    <BroadcastRichEditor
+                      value={broadcastForm.caption}
+                      onChange={(html) => setBroadcastForm((p) => ({ ...p, caption: html }))}
+                      isDark={isDark}
+                      placeholder="Paste or type supporting text. URLs like https://… show as buttons in the customer popup."
+                    />
+                    <label className={`block text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Button link (optional)</label>
+                    <input
+                      type="text"
+                      inputMode="url"
+                      autoComplete="url"
+                      value={broadcastForm.cta_url}
+                      onChange={(e) => setBroadcastForm((p) => ({ ...p, cta_url: e.target.value }))}
+                      placeholder="yoursite.com/page or https://…"
+                      className={`w-full px-4 py-3 rounded-xl border text-sm ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/40' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    />
+                    <p className={`text-[11px] mt-1 ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
+                      If you omit https://, it is added automatically. Only http(s) links work for the button.
+                    </p>
+                    <label className={`block text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Button label</label>
+                    <input
+                      type="text"
+                      value={broadcastForm.cta_label}
+                      onChange={(e) => setBroadcastForm((p) => ({ ...p, cta_label: e.target.value.slice(0, 80) }))}
+                      placeholder="e.g. Shop now, View plans"
+                      maxLength={80}
+                      className={`w-full px-4 py-3 rounded-xl border text-sm ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/40' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    />
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={broadcastForm.cta_open_new_tab}
+                        onChange={(e) => setBroadcastForm((p) => ({ ...p, cta_open_new_tab: e.target.checked }))}
+                        className="rounded border-slate-300"
+                      />
+                      <span className={`text-sm ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Open link in new tab</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={broadcastForm.active}
+                        onChange={(e) => setBroadcastForm((p) => ({ ...p, active: e.target.checked }))}
+                        className="rounded border-slate-300"
+                      />
+                      <span className={`text-sm ${isDark ? 'text-white/80' : 'text-slate-700'}`}>Active (show to users)</span>
+                    </label>
+                    <div className="grid sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Delay before popup (sec)</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          aria-label="Delay before popup in seconds"
+                          placeholder="e.g. 2"
+                          value={broadcastForm.popup_delay_seconds === 0 ? '' : String(broadcastForm.popup_delay_seconds)}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+                            if (digits === '') {
+                              setBroadcastForm((p) => ({ ...p, popup_delay_seconds: 0 }));
+                              return;
+                            }
+                            const n = Math.min(600, Math.max(0, parseInt(digits, 10)));
+                            setBroadcastForm((p) => ({ ...p, popup_delay_seconds: n }));
+                          }}
+                          className={`broadcast-timing-input w-full px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/45 focus:border-violet-500/60 ${
+                            isDark
+                              ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35'
+                              : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                          Auto-close (seconds)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          aria-label="Auto-close after seconds, empty for off"
+                          placeholder="Off"
+                          value={broadcastForm.auto_close_seconds === 0 ? '' : String(broadcastForm.auto_close_seconds)}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 5);
+                            if (digits === '') {
+                              setBroadcastForm((p) => ({ ...p, auto_close_seconds: 0 }));
+                              return;
+                            }
+                            const n = Math.min(86400, Math.max(0, parseInt(digits, 10)));
+                            setBroadcastForm((p) => ({ ...p, auto_close_seconds: n }));
+                          }}
+                          className={`broadcast-timing-input w-full px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/45 focus:border-violet-500/60 ${
+                            isDark
+                              ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35'
+                              : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                          }`}
+                        />
+                        <p className={`text-[10px] mt-1 ${isDark ? 'text-white/35' : 'text-slate-400'}`}>Leave empty to keep the popup open until the user closes it.</p>
+                      </div>
+                      <div>
+                        <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                          Show again after (days)
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          aria-label="Show again after days, empty for never"
+                          placeholder="Never"
+                          value={broadcastForm.reshow_after_days === 0 ? '' : String(broadcastForm.reshow_after_days)}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+                            if (digits === '') {
+                              setBroadcastForm((p) => ({ ...p, reshow_after_days: 0 }));
+                              return;
+                            }
+                            const n = Math.min(365, Math.max(0, parseInt(digits, 10)));
+                            setBroadcastForm((p) => ({ ...p, reshow_after_days: n }));
+                          }}
+                          className={`broadcast-timing-input w-full px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/45 focus:border-violet-500/60 ${
+                            isDark
+                              ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35'
+                              : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                          }`}
+                        />
+                        <p className={`text-[10px] mt-1 ${isDark ? 'text-white/35' : 'text-slate-400'}`}>
+                          Leave empty so after close it never shows again.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-center pt-1">
+                    <button
+                      type="button"
+                      disabled={broadcastSaving || !String(broadcastForm.image_url || '').trim()}
+                      onClick={async () => {
+                        setBroadcastSaving(true);
+                        setAdminBroadcastsError(null);
+                        try {
+                          const ctaWant = String(broadcastForm.cta_url || '').trim();
+                          const ctaNormalized = normalizeBroadcastCtaUrlForApi(broadcastForm.cta_url);
+                          if (ctaWant && !ctaNormalized) {
+                            setAdminBroadcastsError(
+                              'Button link must be a valid website address (e.g. dataplus.com or https://…).'
+                            );
+                            setBroadcastSaving(false);
+                            return;
+                          }
+                          const payload = {
+                            title: broadcastForm.title,
+                            caption: broadcastForm.caption,
+                            image_url: broadcastForm.image_url.trim(),
+                            active: broadcastForm.active,
+                            popup_delay_seconds: broadcastForm.popup_delay_seconds,
+                            auto_close_seconds: broadcastForm.auto_close_seconds,
+                            reshow_after_days: broadcastForm.reshow_after_days,
+                            cta_url: ctaNormalized,
+                            cta_label: broadcastForm.cta_label.trim(),
+                            cta_open_new_tab: broadcastForm.cta_open_new_tab,
+                          };
+                          if (broadcastEditingId) {
+                            await api.updateAdminBroadcast(broadcastEditingId, payload);
+                          } else {
+                            await api.createAdminBroadcast(payload);
+                          }
+                          setBroadcastEditingId(null);
+                          setBroadcastForm({
+                            title: '',
+                            caption: '',
+                            image_url: '',
+                            active: true,
+                            popup_delay_seconds: 2,
+                            auto_close_seconds: 0,
+                            reshow_after_days: 0,
+                            cta_url: '',
+                            cta_label: '',
+                            cta_open_new_tab: true,
+                          });
+                          const list = await api.getAdminBroadcasts();
+                          setAdminBroadcasts(Array.isArray(list) ? list : []);
+                          try {
+                            const pub = await api.getBroadcasts();
+                            if (mountedRef.current) setPublicBroadcasts(Array.isArray(pub) ? pub : []);
+                          } catch {
+                            /* ignore */
+                          }
+                        } catch (err) {
+                          setAdminBroadcastsError(err?.message || 'Failed to save');
+                        } finally {
+                          setBroadcastSaving(false);
+                        }
+                      }}
+                      className="w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-50"
+                    >
+                      {broadcastSaving
+                        ? broadcastEditingId
+                          ? 'Saving…'
+                          : 'Publishing…'
+                        : broadcastEditingId
+                          ? 'Save changes'
+                          : 'Publish broadcast'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!String(broadcastForm.image_url || '').trim()}
+                      onClick={() =>
+                        setAdminBroadcastPreview({
+                          id: '__draft__',
+                          image_url: broadcastForm.image_url.trim(),
+                          title: broadcastForm.title,
+                          caption: broadcastForm.caption,
+                          active: broadcastForm.active,
+                          cta_url: broadcastForm.cta_url,
+                          cta_label: broadcastForm.cta_label,
+                          cta_open_new_tab: broadcastForm.cta_open_new_tab,
+                        })
+                      }
+                      className={`w-full sm:w-auto px-6 py-3 rounded-xl font-semibold border transition-colors disabled:opacity-50 ${isDark ? 'border-violet-400/40 text-violet-200 hover:bg-white/10' : 'border-violet-200 text-violet-800 bg-white hover:bg-violet-50'}`}
+                    >
+                      Preview (unsaved)
+                    </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className={`px-4 py-3 border-b flex justify-between items-center ${isDark ? 'border-white/10 bg-white/[0.06]' : 'border-slate-200 bg-slate-50'}`}>
+                    <h3 className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>All broadcasts</h3>
+                    <button
+                      type="button"
+                      disabled={adminBroadcastsLoading}
+                      onClick={() => {
+                        setAdminBroadcastsLoading(true);
+                        api
+                          .getAdminBroadcasts()
+                          .then((list) => setAdminBroadcasts(Array.isArray(list) ? list : []))
+                          .catch((err) => setAdminBroadcastsError(err?.message || 'Refresh failed'))
+                          .finally(() => setAdminBroadcastsLoading(false));
+                      }}
+                      className={`text-sm font-semibold ${isDark ? 'text-violet-300' : 'text-violet-600'}`}
+                    >
+                      {adminBroadcastsLoading ? '…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {adminBroadcastsLoading && adminBroadcasts.length === 0 ? (
+                    <div className={`p-10 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading…</div>
+                  ) : adminBroadcasts.length === 0 ? (
+                    <div className={`p-10 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>No broadcasts yet.</div>
+                  ) : (
+                    <ul className={`divide-y max-h-[min(70vh,640px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-100'}`}>
+                      {adminBroadcasts.map((row) => (
+                        <li key={row.id} className={`p-4 flex flex-col sm:flex-row gap-4 ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}>
+                          <img src={row.image_url} alt="" className="w-full sm:w-28 h-40 sm:h-28 rounded-lg object-cover shrink-0 border border-black/10" />
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {sanitizeBroadcastTitle(row.title) ||
+                                broadcastPlainTextPreview(row.caption) ||
+                                '(no title or message)'}
+                            </p>
+                            {sanitizeBroadcastTitle(row.title) && broadcastPlainTextPreview(row.caption) ? (
+                              <p className={`text-xs mt-1 line-clamp-2 ${isDark ? 'text-white/55' : 'text-slate-600'}`}>
+                                {broadcastPlainTextPreview(row.caption)}
+                              </p>
+                            ) : null}
+                            <p className={`text-xs mt-1 ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                              {row.active === false ? <span className="text-amber-500 font-semibold">Inactive · </span> : null}
+                              {row.created_at ? new Date(row.created_at).toLocaleString() : ''}
+                            </p>
+                            <p className={`text-xs mt-1 ${isDark ? 'text-violet-300/80' : 'text-violet-700'}`}>
+                              Popup after {row.popup_delay_seconds ?? 2}s · Auto-close{' '}
+                              {Number(row.auto_close_seconds) > 0 ? `${row.auto_close_seconds}s` : 'off'} · After close:{' '}
+                              {Number(row.reshow_after_days) > 0 ? `show again after ${row.reshow_after_days}d` : 'never again'}
+                            </p>
+                            {String(row.cta_url || '').trim() ? (
+                              <p className={`text-xs mt-1 ${isDark ? 'text-emerald-300/85' : 'text-emerald-800'}`}>
+                                Link button: “{String(row.cta_label || '').trim() || 'Learn more'}”
+                                {row.cta_open_new_tab === false ? ' · same tab' : ' · new tab'}
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <button
+                                type="button"
+                                onClick={() => setAdminBroadcastPreview(row)}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${isDark ? 'border-violet-400/35 text-violet-200 bg-violet-500/15 hover:bg-violet-500/25' : 'border-violet-200 text-violet-800 bg-violet-50 hover:bg-violet-100'}`}
+                              >
+                                Preview
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBroadcastEditingId(String(row.id));
+                                  setAdminBroadcastsError(null);
+                                  setBroadcastForm({
+                                    title: sanitizeBroadcastTitle(row.title) || '',
+                                    caption: String(row.caption || ''),
+                                    image_url: String(row.image_url || '').trim(),
+                                    active: row.active !== false,
+                                    popup_delay_seconds:
+                                      Number(row.popup_delay_seconds) >= 0 ? Number(row.popup_delay_seconds) : 2,
+                                    auto_close_seconds:
+                                      Number(row.auto_close_seconds) >= 0 ? Number(row.auto_close_seconds) : 0,
+                                    reshow_after_days:
+                                      Number(row.reshow_after_days) >= 0 ? Number(row.reshow_after_days) : 0,
+                                    cta_url: String(row.cta_url || ''),
+                                    cta_label: String(row.cta_label || ''),
+                                    cta_open_new_tab: row.cta_open_new_tab !== false,
+                                  });
+                                  document.getElementById('broadcast-editor-card')?.scrollIntoView({
+                                    behavior: 'smooth',
+                                    block: 'start',
+                                  });
+                                }}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${isDark ? 'border-sky-400/40 text-sky-100 bg-sky-500/15 hover:bg-sky-500/25' : 'border-sky-200 text-sky-900 bg-sky-50 hover:bg-sky-100'}`}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const nextActive = !row.active;
+                                    await api.updateAdminBroadcast(row.id, { active: nextActive });
+                                    setAdminBroadcasts((prev) =>
+                                      prev.map((x) => (String(x.id) === String(row.id) ? { ...x, active: nextActive } : x))
+                                    );
+                                    try {
+                                      const pub = await api.getBroadcasts();
+                                      if (mountedRef.current) setPublicBroadcasts(Array.isArray(pub) ? pub : []);
+                                    } catch {
+                                      /* ignore */
+                                    }
+                                    if (nextActive) {
+                                      clearBroadcastDismissEntry(row.id);
+                                      setBroadcastDismissTick((t) => t + 1);
+                                    }
+                                  } catch (err) {
+                                    setAdminBroadcastsError(err?.message || 'Update failed');
+                                  }
+                                }}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${isDark ? 'border-white/20 text-white' : 'border-slate-200 text-slate-800'}`}
+                              >
+                                {row.active === false ? 'Activate' : 'Deactivate'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!confirm('Delete this broadcast?')) return;
+                                  try {
+                                    await api.deleteAdminBroadcast(row.id);
+                                    setAdminBroadcastPreview((p) => (p && String(p.id) === String(row.id) ? null : p));
+                                    if (String(broadcastEditingId) === String(row.id)) {
+                                      setBroadcastEditingId(null);
+                                      setBroadcastForm({
+                                        title: '',
+                                        caption: '',
+                                        image_url: '',
+                                        active: true,
+                                        popup_delay_seconds: 2,
+                                        auto_close_seconds: 0,
+                                        reshow_after_days: 0,
+                                        cta_url: '',
+                                        cta_label: '',
+                                        cta_open_new_tab: true,
+                                      });
+                                    }
+                                    setAdminBroadcasts((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
+                                  } catch (err) {
+                                    setAdminBroadcastsError(err?.message || 'Delete failed');
+                                  }
+                                }}
+                                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500/90 text-white hover:bg-red-600"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts'].includes(currentPage) && (
               <div className={`rounded-xl sm:rounded-2xl p-8 text-center border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-white border-slate-200 text-slate-500'}`}>
                 <p className="text-base">Details for this section will be added here.</p>
               </div>
@@ -4598,9 +5539,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'}`}
                 aria-label="Back to dashboard"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3" />
-                </svg>
+                <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
               </button>
             </div>
 

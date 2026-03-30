@@ -1,16 +1,38 @@
-/** Local dev default when hostname is localhost (override with VITE_API_URL in .env.local). */
-const LOCAL_DEV_API_DEFAULT = 'http://87.106.69.120:3001';
+import { splitBroadcastCaption, packBroadcastCaption } from '../shared/broadcastSanitize.js';
+
+/** Opt-in only: API runs on same machine (`npm run api:dev` → port 3001). Production API lives on the VPS. */
+const LOCAL_DEV_API_DEFAULT = 'http://localhost:3001';
+/** Default API host — all routes (auth, admin, broadcasts, etc.) are served here from the VPS. */
+const DEFAULT_API_BASE = 'https://ok.ultraxas.com';
 
 /**
- * VITE_API_URL — set in the host (Vercel/Netlify/VPS build) when the API is on another origin.
+ * VITE_API_URL — override base URL (staging, alternate domain, etc.).
+ * VITE_API_USE_LOCAL=true — use http://localhost:3001 when you run the Node API locally (not the VPS).
  * VITE_PAYSTACK_PUBLIC_KEY — must be present at `npm run build` or Paystack checkout is disabled in the bundle.
- * Server JWT_SECRET must not change between deploys or every user must sign in again.
  */
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (typeof window !== 'undefined' && window.location?.hostname !== 'localhost'
-    ? 'https://ok.ultraxas.com'
-    : LOCAL_DEV_API_DEFAULT);
+function resolveApiBase() {
+  const envUrl = (import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl) return envUrl;
+  if (import.meta.env.VITE_API_USE_LOCAL === 'true') {
+    return LOCAL_DEV_API_DEFAULT;
+  }
+  return DEFAULT_API_BASE;
+}
+
+const API_URL = resolveApiBase();
+
+function normalizeBroadcastRow(b) {
+  if (!b || typeof b !== 'object') return b;
+  const { title, captionHtml } = splitBroadcastCaption(b.caption, b.title);
+  return {
+    ...b,
+    title,
+    caption: captionHtml,
+    popup_delay_seconds: b.popup_delay_seconds ?? b.popupDelaySeconds,
+    auto_close_seconds: b.auto_close_seconds ?? b.autoCloseSeconds,
+    reshow_after_days: b.reshow_after_days ?? b.reshowAfterDays,
+  };
+}
 
 const ADMIN_TOKEN_KEY = 'dataplus_admin_token';
 const withNoStoreTs = (url) => `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
@@ -462,6 +484,70 @@ export const api = {
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (res.status === 413) throw new Error('Image too large. Try a smaller image or use a URL instead.');
     if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+    return data;
+  },
+
+  /** Active image+caption promos for all site visitors (no auth). */
+  async getBroadcasts() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/broadcasts`), { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) return [];
+    const list = Array.isArray(data) ? data : [];
+    return list.map(normalizeBroadcastRow);
+  },
+
+  async getAdminBroadcasts() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/broadcasts`), { headers: adminHeaders(), cache: 'no-store' });
+    const data = await res.json().catch(() => ([]));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load broadcasts');
+    const list = Array.isArray(data) ? data : [];
+    return list.map(normalizeBroadcastRow);
+  },
+
+  async createAdminBroadcast(payload) {
+    const body =
+      payload && typeof payload === 'object'
+        ? {
+            ...payload,
+            caption: packBroadcastCaption(payload.title, payload.caption),
+          }
+        : payload;
+    const res = await fetch(`${API_URL}/api/admin/broadcasts`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to publish broadcast');
+    return normalizeBroadcastRow(data);
+  },
+
+  async updateAdminBroadcast(id, payload) {
+    const p = payload && typeof payload === 'object' ? { ...payload } : payload;
+    if (p && typeof p === 'object' && ('caption' in p || 'title' in p)) {
+      p.caption = packBroadcastCaption(p.title ?? '', p.caption ?? '');
+    }
+    const res = await fetch(`${API_URL}/api/admin/broadcasts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify(p),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to update');
+    return normalizeBroadcastRow(data);
+  },
+
+  async deleteAdminBroadcast(id) {
+    const res = await fetch(`${API_URL}/api/admin/broadcasts/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: adminHeaders(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to delete');
     return data;
   },
 };
