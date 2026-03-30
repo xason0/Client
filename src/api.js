@@ -21,17 +21,31 @@ function resolveApiBase() {
 
 const API_URL = resolveApiBase();
 
+const MAX_BROADCAST_RESHOW_HOURS = 8760;
+
 function normalizeBroadcastRow(b) {
   if (!b || typeof b !== 'object') return b;
   const { title, captionHtml } = splitBroadcastCaption(b.caption, b.title);
-  return {
+  let reshowHours = 0;
+  if (b.reshow_after_hours != null || b.reshowAfterHours != null) {
+    const h = Number(b.reshow_after_hours ?? b.reshowAfterHours);
+    reshowHours = Number.isFinite(h) ? Math.round(h) : 0;
+  } else {
+    const d = Number(b.reshow_after_days ?? b.reshowAfterDays ?? 0);
+    reshowHours = Number.isFinite(d) ? Math.round(d * 24) : 0;
+  }
+  reshowHours = Math.min(MAX_BROADCAST_RESHOW_HOURS, Math.max(0, reshowHours));
+  const out = {
     ...b,
     title,
     caption: captionHtml,
     popup_delay_seconds: b.popup_delay_seconds ?? b.popupDelaySeconds,
     auto_close_seconds: b.auto_close_seconds ?? b.autoCloseSeconds,
-    reshow_after_days: b.reshow_after_days ?? b.reshowAfterDays,
+    reshow_after_hours: reshowHours,
   };
+  delete out.reshow_after_days;
+  delete out.reshowAfterDays;
+  return out;
 }
 
 const ADMIN_TOKEN_KEY = 'dataplus_admin_token';

@@ -1033,6 +1033,34 @@ function clampBroadcastInt(value, min, max, fallback) {
   return Math.min(max, Math.max(min, Math.round(x)));
 }
 
+/** Max ≈ legacy 365 days, expressed in hours. */
+const MAX_BROADCAST_RESHOW_HOURS = 8760;
+
+function broadcastReshowHoursFromRow(b) {
+  if (!b || typeof b !== 'object') return 0;
+  if (b.reshow_after_hours != null) {
+    return clampBroadcastInt(b.reshow_after_hours, 0, MAX_BROADCAST_RESHOW_HOURS, 0);
+  }
+  if (b.reshow_after_days != null) {
+    return clampBroadcastInt(Number(b.reshow_after_days) * 24, 0, MAX_BROADCAST_RESHOW_HOURS, 0);
+  }
+  return 0;
+}
+
+function broadcastReshowHoursFromBody(body) {
+  if (body?.reshow_after_hours != null) {
+    return clampBroadcastInt(body.reshow_after_hours, 0, MAX_BROADCAST_RESHOW_HOURS, 0);
+  }
+  if (body?.reshow_after_days != null) {
+    return clampBroadcastInt(Number(body.reshow_after_days) * 24, 0, MAX_BROADCAST_RESHOW_HOURS, 0);
+  }
+  return 0;
+}
+
+function stripBroadcastLegacyReshowDays(row) {
+  if (row && typeof row === 'object' && 'reshow_after_days' in row) delete row.reshow_after_days;
+}
+
 function sanitizeBroadcastCtaUrl(raw) {
   let s = String(raw ?? '').trim();
   if (!s) return '';
@@ -1071,7 +1099,7 @@ app.get('/api/broadcasts', (req, res) => {
         created_at: b.created_at || null,
         popup_delay_seconds: clampBroadcastInt(b.popup_delay_seconds, 0, 600, 2),
         auto_close_seconds: clampBroadcastInt(b.auto_close_seconds, 0, 86400, 0),
-        reshow_after_days: clampBroadcastInt(b.reshow_after_days, 0, 365, 0),
+        reshow_after_hours: broadcastReshowHoursFromRow(b),
         ...(cta_url
           ? { cta_url, cta_label: cta_label || 'Learn more', cta_open_new_tab }
           : {}),
@@ -1096,7 +1124,7 @@ app.post('/api/admin/broadcasts', requireAdmin, (req, res) => {
   const active = req.body?.active !== false;
   const popup_delay_seconds = clampBroadcastInt(req.body?.popup_delay_seconds, 0, 600, 2);
   const auto_close_seconds = clampBroadcastInt(req.body?.auto_close_seconds, 0, 86400, 0);
-  const reshow_after_days = clampBroadcastInt(req.body?.reshow_after_days, 0, 365, 0);
+  const reshow_after_hours = broadcastReshowHoursFromBody(req.body);
   const cta_url = sanitizeBroadcastCtaUrl(req.body?.cta_url);
   const cta_label = sanitizeBroadcastCtaLabel(req.body?.cta_label);
   const cta_open_new_tab = req.body?.cta_open_new_tab !== false;
@@ -1114,7 +1142,7 @@ app.post('/api/admin/broadcasts', requireAdmin, (req, res) => {
       active: !!active,
       popup_delay_seconds,
       auto_close_seconds,
-      reshow_after_days,
+      reshow_after_hours,
       cta_url,
       cta_label,
       cta_open_new_tab,
@@ -1157,8 +1185,9 @@ app.patch('/api/admin/broadcasts/:id', requireAdmin, (req, res) => {
     if (req.body.auto_close_seconds != null) {
       row.auto_close_seconds = clampBroadcastInt(req.body.auto_close_seconds, 0, 86400, row.auto_close_seconds ?? 0);
     }
-    if (req.body.reshow_after_days != null) {
-      row.reshow_after_days = clampBroadcastInt(req.body.reshow_after_days, 0, 365, row.reshow_after_days ?? 0);
+    if (req.body.reshow_after_hours != null || req.body.reshow_after_days != null) {
+      row.reshow_after_hours = broadcastReshowHoursFromBody(req.body);
+      stripBroadcastLegacyReshowDays(row);
     }
     if (req.body.cta_url !== undefined) {
       row.cta_url = sanitizeBroadcastCtaUrl(req.body.cta_url);

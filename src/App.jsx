@@ -43,23 +43,23 @@ function readDismissMap() {
   return {};
 }
 
-function isBroadcastDismissed(id, reshowAfterDays) {
+function isBroadcastDismissed(id, reshowAfterHours) {
   const map = readDismissMap();
   const key = String(id);
   if (!(key in map)) return false;
   const v = map[key];
   if (v === 'forever') return true;
-  const days = Number(reshowAfterDays) || 0;
-  if (days <= 0) return true;
+  const hours = Number(reshowAfterHours) || 0;
+  if (hours <= 0) return true;
   const t = typeof v === 'number' ? v : Date.parse(String(v));
   if (!Number.isFinite(t)) return true;
-  return Date.now() < t + days * 86400000;
+  return Date.now() < t + hours * 3600000;
 }
 
-function dismissPublicBroadcast(id, reshowAfterDays) {
+function dismissPublicBroadcast(id, reshowAfterHours) {
   const map = readDismissMap();
-  const days = Number(reshowAfterDays) || 0;
-  map[String(id)] = days <= 0 ? 'forever' : Date.now();
+  const hours = Number(reshowAfterHours) || 0;
+  map[String(id)] = hours <= 0 ? 'forever' : Date.now();
   localStorage.setItem(BROADCAST_DISMISS_KEY, JSON.stringify(map));
 }
 
@@ -350,7 +350,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     active: true,
     popup_delay_seconds: 2,
     auto_close_seconds: 0,
-    reshow_after_days: 0,
+    reshow_after_hours: 0,
     cta_url: '',
     cta_label: '',
     cta_open_new_tab: true,
@@ -1720,7 +1720,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (adminRoute) return null;
     const list = Array.isArray(publicBroadcasts) ? publicBroadcasts : [];
     for (const b of list) {
-      if (b?.id && b.image_url && !isBroadcastDismissed(b.id, b.reshow_after_days ?? 0)) return b;
+      if (b?.id && b.image_url && !isBroadcastDismissed(b.id, b.reshow_after_hours ?? 0)) return b;
     }
     return null;
   }, [adminRoute, publicBroadcasts, broadcastDismissTick]);
@@ -1785,23 +1785,23 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return Math.min(86400, Math.max(1, ac));
   }, [visiblePublicBroadcast, visibleBroadcastId]);
 
-  const broadcastAutoCloseReshowDays = useMemo(() => {
+  const broadcastAutoCloseReshowHours = useMemo(() => {
     const b = visiblePublicBroadcast;
     if (!b || !visibleBroadcastId || String(b.id) !== String(visibleBroadcastId)) return 0;
-    return Number(b.reshow_after_days ?? b.reshowAfterDays) || 0;
+    return Number(b.reshow_after_hours ?? b.reshowAfterHours) || 0;
   }, [visiblePublicBroadcast, visibleBroadcastId]);
 
   useEffect(() => {
     if (!broadcastModalOpen || !visibleBroadcastId || broadcastAutoCloseSec <= 0) return undefined;
     const bid = visibleBroadcastId;
-    const reshow = broadcastAutoCloseReshowDays;
+    const reshow = broadcastAutoCloseReshowHours;
     const t = setTimeout(() => {
       dismissPublicBroadcast(bid, reshow);
       setBroadcastDismissTick((x) => x + 1);
       setBroadcastModalOpen(false);
     }, broadcastAutoCloseSec * 1000);
     return () => clearTimeout(t);
-  }, [broadcastModalOpen, visibleBroadcastId, broadcastAutoCloseSec, broadcastAutoCloseReshowDays]);
+  }, [broadcastModalOpen, visibleBroadcastId, broadcastAutoCloseSec, broadcastAutoCloseReshowHours]);
 
   return (
     <div className={`h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`} style={{ minHeight: '100dvh' }}>
@@ -2074,7 +2074,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   }`}
                   aria-label="Close"
                   onClick={() => {
-                    dismissPublicBroadcast(visiblePublicBroadcast.id, Number(visiblePublicBroadcast.reshow_after_days) || 0);
+                    dismissPublicBroadcast(visiblePublicBroadcast.id, Number(visiblePublicBroadcast.reshow_after_hours) || 0);
                     setBroadcastDismissTick((t) => t + 1);
                     setBroadcastModalOpen(false);
                   }}
@@ -4917,7 +4917,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             active: true,
                             popup_delay_seconds: 2,
                             auto_close_seconds: 0,
-                            reshow_after_days: 0,
+                            reshow_after_hours: 0,
                             cta_url: '',
                             cta_label: '',
                             cta_open_new_tab: true,
@@ -5111,7 +5111,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       </div>
                       <div>
                         <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                          Show again after (days)
+                          Show again after (hours)
                         </label>
                         <input
                           type="text"
@@ -5119,17 +5119,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           autoComplete="off"
                           autoCorrect="off"
                           spellCheck={false}
-                          aria-label="Show again after days, empty for never"
+                          aria-label="Show again after hours, empty for never"
                           placeholder="Never"
-                          value={broadcastForm.reshow_after_days === 0 ? '' : String(broadcastForm.reshow_after_days)}
+                          value={broadcastForm.reshow_after_hours === 0 ? '' : String(broadcastForm.reshow_after_hours)}
                           onChange={(e) => {
-                            const digits = e.target.value.replace(/\D/g, '').slice(0, 3);
+                            const digits = e.target.value.replace(/\D/g, '').slice(0, 4);
                             if (digits === '') {
-                              setBroadcastForm((p) => ({ ...p, reshow_after_days: 0 }));
+                              setBroadcastForm((p) => ({ ...p, reshow_after_hours: 0 }));
                               return;
                             }
-                            const n = Math.min(365, Math.max(0, parseInt(digits, 10)));
-                            setBroadcastForm((p) => ({ ...p, reshow_after_days: n }));
+                            const n = Math.min(8760, Math.max(0, parseInt(digits, 10)));
+                            setBroadcastForm((p) => ({ ...p, reshow_after_hours: n }));
                           }}
                           className={`broadcast-timing-input w-full px-3 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/45 focus:border-violet-500/60 ${
                             isDark
@@ -5166,7 +5166,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             active: broadcastForm.active,
                             popup_delay_seconds: broadcastForm.popup_delay_seconds,
                             auto_close_seconds: broadcastForm.auto_close_seconds,
-                            reshow_after_days: broadcastForm.reshow_after_days,
+                            reshow_after_hours: broadcastForm.reshow_after_hours,
                             cta_url: ctaNormalized,
                             cta_label: broadcastForm.cta_label.trim(),
                             cta_open_new_tab: broadcastForm.cta_open_new_tab,
@@ -5184,7 +5184,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             active: true,
                             popup_delay_seconds: 2,
                             auto_close_seconds: 0,
-                            reshow_after_days: 0,
+                            reshow_after_hours: 0,
                             cta_url: '',
                             cta_label: '',
                             cta_open_new_tab: true,
@@ -5282,7 +5282,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             <p className={`text-xs mt-1 ${isDark ? 'text-violet-300/80' : 'text-violet-700'}`}>
                               Popup after {row.popup_delay_seconds ?? 2}s · Auto-close{' '}
                               {Number(row.auto_close_seconds) > 0 ? `${row.auto_close_seconds}s` : 'off'} · After close:{' '}
-                              {Number(row.reshow_after_days) > 0 ? `show again after ${row.reshow_after_days}d` : 'never again'}
+                              {Number(row.reshow_after_hours) > 0 ? `show again after ${row.reshow_after_hours}h` : 'never again'}
                             </p>
                             {String(row.cta_url || '').trim() ? (
                               <p className={`text-xs mt-1 ${isDark ? 'text-emerald-300/85' : 'text-emerald-800'}`}>
@@ -5312,8 +5312,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                       Number(row.popup_delay_seconds) >= 0 ? Number(row.popup_delay_seconds) : 2,
                                     auto_close_seconds:
                                       Number(row.auto_close_seconds) >= 0 ? Number(row.auto_close_seconds) : 0,
-                                    reshow_after_days:
-                                      Number(row.reshow_after_days) >= 0 ? Number(row.reshow_after_days) : 0,
+                                    reshow_after_hours:
+                                      Number(row.reshow_after_hours) >= 0 ? Number(row.reshow_after_hours) : 0,
                                     cta_url: String(row.cta_url || ''),
                                     cta_label: String(row.cta_label || ''),
                                     cta_open_new_tab: row.cta_open_new_tab !== false,
@@ -6078,7 +6078,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         active: true,
                         popup_delay_seconds: 2,
                         auto_close_seconds: 0,
-                        reshow_after_days: 0,
+                        reshow_after_hours: 0,
                         cta_url: '',
                         cta_label: '',
                         cta_open_new_tab: true,
