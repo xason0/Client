@@ -27,5 +27,7 @@ npm ci
 npm run build
 mkdir -p "\$WEB_ROOT"
 rsync -av --delete "\$REPO/dist/" "\$WEB_ROOT/"
+# PM2 app dataplus-api serves ~/backend/server.js (separate from Client/server). Restart picks up backend edits on the VPS.
+pm2 restart dataplus-api || true
 echo OK
 EOF
