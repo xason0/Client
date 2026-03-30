@@ -361,6 +361,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   /** Admin list: show same popup UI as customers (no dismiss / no analytics). */
   const [adminBroadcastPreview, setAdminBroadcastPreview] = useState(null);
+  /** { id, title } when admin confirms broadcast delete (replaces native confirm). */
+  const [broadcastDeleteConfirm, setBroadcastDeleteConfirm] = useState(null);
+  const [broadcastDeleteBusy, setBroadcastDeleteBusy] = useState(false);
   const broadcastDelayTimerRef = useRef(null);
   const prevVisibleBroadcastIdRef = useRef(null);
   const broadcastFileInputRef = useRef(null);
@@ -2097,8 +2100,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   />
                 </div>
                 <div
-                  className={`p-5 pt-6 border-t backdrop-blur-sm ${
-                    isDark ? 'border-white/10 text-white bg-white/[0.04]' : 'border-white/50 text-slate-900 bg-white/25'
+                  className={`p-5 pt-6 border-t ${
+                    isDark
+                      ? 'border-white/10 text-white bg-zinc-950'
+                      : 'border-slate-200/90 text-slate-900 bg-white'
                   }`}
                 >
                   <p id="broadcast-popup-title" className="text-lg sm:text-xl font-semibold leading-snug tracking-tight">
@@ -2215,8 +2220,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   />
                 </div>
                 <div
-                  className={`p-5 pt-6 border-t backdrop-blur-sm ${
-                    isDark ? 'border-white/10 text-white bg-white/[0.04]' : 'border-white/50 text-slate-900 bg-white/25'
+                  className={`p-5 pt-6 border-t ${
+                    isDark
+                      ? 'border-white/10 text-white bg-zinc-950'
+                      : 'border-slate-200/90 text-slate-900 bg-white'
                   }`}
                 >
                   <p id="admin-broadcast-preview-title" className="text-lg sm:text-xl font-semibold leading-snug tracking-tight">
@@ -5358,30 +5365,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               </button>
                               <button
                                 type="button"
-                                onClick={async () => {
-                                  if (!confirm('Delete this broadcast?')) return;
-                                  try {
-                                    await api.deleteAdminBroadcast(row.id);
-                                    setAdminBroadcastPreview((p) => (p && String(p.id) === String(row.id) ? null : p));
-                                    if (String(broadcastEditingId) === String(row.id)) {
-                                      setBroadcastEditingId(null);
-                                      setBroadcastForm({
-                                        title: '',
-                                        caption: '',
-                                        image_url: '',
-                                        active: true,
-                                        popup_delay_seconds: 2,
-                                        auto_close_seconds: 0,
-                                        reshow_after_days: 0,
-                                        cta_url: '',
-                                        cta_label: '',
-                                        cta_open_new_tab: true,
-                                      });
-                                    }
-                                    setAdminBroadcasts((prev) => prev.filter((x) => String(x.id) !== String(row.id)));
-                                  } catch (err) {
-                                    setAdminBroadcastsError(err?.message || 'Delete failed');
-                                  }
+                                onClick={() => {
+                                  const t = (sanitizeBroadcastTitle(row.title) || '').trim();
+                                  setBroadcastDeleteConfirm({
+                                    id: row.id,
+                                    title: t || 'Untitled broadcast',
+                                  });
                                 }}
                                 className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500/90 text-white hover:bg-red-600"
                               >
@@ -6039,6 +6028,82 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`flex-1 py-2.5 rounded-xl font-medium transition-colors border border-transparent ${isDark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/90'}`}
               >
                 Confirm & Pay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete broadcast — in-app confirm (avoids native browser dialog) */}
+      {broadcastDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center p-4 sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="broadcast-delete-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => {
+              if (!broadcastDeleteBusy) setBroadcastDeleteConfirm(null);
+            }}
+            aria-hidden="true"
+          />
+          <div
+            className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 border ${isDark ? 'bg-zinc-950 border-white/15' : 'bg-white border-slate-200'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="broadcast-delete-title" className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Delete this broadcast?
+            </h3>
+            <p className={`text-sm mb-6 leading-relaxed ${isDark ? 'text-white/75' : 'text-slate-600'}`}>
+              This permanently removes “{broadcastDeleteConfirm.title}”. Customers will no longer see it.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={broadcastDeleteBusy}
+                onClick={() => setBroadcastDeleteConfirm(null)}
+                className={`flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-white/10 text-white hover:bg-white/20 border border-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200'}`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={broadcastDeleteBusy}
+                onClick={async () => {
+                  const rowId = broadcastDeleteConfirm.id;
+                  setBroadcastDeleteBusy(true);
+                  setAdminBroadcastsError(null);
+                  try {
+                    await api.deleteAdminBroadcast(rowId);
+                    setAdminBroadcastPreview((p) => (p && String(p.id) === String(rowId) ? null : p));
+                    if (String(broadcastEditingId) === String(rowId)) {
+                      setBroadcastEditingId(null);
+                      setBroadcastForm({
+                        title: '',
+                        caption: '',
+                        image_url: '',
+                        active: true,
+                        popup_delay_seconds: 2,
+                        auto_close_seconds: 0,
+                        reshow_after_days: 0,
+                        cta_url: '',
+                        cta_label: '',
+                        cta_open_new_tab: true,
+                      });
+                    }
+                    setAdminBroadcasts((prev) => prev.filter((x) => String(x.id) !== String(rowId)));
+                    setBroadcastDeleteConfirm(null);
+                  } catch (err) {
+                    setAdminBroadcastsError(err?.message || 'Delete failed');
+                  } finally {
+                    setBroadcastDeleteBusy(false);
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-60 bg-red-600 text-white hover:bg-red-500 border border-red-500/80"
+              >
+                {broadcastDeleteBusy ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
