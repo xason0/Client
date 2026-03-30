@@ -21,7 +21,15 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const PORT = Number(process.env.PORT) || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-dataplus-secret-change-me';
-const ADMIN_PIN = process.env.ADMIN_PIN || '0701';
+/** Legacy installs often set ADMIN_PIN=1234 in env; that overrides code defaults, so we migrate to the current PIN. */
+const ADMIN_PIN_ENV = process.env.ADMIN_PIN != null ? String(process.env.ADMIN_PIN).trim() : '';
+const ADMIN_PIN =
+  !ADMIN_PIN_ENV || ADMIN_PIN_ENV === '1234' ? '0701' : ADMIN_PIN_ENV;
+if (ADMIN_PIN_ENV === '1234') {
+  console.warn(
+    '[dataplus-api] ADMIN_PIN was 1234 in environment; using 0701. Set ADMIN_PIN=0701 in hosting env and remove 1234.'
+  );
+}
 const PAYSTACK_SECRET_KEY = (process.env.PAYSTACK_SECRET_KEY || '').trim();
 /** Keep in sync with `MIN_WALLET_TOPUP_GHS` in `src/App.jsx`. Override via WALLET_MIN_TOPUP_GHS. */
 const MIN_WALLET_TOPUP_GHS = Math.max(0.01, Number(process.env.WALLET_MIN_TOPUP_GHS ?? 10));

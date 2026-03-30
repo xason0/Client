@@ -2056,23 +2056,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         {broadcastModalOpen && visiblePublicBroadcast && typeof document !== 'undefined' &&
           createPortal(
             <div className="fixed inset-0 z-[85] flex items-center justify-center p-4 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="broadcast-popup-title">
-              <button
-                type="button"
-                className="absolute inset-0 bg-black/45 backdrop-blur-md"
-                aria-label="Close announcement"
-                onClick={() => {
-                  dismissPublicBroadcast(visiblePublicBroadcast.id, Number(visiblePublicBroadcast.reshow_after_days) || 0);
-                  setBroadcastDismissTick((t) => t + 1);
-                  setBroadcastModalOpen(false);
-                }}
-              />
+              {/* Backdrop: visual only — does not dismiss; only the ✕ control closes (per product request). */}
+              <div className="absolute inset-0 bg-black/45 backdrop-blur-md" aria-hidden="true" />
               <div
                 className={`relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl isolate ${
                   isDark
                     ? 'bg-zinc-950/50 backdrop-blur-2xl border-white/15 shadow-black/50'
                     : 'bg-white/45 backdrop-blur-2xl border-white/70 shadow-slate-900/15'
                 }`}
-                onClick={(e) => e.stopPropagation()}
               >
                 <button
                   type="button"
@@ -3514,11 +3505,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       <button
                         type="button"
                         onClick={() => {
-                          setCurrentPage('admin');
-                          setSelectedMenu('admin');
+                          setCurrentPage('admin-analytics');
+                          setSelectedMenu('admin-analytics');
                         }}
                         className={`shrink-0 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${isDark ? 'border-white/20 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50 shadow-sm'}`}
-                        aria-label="Back to admin overview"
+                        aria-label="Back to admin dashboard"
                       >
                         <Svg.ArrowLeft width={18} height={18} aria-hidden className="shrink-0 opacity-90" />
                         Admin overview
