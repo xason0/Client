@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# On the VPS: git pull → npm ci → npm run build → publish dist.
+# On the VPS: sync repo to origin → npm ci → npm run build → publish dist → pm2 restart.
 # Push from your machine first: git push origin main
+# Uses reset --hard so unstaged edits on the VPS (e.g. experiments) cannot block deploys.
 set -euo pipefail
 
 VPS_USER="${VPS_USER:-automation}"
@@ -22,7 +23,7 @@ fi
 cd "\$REPO"
 git fetch origin "\$BRANCH"
 git checkout "\$BRANCH"
-git pull --ff-only origin "\$BRANCH"
+git reset --hard "origin/\$BRANCH"
 npm ci
 npm run build
 mkdir -p "\$WEB_ROOT"
