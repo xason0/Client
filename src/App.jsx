@@ -1005,18 +1005,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const dashboardTodayBundles = isPinOnlyAdminSession ? 0 : userTodayStats.bundles;
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
 
-  const validGhanaPrefixes = ['020', '024', '026', '027', '054', '055', '059'];
-  const isValidGhanaNumber = (digits) => digits.length === 10 && validGhanaPrefixes.some((p) => digits.startsWith(p));
+  const RECIPIENT_PHONE_LEN = 10;
+  const normalizeRecipientDigits = (s) => String(s || '').replace(/\D/g, '');
+  const isValidRecipientPhone = (digits) =>
+    /^[0-9]+$/.test(digits) && digits.length === RECIPIENT_PHONE_LEN;
 
   const addToCart = () => {
     if (!buyBundle) return;
-    const digitsOnly = recipientNumber.replace(/\D/g, '');
-    if (digitsOnly.length !== 10) {
-      setRecipientError('Enter exactly 10 digits (numbers only). No country code, symbols or emojis.');
-      return;
-    }
-    if (!isValidGhanaNumber(digitsOnly)) {
-      setRecipientError('Use a valid Ghana mobile number (e.g. 024, 020, 054, 055, 059, 026, 027).');
+    const digitsOnly = normalizeRecipientDigits(recipientNumber);
+    if (!isValidRecipientPhone(digitsOnly)) {
+      setRecipientError(
+        `Almost there — we need exactly ${RECIPIENT_PHONE_LEN} digits (the full local number). Numbers only.`
+      );
       return;
     }
     setRecipientError(null);
@@ -1073,24 +1073,23 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       .map((s) => s.trim())
       .filter(Boolean);
     if (lines.length === 0) {
-      return { added: [], errors: ['Enter at least one line in the format: phone_number capacity (e.g. 0241234567 5)'] };
+      return {
+        added: [],
+        errors: ['Add at least one line: phone (10 digits) then bundle size, e.g. 0535596955 5'],
+      };
     }
     const added = [];
     const errors = [];
     lines.forEach((line, idx) => {
       const parts = line.split(/\s+/);
       if (parts.length < 2) {
-        errors.push(`Line ${idx + 1}: need "phone_number capacity" (e.g. 0241234567 5)`);
+        errors.push(`Line ${idx + 1}: need "phone_number capacity" (e.g. 0535596955 5)`);
         return;
       }
-      const digitsOnly = parts[0].replace(/\D/g, '');
+      const digitsOnly = normalizeRecipientDigits(parts[0]);
       const capacityNum = parseInt(parts[1], 10);
-      if (digitsOnly.length !== 10) {
-        errors.push(`Line ${idx + 1}: phone must be exactly 10 digits.`);
-        return;
-      }
-      if (!isValidGhanaNumber(digitsOnly)) {
-        errors.push(`Line ${idx + 1}: use a valid Ghana mobile number (e.g. 024, 020, 054).`);
+      if (!isValidRecipientPhone(digitsOnly)) {
+        errors.push(`Line ${idx + 1}: phone should be exactly ${RECIPIENT_PHONE_LEN} digits.`);
         return;
       }
       if (!Number.isInteger(capacityNum) || !validMtnCapacities.includes(capacityNum)) {
@@ -2303,7 +2302,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 Buy
               </button>
             </div>
-            {/* Bottom card: recipient details - 10 digits only, no country code/symbols/emojis */}
+            {/* Bottom card: recipient — exactly 10 digits, any network */}
             <div className={`mx-3 mb-3 sm:mx-4 sm:mb-4 mt-3 rounded-xl sm:rounded-2xl p-5 sm:p-6 border ${isDark ? 'bg-black border-white/10' : 'bg-white border-slate-200'}`}>
               <label className={`block text-sm font-medium mb-2 ${isDark ? 'text-white' : 'text-slate-700'}`}>Recipient number</label>
               <input
@@ -2312,15 +2311,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 autoComplete="tel-national"
                 value={recipientNumber}
                 onChange={(e) => {
-                  const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                  const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, RECIPIENT_PHONE_LEN);
                   setRecipientNumber(digitsOnly);
                   setRecipientError(null);
                 }}
-                placeholder="e.g. 0241234567"
-                maxLength={10}
+                placeholder="e.g. 0535596955"
+                maxLength={RECIPIENT_PHONE_LEN}
                 className={`w-full px-4 py-3 rounded-xl border text-base placeholder:opacity-60 ${recipientError ? 'border-red-500 focus:border-red-500' : isDark ? 'border-white/10' : 'border-slate-200'} ${isDark ? 'bg-black text-white placeholder:text-white/50' : 'bg-white text-slate-900 placeholder:text-slate-400'}`}
               />
-              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>10 digits, valid Ghana mobile (e.g. 024, 020, 054, 055, 059, 026, 027). No country code or symbols.</p>
+              <p className={`text-xs mt-1.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                Ten digits, any network — no country code, just the local number.
+              </p>
               {recipientError && <p className="text-sm text-red-500 mt-1.5">{recipientError}</p>}
               <div className="flex gap-3 mt-5 justify-end">
                 <button
@@ -2379,14 +2380,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   <span className={`text-xs font-medium ${isDark ? 'text-white/60' : 'text-slate-500'}`}>{bulkOrderInput.split(/\r?\n/).filter((s) => s.trim()).length} lines</span>
                 </div>
                 <div className={`rounded-lg p-3 mb-4 font-mono text-sm ${isDark ? 'bg-black/30 text-white/80' : 'bg-slate-100 text-slate-700'}`}>
-                  <div>0241234567 5</div>
+                  <div>0535596955 5</div>
                   <div>0247654321 10</div>
-                  <div>0241111111 2</div>
+                  <div>0551234567 2</div>
                 </div>
                 <textarea
                   value={bulkOrderInput}
                   onChange={(e) => { setBulkOrderInput(e.target.value); setBulkOrderError(null); setBulkOrderSuccess(null); }}
-                  placeholder={'0241234567 5\n0247654321 10\n0241111111 2'}
+                  placeholder={'0535596955 5\n0247654321 10\n0551234567 2'}
                   rows={6}
                   className={`w-full px-4 py-3 rounded-xl border text-base font-mono placeholder:opacity-60 resize-y ${isDark ? 'bg-black/30 border-white/10 text-white placeholder:text-white/50' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
                 />
@@ -2438,10 +2439,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <h3 className={`font-semibold mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>Format Guide</h3>
                 <div className={`rounded-lg p-3 mb-3 ${isDark ? 'bg-black/30 text-white/90' : 'bg-slate-100 text-slate-800'}`}>
                   <p className="text-sm font-medium mb-2">Valid Format:</p>
-                  <div className="font-mono text-sm space-y-1">0241234567 5<br />0247654321 10</div>
+                  <div className="font-mono text-sm space-y-1">0535596955 5<br />0247654321 10</div>
                 </div>
                 <ul className={`text-sm space-y-1 list-disc list-inside ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-                  <li>Phone numbers must be 10 digits (valid Ghana mobile, e.g. 024, 020, 054, 055, 059, 026, 027).</li>
+                  <li>Each phone number is exactly 10 digits — any network, no country code.</li>
                   <li>Capacity must be a valid MTN bundle size (1, 2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50).</li>
                 </ul>
               </div>
