@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useReducer } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
@@ -24,6 +24,9 @@ function profileImageStorageKey(userId) {
 }
 
 const BROADCAST_DISMISS_KEY = 'dataplus_broadcast_dismissed';
+
+/** Double-tap / double-click window for opening support message actions (ms). */
+const SUPPORT_MSG_ACTION_DBL_MS = 320;
 
 function readDismissMap() {
   if (typeof localStorage === 'undefined') return {};
@@ -105,6 +108,9 @@ const DASHBOARD_HEADLINES = [
   'Advert-Ready Digital Service',
 ];
 
+/** Customer-facing product name (support header, headlines, etc.). */
+const APP_BRAND_DISPLAY_NAME = 'DataPlus';
+
 /** Footer credit — brand name is plain text (no link). */
 const FOOTER_BRAND_NAME = 'XSLUS';
 const FOOTER_CREDIT_LINES = [
@@ -112,9 +118,660 @@ const FOOTER_CREDIT_LINES = [
   `Engineering and design — ${FOOTER_BRAND_NAME}.`,
 ];
 
+/** Render `**bold**` in support system messages as <strong>. */
+function supportInlineBold(text) {
+  const s = String(text ?? '');
+  const parts = s.split(/\*\*/);
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <strong key={i} className="font-semibold">
+        {part}
+      </strong>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
+}
+
+function supportInboxAvatarInitial(name, email) {
+  const raw = String(name || email || '').trim();
+  if (!raw) return '?';
+  return raw.charAt(0).toUpperCase();
+}
+
+function SupportInboxAvatar({ src, initial, isDark, className }) {
+  const [failed, setFailed] = useState(false);
+  const trimmed = String(src || '').trim();
+  const showImg = trimmed.length > 0 && !failed;
+  const size = className || 'h-10 w-10';
+  const ring = isDark ? 'ring-white/15' : 'ring-slate-200/90';
+  if (showImg) {
+    return (
+      <div className={`${size} shrink-0 rounded-full overflow-hidden ring-1 ${ring} bg-black/5`}>
+        <img src={trimmed} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`${size} shrink-0 rounded-full flex items-center justify-center text-sm font-semibold ${isDark ? 'bg-gradient-to-br from-white/15 to-white/5 text-white/95' : 'bg-gradient-to-br from-slate-200 to-slate-100 text-slate-700'}`}
+      aria-hidden
+    >
+      {initial}
+    </div>
+  );
+}
+
+function supportInboxRelativeTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const diff = Date.now() - d.getTime();
+    if (diff < 45_000) return 'Just now';
+    if (diff < 3_600_000) return `${Math.max(1, Math.floor(diff / 60_000))}m`;
+    if (diff < 86_400_000) return `${Math.max(1, Math.floor(diff / 3_600_000))}h`;
+    if (diff < 604_800_000) return `${Math.max(1, Math.floor(diff / 86_400_000))}d`;
+    return d.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
+    });
+  } catch {
+    return '';
+  }
+}
+
+/** Localized date+time for support bubbles (API may send `createdAt` or `created_at`). */
+function supportMsgIso(m) {
+  if (!m || typeof m !== 'object') return '';
+  const v = m.createdAt ?? m.created_at;
+  return v != null && String(v).trim() ? String(v).trim() : '';
+}
+
+function supportMessageTimestamp(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const now = new Date();
+    const opts = {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    };
+    if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+    return d.toLocaleString(undefined, opts);
+  } catch {
+    return '';
+  }
+}
+
+function supportIsAbortError(err) {
+  return err?.name === 'AbortError' || err?.code === 20;
+}
+
+/** Card style aligned with system “team notified” messages — admin replies in support. */
+function supportAdminReplyBubbleClass(isDark) {
+  return isDark
+    ? 'rounded-2xl px-3 py-2.5 text-sm max-w-full whitespace-pre-wrap shadow-sm ring-1 ring-white/10 bg-white/10 text-white/90'
+    : 'rounded-2xl px-3 py-2.5 text-sm max-w-full whitespace-pre-wrap shadow-sm ring-1 ring-slate-200/90 bg-slate-200/80 text-slate-800';
+}
+
+/** Human-readable time until admin-scheduled support chat purge (ISO deadline). */
+function formatSupportAutoClearRemaining(iso) {
+  if (!iso) return '';
+  const ms = Date.parse(String(iso));
+  if (!Number.isFinite(ms)) return '';
+  const left = ms - Date.now();
+  if (left <= 0) return 'clearing…';
+  const secTotal = Math.max(1, Math.ceil(left / 1000));
+  if (secTotal < 60) return `${secTotal}s`;
+  const m = Math.floor(secTotal / 60);
+  const rs = secTotal % 60;
+  if (secTotal < 3600) return rs ? `${m}m ${rs}s` : `${m}m`;
+  const h = Math.floor(secTotal / 3600);
+  const remAfterH = secTotal % 3600;
+  const rm = Math.floor(remAfterH / 60);
+  const rsec = remAfterH % 60;
+  if (h < 48) {
+    if (rm && rsec) return `${h}h ${rm}m ${rsec}s`;
+    if (rm) return `${h}h ${rm}m`;
+    if (rsec) return `${h}h ${rsec}s`;
+    return `${h}h`;
+  }
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh ? `${d}d ${rh}h` : `${d}d`;
+}
+
+/** WhatsApp-style menu: hidden until double-tap (touch) or double-click (mouse). */
+function SupportMessageActionsMenu({ anchor, isDark, align, disabled, onEdit, onDelete, onClose }) {
+  const menuRef = useRef(null);
+  useEffect(() => {
+    if (!anchor) return undefined;
+    const down = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', down, true);
+    document.addEventListener('touchstart', down, true);
+    return () => {
+      document.removeEventListener('mousedown', down, true);
+      document.removeEventListener('touchstart', down, true);
+    };
+  }, [anchor, onClose]);
+
+  if (!anchor || typeof document === 'undefined') return null;
+
+  const MENU_W = 156;
+  const MENU_H = 88;
+  let left = align === 'end' ? anchor.right - MENU_W : anchor.left;
+  left = Math.max(10, Math.min(left, window.innerWidth - MENU_W - 10));
+  let top = anchor.bottom + 8;
+  if (top + MENU_H > window.innerHeight - 12) {
+    top = Math.max(12, anchor.top - MENU_H - 8);
+  }
+
+  const shell = isDark
+    ? 'bg-zinc-800/98 text-white ring-1 ring-white/12 shadow-2xl backdrop-blur-sm'
+    : 'bg-white text-slate-900 ring-1 ring-slate-200 shadow-xl';
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label="Message actions"
+      className={`fixed z-[100001] rounded-xl overflow-hidden py-0.5 min-w-[148px] ${shell}`}
+      style={{ top, left }}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        disabled={disabled}
+        className={`w-full text-left px-4 py-2.5 text-sm font-medium disabled:opacity-40 ${isDark ? 'hover:bg-white/10 active:bg-white/[0.14]' : 'hover:bg-slate-100 active:bg-slate-200/80'}`}
+        onClick={() => {
+          if (disabled) return;
+          onClose();
+          onEdit();
+        }}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={disabled}
+        className={`w-full text-left px-4 py-2.5 text-sm font-medium text-rose-500 disabled:opacity-40 ${isDark ? 'hover:bg-white/10 active:bg-white/[0.14]' : 'hover:bg-rose-50 active:bg-rose-100/80'}`}
+        onClick={() => {
+          if (disabled) return;
+          onClose();
+          onDelete();
+        }}
+      >
+        Delete
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+/** Typing indicator — dots only; optional avatar. No visible caption (a11y: neutral “Typing”). */
+function SupportTypingIndicator({ align, isDark, avatar }) {
+  const row = align === 'end' ? 'justify-end' : 'justify-start';
+  const pill = isDark
+    ? 'bg-white/[0.08] ring-1 ring-white/12'
+    : 'bg-slate-100 ring-1 ring-slate-200/90';
+  return (
+    <div
+      className={`flex items-end gap-1.5 ${row}`}
+      aria-live="polite"
+      role="status"
+      aria-label="Typing"
+    >
+      {align === 'start' ? avatar : null}
+      <div className={`inline-flex items-center justify-center gap-1 rounded-2xl px-2.5 py-2 ${pill}`}>
+        <span className={`support-typing-dot h-2 w-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-500'}`} />
+        <span className={`support-typing-dot h-2 w-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-500'}`} />
+        <span className={`support-typing-dot h-2 w-2 rounded-full ${isDark ? 'bg-white' : 'bg-slate-500'}`} />
+      </div>
+      {align === 'end' ? avatar : null}
+    </div>
+  );
+}
+
+/** Empty thread: assistant-style line with a single blinking dot (no canned tips in the list). */
+function SupportAssistantIdle({ isDark, avatar }) {
+  const bubble = isDark
+    ? 'bg-white/10 text-white/90 ring-1 ring-white/10 mr-8'
+    : 'bg-slate-200/80 text-slate-800 ring-1 ring-slate-200/80 mr-8';
+  return (
+    <div className="flex items-end gap-1.5 justify-start" aria-live="polite" role="status">
+      {avatar}
+      <div className={`flex items-center gap-2.5 rounded-2xl px-3 py-2.5 text-sm max-w-[95%] ${bubble}`}>
+        <span
+          className={`support-idle-dot h-2 w-2 shrink-0 rounded-full ${isDark ? 'bg-white' : 'bg-slate-600'}`}
+          aria-hidden
+        />
+        <span className="leading-snug">
+          Message us here — we’ll share quick pointers when your text matches common topics. Need a person? Tap{' '}
+          <span className="font-semibold">Request a human</span> below.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Hide legacy server welcome / old human copy so the thread can stay visually “clean”. */
+function filterSupportMessagesForUi(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.filter((m) => {
+    if (m.role !== 'system' || typeof m.body !== 'string') return true;
+    const b = m.body;
+    if (b.startsWith('Quick tips:')) return false;
+    if (b.startsWith('Your request was sent to the team.')) return false;
+    return true;
+  });
+}
+
+/** Auto “please hold” system line — hidden in admin UI (API may strip too). */
+function isSupportAutoWaitAckMessage(m) {
+  return (
+    m &&
+    m.role === 'system' &&
+    typeof m.body === 'string' &&
+    m.body.startsWith('Thanks for your message — please hold on for a moment.')
+  );
+}
+
+function filterSupportMessagesForAdminUi(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.filter((m) => !isSupportAutoWaitAckMessage(m));
+}
+
+function supportMessagePreviewForReply(m) {
+  if (!m) return '';
+  const t = String(m.body || '').trim();
+  if (m.image && !t) return '📷 Image';
+  if (t.length > 160) return `${t.slice(0, 157)}…`;
+  if (t) return t;
+  if (m.image) return '📷 Image';
+  return '(empty)';
+}
+
+function supportReplyBannerLabel(replyRole, viewerIsUser) {
+  if (viewerIsUser) {
+    if (replyRole === 'user') return 'You';
+    if (replyRole === 'admin') return 'Support';
+    return 'Notice';
+  }
+  if (replyRole === 'user') return 'Customer';
+  if (replyRole === 'admin') return 'You';
+  return 'Notice';
+}
+
+/** Normalize reply fields from API (camelCase or snake_case). */
+function supportMessageReplyMeta(m) {
+  if (!m || typeof m !== 'object') return null;
+  const rt = m.replyTo ?? m.reply_to ?? m.reply_to_id;
+  const replyToStr = rt != null && String(rt).trim() !== '' ? String(rt).trim() : '';
+  const replyPreviewRaw = m.replyPreview ?? m.reply_preview ?? '';
+  const replyPreview = String(replyPreviewRaw).trim();
+  const replyRole = m.replyRole ?? m.reply_role ?? 'system';
+  if (!replyToStr && !replyPreview) return null;
+  return { replyTo: replyToStr, replyPreview: replyPreview || '…', replyRole };
+}
+
+/** If the API omits reply fields on the newest admin row, attach from the composer target (send success / stale backends). */
+function injectAdminReplyMetaIfMissing(messages, replyTarget) {
+  if (!supportReplyDraftHasTarget(replyTarget) || !Array.isArray(messages) || messages.length === 0)
+    return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'admin') return messages;
+  if (supportMessageReplyMeta(last)) return messages;
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...last,
+      replyTo: String(replyTarget.id),
+      replyPreview: String(replyTarget.preview ?? '').trim() || '…',
+      replyRole: replyTarget.role || 'user',
+    },
+  ];
+}
+
+/** Same as injectAdminReplyMetaIfMissing for customer-sent rows (role user). */
+function injectUserReplyMetaIfMissing(messages, replyTarget) {
+  if (!supportReplyDraftHasTarget(replyTarget) || !Array.isArray(messages) || messages.length === 0)
+    return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return messages;
+  if (supportMessageReplyMeta(last)) return messages;
+  return [
+    ...messages.slice(0, -1),
+    {
+      ...last,
+      replyTo: String(replyTarget.id),
+      replyPreview: String(replyTarget.preview ?? '').trim() || '…',
+      replyRole: replyTarget.role || 'admin',
+    },
+  ];
+}
+
+function applySupportReplyFieldsFromSource(from, onto) {
+  const rt = from.replyTo ?? from.reply_to ?? from.reply_to_id;
+  if (rt == null || String(rt).trim() === '') return onto;
+  const rp = String(from.replyPreview ?? from.reply_preview ?? '').trim() || '…';
+  const rr = String(from.replyRole ?? from.reply_role ?? 'user').trim() || 'user';
+  return { ...onto, replyTo: String(rt).trim(), replyPreview: rp, replyRole: rr };
+}
+
+/**
+ * GET thread polls replace messages; if the API omits reply_* on rows we already showed, copy reply fields
+ * from the previous in-memory list by message id (admin + customer support).
+ */
+function mergeSupportReplyMetaFromPrev(prev, incoming) {
+  if (!Array.isArray(incoming)) return [];
+  if (!Array.isArray(prev) || prev.length === 0) return incoming;
+  const prevById = new Map();
+  for (const x of prev) {
+    if (x && x.id != null) prevById.set(String(x.id), x);
+  }
+  return incoming.map((m) => {
+    if (!m || m.id == null) return m;
+    if (supportMessageReplyMeta(m)) return m;
+    const old = prevById.get(String(m.id));
+    if (!old || !supportMessageReplyMeta(old)) return m;
+    return applySupportReplyFieldsFromSource(old, m);
+  });
+}
+
+/** Bubble palette for WhatsApp-style reply strip (viewer = customer vs admin surface). */
+function supportReplyQuoteTone(messageRole, viewerIsUser) {
+  if (viewerIsUser) {
+    if (messageRole === 'user') return 'customerOwn';
+    return 'peer';
+  }
+  if (messageRole === 'admin') return 'adminOwn';
+  return 'customerPeer';
+}
+
+function supportReplyQuoteWaClasses(tone, isDark, inImageCard) {
+  if (inImageCard) {
+    return isDark
+      ? {
+          bar: 'w-[3px] rounded-sm bg-indigo-400',
+          box: 'bg-zinc-800/90',
+          name: 'text-indigo-200',
+          preview: 'text-zinc-300',
+        }
+      : {
+          bar: 'w-[3px] rounded-sm bg-indigo-500',
+          box: 'bg-slate-100',
+          name: 'text-indigo-800',
+          preview: 'text-slate-600',
+        };
+  }
+  if (tone === 'customerOwn') {
+    return isDark
+      ? {
+          bar: 'w-[3px] rounded-sm bg-white/90',
+          box: 'rounded-lg bg-black/35',
+          name: 'text-white font-bold',
+          preview: 'text-white/75',
+        }
+      : {
+          bar: 'w-[3px] rounded-sm bg-white/95',
+          box: 'rounded-lg bg-indigo-950/40',
+          name: 'text-white font-bold',
+          preview: 'text-indigo-100/90',
+        };
+  }
+  if (tone === 'peer') {
+    return isDark
+      ? {
+          bar: 'bg-indigo-400',
+          box: 'bg-white/[0.08]',
+          name: 'text-white/90',
+          preview: 'text-white/55',
+        }
+      : {
+          bar: 'bg-indigo-500',
+          box: 'bg-slate-100/95',
+          name: 'text-indigo-800',
+          preview: 'text-slate-600',
+        };
+  }
+  if (tone === 'adminOwn') {
+    return isDark
+      ? {
+          bar: 'w-[3px] rounded-sm bg-sky-200/90',
+          box: 'rounded-lg bg-black/25',
+          name: 'text-sky-100 font-bold',
+          preview: 'text-white/70',
+        }
+      : {
+          bar: 'w-[3px] rounded-sm bg-sky-700',
+          box: 'rounded-lg bg-white/90',
+          name: 'text-sky-950 font-bold',
+          preview: 'text-slate-600',
+        };
+  }
+  /* customerPeer */
+  return isDark
+    ? {
+        bar: 'bg-sky-300',
+        box: 'bg-sky-950/50',
+        name: 'text-sky-100',
+        preview: 'text-sky-100/75',
+      }
+    : {
+        bar: 'bg-sky-500',
+        box: 'bg-sky-100/95',
+        name: 'text-sky-900',
+        preview: 'text-sky-800/90',
+      };
+}
+
+/** WhatsApp-style quoted context inside a message bubble (or image card). */
+function SupportReplyQuoteInBubble({ m, isDark, viewerIsUser, inImageCard }) {
+  const meta = supportMessageReplyMeta(m);
+  if (!meta) return null;
+  const label = supportReplyBannerLabel(meta.replyRole, viewerIsUser);
+  const tone = supportReplyQuoteTone(m.role, viewerIsUser);
+  const c = supportReplyQuoteWaClasses(tone, isDark, !!inImageCard);
+  const ownSide = tone === 'customerOwn' || tone === 'adminOwn';
+  const outerClass = inImageCard
+    ? 'flex gap-2.5 min-w-0 px-2 pt-2'
+    : ownSide
+      ? isDark
+        ? 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-white/20'
+        : tone === 'customerOwn'
+          ? 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-white/25'
+          : 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-slate-600/20'
+      : 'flex gap-2 min-w-0 border-b border-current/10 pb-2 mb-2 opacity-[0.98]';
+  return (
+    <div className={outerClass}>
+      <div
+        className={`shrink-0 self-stretch min-h-[2.25rem] ${ownSide ? 'rounded-sm' : 'w-1 rounded-full'} ${c.bar}`}
+        aria-hidden
+      />
+      <div className={`min-w-0 flex-1 ${ownSide ? 'px-2.5 py-2' : 'rounded-md px-2 py-1'} ${c.box}`}>
+        <div className={`text-xs leading-tight ${c.name}`}>{label}</div>
+        <div className={`text-[11px] leading-snug mt-1 line-clamp-2 break-words ${c.preview}`}>{meta.replyPreview}</div>
+      </div>
+    </div>
+  );
+}
+
+/** Composer strip while drafting — same WA reply look, dismiss × like pending image. */
+function SupportComposerReplyPreview({ replyTo, isDark, viewerIsUser, onDismiss, embedded }) {
+  if (!supportReplyDraftHasTarget(replyTo)) return null;
+  const label = supportReplyBannerLabel(replyTo.role || 'system', viewerIsUser);
+  const tone = viewerIsUser ? 'customerOwn' : 'adminOwn';
+  const c = supportReplyQuoteWaClasses(tone, isDark, false);
+  if (embedded && viewerIsUser) {
+    return (
+      <div className="relative w-full min-w-0 pr-9">
+        <div className="flex gap-2.5 min-w-0">
+          <div
+            className={`shrink-0 self-stretch min-h-[2.75rem] rounded-sm ${c.bar}`}
+            aria-hidden
+          />
+          <div className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 ${c.box}`}>
+            <div className={`text-xs leading-tight ${c.name}`}>{label}</div>
+            <div className={`text-[11px] leading-snug mt-1 line-clamp-2 break-words ${c.preview}`}>
+              {replyTo.preview || '…'}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-full text-sm font-light leading-none bg-white/20 text-white ring-1 ring-white/25 hover:bg-white/30"
+          onClick={onDismiss}
+          aria-label="Cancel reply"
+        >
+          ×
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mb-2">
+      <div className="relative inline-block max-w-full min-w-0">
+        <div className="flex gap-2 min-w-0 max-w-full pr-7">
+          <div className={`w-1 shrink-0 rounded-full self-stretch min-h-[2.25rem] ${c.bar}`} aria-hidden />
+          <div className={`min-w-0 flex-1 rounded-md px-2 py-1 ${c.box}`}>
+            <div className={`text-xs font-semibold leading-tight ${c.name}`}>{label}</div>
+            <div className={`text-[11px] leading-snug mt-0.5 line-clamp-2 break-words ${c.preview}`}>
+              {replyTo.preview || '…'}
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          className={`absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-light leading-none shadow ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/20 hover:bg-zinc-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'}`}
+          onClick={onDismiss}
+          aria-label="Cancel reply"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const THEME_KEY_LEGACY = 'theme';
 const THEME_KEY_CUSTOMER = 'dataplus_theme_customer';
 const THEME_KEY_ADMIN = 'dataplus_theme_admin';
+
+const SUPPORT_REPLY_DRAFT_KEY = 'dataplus_support_reply_draft_v1';
+
+function supportReplyDraftHasTarget(replyTo) {
+  if (!replyTo || typeof replyTo !== 'object') return false;
+  const id = replyTo.id;
+  return id != null && String(id).trim() !== '';
+}
+
+function parseSupportReplyDraft(raw) {
+  try {
+    const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!p || typeof p !== 'object') return null;
+    const id = p.id;
+    if (id == null || String(id).trim() === '') return null;
+    return {
+      id,
+      role: p.role || 'user',
+      preview: typeof p.preview === 'string' ? p.preview : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function adminSupportReplyDraftKey(userId) {
+  const u = userId != null ? String(userId).trim() : '';
+  return u ? `dataplus_admin_reply_draft_v1_${u}` : '';
+}
+
+function readPersistedSupportReplyDraft() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const ls = localStorage.getItem(SUPPORT_REPLY_DRAFT_KEY);
+    if (ls) return ls;
+    const ss = sessionStorage.getItem(SUPPORT_REPLY_DRAFT_KEY);
+    if (ss) {
+      try {
+        localStorage.setItem(SUPPORT_REPLY_DRAFT_KEY, ss);
+      } catch (_) {}
+    }
+    return ss;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writePersistedSupportReplyDraft(json) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SUPPORT_REPLY_DRAFT_KEY, json);
+  } catch (_) {}
+  try {
+    sessionStorage.setItem(SUPPORT_REPLY_DRAFT_KEY, json);
+  } catch (_) {}
+}
+
+function clearPersistedSupportReplyDraft() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(SUPPORT_REPLY_DRAFT_KEY);
+  } catch (_) {}
+  try {
+    sessionStorage.removeItem(SUPPORT_REPLY_DRAFT_KEY);
+  } catch (_) {}
+}
+
+function readPersistedAdminReplyDraft(userId) {
+  if (typeof window === 'undefined') return null;
+  const key = adminSupportReplyDraftKey(userId);
+  if (!key) return null;
+  try {
+    const ls = localStorage.getItem(key);
+    if (ls) return ls;
+    const ss = sessionStorage.getItem(key);
+    if (ss) {
+      try {
+        localStorage.setItem(key, ss);
+      } catch (_) {}
+    }
+    return ss;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writePersistedAdminReplyDraft(userId, json) {
+  if (typeof window === 'undefined') return;
+  const key = adminSupportReplyDraftKey(userId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, json);
+  } catch (_) {}
+  try {
+    sessionStorage.setItem(key, json);
+  } catch (_) {}
+}
+
+function clearPersistedAdminReplyDraft(userId) {
+  const key = adminSupportReplyDraftKey(userId);
+  if (!key) return;
+  try {
+    localStorage.removeItem(key);
+  } catch (_) {}
+  try {
+    sessionStorage.removeItem(key);
+  } catch (_) {}
+}
 
 function getSystemTheme() {
   if (typeof window === 'undefined') return 'light';
@@ -257,6 +914,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const cartButtonRef = useRef(null);
   const cartButtonDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const fileInputRef = useRef(null);
+  const supportAttachmentInputRef = useRef(null);
+  const adminSupportAttachmentInputRef = useRef(null);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [profileEditFullName, setProfileEditFullName] = useState('');
   const [profileEditEmail, setProfileEditEmail] = useState('');
@@ -343,6 +1002,53 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminBroadcasts, setAdminBroadcasts] = useState([]);
   const [adminBroadcastsLoading, setAdminBroadcastsLoading] = useState(false);
   const [adminBroadcastsError, setAdminBroadcastsError] = useState(null);
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
+  const [supportMessages, setSupportMessages] = useState([]);
+  const [supportNeedsHuman, setSupportNeedsHuman] = useState(false);
+  const [supportDraft, setSupportDraft] = useState('');
+  const [supportSending, setSupportSending] = useState(false);
+  const supportOutboundAbortRef = useRef(null);
+  const cancelSupportOutbound = useCallback(() => {
+    supportOutboundAbortRef.current?.abort();
+  }, []);
+  const [supportError, setSupportError] = useState(null);
+  const [supportUnreadUser, setSupportUnreadUser] = useState(0);
+  /** Data URL after user picks a photo; message sends only after they add a caption and tap send. */
+  const [supportPendingImage, setSupportPendingImage] = useState(null);
+  /** Swipe-right target: outgoing sends include replyToMessageId until cleared. */
+  const [supportReplyTo, setSupportReplyTo] = useState(null);
+  /** First persist effect run: avoid treating initial null `supportReplyTo` as user cleared the draft. */
+  const supportCustomerReplyStorageInitRef = useRef(false);
+  const [supportAdminTyping, setSupportAdminTyping] = useState(false);
+  const [supportComposerFocused, setSupportComposerFocused] = useState(false);
+  /** When set, composer updates this user message instead of sending a new one. */
+  const [supportEditingMessageId, setSupportEditingMessageId] = useState(null);
+  /** Brief fade-in banner when an admin message first appears while chat is open. */
+  const [supportAgentJoinedBanner, setSupportAgentJoinedBanner] = useState(false);
+  const [adminSupportInbox, setAdminSupportInbox] = useState([]);
+  const [adminSupportSelectedUserId, setAdminSupportSelectedUserId] = useState(null);
+  const [adminSupportThreadMessages, setAdminSupportThreadMessages] = useState([]);
+  const [adminSupportThreadMeta, setAdminSupportThreadMeta] = useState(null);
+  const [adminSupportLoading, setAdminSupportLoading] = useState(false);
+  const [adminSupportError, setAdminSupportError] = useState(null);
+  const [adminSupportReplyDraft, setAdminSupportReplyDraft] = useState('');
+  const [adminSupportReplySending, setAdminSupportReplySending] = useState(false);
+  const [adminSupportPendingImage, setAdminSupportPendingImage] = useState(null);
+  const [adminSupportReplyTo, setAdminSupportReplyTo] = useState(null);
+  const [adminSupportUserTyping, setAdminSupportUserTyping] = useState(false);
+  const [adminSupportComposerFocused, setAdminSupportComposerFocused] = useState(false);
+  /** Admin thread: editing an existing admin reply in the composer. */
+  const [adminSupportEditingMessageId, setAdminSupportEditingMessageId] = useState(null);
+  /** { messageId, left, right, top, bottom } from getBoundingClientRect — Edit/Delete popover anchor. */
+  const [supportMsgActionsMenu, setSupportMsgActionsMenu] = useState(null);
+  const [adminSupportMsgActionsMenu, setAdminSupportMsgActionsMenu] = useState(null);
+  const [adminSupportAutoClearBusy, setAdminSupportAutoClearBusy] = useState(false);
+  const [adminSupportAutoClearCustomMin, setAdminSupportAutoClearCustomMin] = useState('');
+  const [adminSupportAutoClearCustomSec, setAdminSupportAutoClearCustomSec] = useState('');
+  const [, bumpAdminAutoClearCountdown] = useReducer((x) => x + 1, 0);
+  /** admin support: floating modal like user support chat — inbox → thread inside same panel */
+  const [adminSupportModalOpen, setAdminSupportModalOpen] = useState(false);
+  const [adminSupportPhase, setAdminSupportPhase] = useState('inbox');
   const [broadcastForm, setBroadcastForm] = useState({
     title: '',
     caption: '',
@@ -376,6 +1082,130 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const headerWelcomeEnteredAtRef = useRef(null);
   const headerBrandTimeoutRef = useRef(null);
   const mountedRef = useRef(true);
+  const supportOwnDblTapRef = useRef({ id: null, t: 0 });
+  const adminOwnDblTapRef = useRef({ id: null, t: 0 });
+  const supportSwipeGestureRef = useRef(null);
+  const adminSupportSwipeGestureRef = useRef(null);
+  const supportSuppressOwnBubbleTouchEndRef = useRef(0);
+  const adminSupportSuppressOwnBubbleTouchEndRef = useRef(0);
+  /** -1 = uninitialized for this open session; used to detect new admin replies. */
+  const supportPrevAdminCountRef = useRef(-1);
+  const closeSupportMsgActionsMenu = useCallback(() => setSupportMsgActionsMenu(null), []);
+  const closeAdminSupportMsgActionsMenu = useCallback(() => setAdminSupportMsgActionsMenu(null), []);
+  const openSupportMessageMenuFromEl = useCallback((messageId, el) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setSupportMsgActionsMenu({
+      messageId,
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
+    });
+  }, []);
+  const openAdminSupportMessageMenuFromEl = useCallback((messageId, el) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setAdminSupportMsgActionsMenu({
+      messageId,
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
+    });
+  }, []);
+  const handleSupportOwnBubbleInteract = useCallback(
+    (e, messageId) => {
+      if (!messageId) return;
+      if (e.type === 'dblclick') {
+        supportOwnDblTapRef.current = { id: null, t: 0 };
+        openSupportMessageMenuFromEl(messageId, e.currentTarget);
+        return;
+      }
+      if (e.type === 'touchend') {
+        if (Date.now() < supportSuppressOwnBubbleTouchEndRef.current) return;
+        const now = Date.now();
+        const prev = supportOwnDblTapRef.current;
+        if (prev.id === messageId && now - prev.t < SUPPORT_MSG_ACTION_DBL_MS) {
+          supportOwnDblTapRef.current = { id: null, t: 0 };
+          openSupportMessageMenuFromEl(messageId, e.currentTarget);
+        } else {
+          supportOwnDblTapRef.current = { id: messageId, t: now };
+        }
+      }
+    },
+    [openSupportMessageMenuFromEl],
+  );
+  const handleAdminOwnBubbleInteract = useCallback(
+    (e, messageId) => {
+      if (!messageId) return;
+      if (e.type === 'dblclick') {
+        adminOwnDblTapRef.current = { id: null, t: 0 };
+        openAdminSupportMessageMenuFromEl(messageId, e.currentTarget);
+        return;
+      }
+      if (e.type === 'touchend') {
+        if (Date.now() < adminSupportSuppressOwnBubbleTouchEndRef.current) return;
+        const now = Date.now();
+        const prev = adminOwnDblTapRef.current;
+        if (prev.id === messageId && now - prev.t < SUPPORT_MSG_ACTION_DBL_MS) {
+          adminOwnDblTapRef.current = { id: null, t: 0 };
+          openAdminSupportMessageMenuFromEl(messageId, e.currentTarget);
+        } else {
+          adminOwnDblTapRef.current = { id: messageId, t: now };
+        }
+      }
+    },
+    [openAdminSupportMessageMenuFromEl],
+  );
+
+  const supportThreadSwipeDown = useCallback((e, m) => {
+    if (e.button !== 0 || !e.isPrimary || !m?.id) return;
+    supportSwipeGestureRef.current = {
+      pid: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      messageId: m.id,
+    };
+  }, []);
+  const supportThreadSwipeUp = useCallback((e, m) => {
+    const s = supportSwipeGestureRef.current;
+    supportSwipeGestureRef.current = null;
+    if (!m?.id || !s || s.pid !== e.pointerId || s.messageId !== m.id) return;
+    const dx = e.clientX - s.x;
+    const dy = Math.abs(e.clientY - s.y);
+    if (dx > 52 && dy < 56) {
+      supportSuppressOwnBubbleTouchEndRef.current = Date.now() + 500;
+      setSupportReplyTo({ id: m.id, role: m.role, preview: supportMessagePreviewForReply(m) });
+    }
+  }, []);
+  const supportThreadSwipeCancel = useCallback(() => {
+    supportSwipeGestureRef.current = null;
+  }, []);
+
+  const adminSupportThreadSwipeDown = useCallback((e, m) => {
+    if (e.button !== 0 || !e.isPrimary || !m?.id) return;
+    adminSupportSwipeGestureRef.current = {
+      pid: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      messageId: m.id,
+    };
+  }, []);
+  const adminSupportThreadSwipeUp = useCallback((e, m) => {
+    const s = adminSupportSwipeGestureRef.current;
+    adminSupportSwipeGestureRef.current = null;
+    if (!m?.id || !s || s.pid !== e.pointerId || s.messageId !== m.id) return;
+    const dx = e.clientX - s.x;
+    const dy = Math.abs(e.clientY - s.y);
+    if (dx > 52 && dy < 56) {
+      adminSupportSuppressOwnBubbleTouchEndRef.current = Date.now() + 500;
+      setAdminSupportReplyTo({ id: m.id, role: m.role, preview: supportMessagePreviewForReply(m) });
+    }
+  }, []);
+  const adminSupportThreadSwipeCancel = useCallback(() => {
+    adminSupportSwipeGestureRef.current = null;
+  }, []);
   const hasAdminRole = (user?.role || '').toLowerCase() === 'admin';
   /** Sidebar admin links:
    * - real admin users always see admin tabs
@@ -544,6 +1374,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     setSidebarOpen(false);
     orderCreatedAtByIdRef.current = new Map();
     localStorage.removeItem('dataplus_signed_in');
+    clearPersistedSupportReplyDraft();
   };
 
   const parseTimestampMs = (value) => {
@@ -833,8 +1664,328 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           setAdminBroadcasts([]);
         })
         .finally(() => setAdminBroadcastsLoading(false));
+    } else if (adminSupportModalOpen && hasAdminAccess) {
+      setAdminSupportLoading(true);
+      setAdminSupportError(null);
+      api
+        .getAdminSupportInbox()
+        .then((list) => setAdminSupportInbox(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminSupportError(err?.message || 'Failed to load support inbox');
+          setAdminSupportInbox([]);
+        })
+        .finally(() => setAdminSupportLoading(false));
     }
-  }, [currentPage, user?.role, adminPinVerified]);
+  }, [currentPage, user?.role, adminPinVerified, adminSupportModalOpen]);
+
+  useEffect(() => {
+    if (adminSupportModalOpen) return;
+    setAdminSupportSelectedUserId(null);
+    setAdminSupportThreadMessages([]);
+    setAdminSupportThreadMeta(null);
+    setAdminSupportReplyDraft('');
+    setAdminSupportPhase('inbox');
+    setAdminSupportPendingImage(null);
+    setAdminSupportReplyTo(null);
+    setAdminSupportError(null);
+    setAdminSupportMsgActionsMenu(null);
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const k = sessionStorage.key(i);
+        if (k && k.startsWith('dataplus_admin_reply_draft_v1_')) sessionStorage.removeItem(k);
+      }
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('dataplus_admin_reply_draft_v1_')) localStorage.removeItem(k);
+      }
+    } catch (_) {}
+  }, [adminSupportModalOpen]);
+
+  useEffect(() => {
+    if (!supportChatOpen) setSupportMsgActionsMenu(null);
+  }, [supportChatOpen]);
+
+  useEffect(() => {
+    if (!adminSupportModalOpen || adminSupportPhase !== 'thread') {
+      setAdminSupportMsgActionsMenu(null);
+    }
+  }, [adminSupportModalOpen, adminSupportPhase]);
+
+  useEffect(() => {
+    if (!isSignedIn || adminRoute || !api.getToken()) return undefined;
+    let cancelled = false;
+    const tick = () => {
+      api.getSupportStatus().then((s) => {
+        if (!cancelled) setSupportUnreadUser(Number(s.unreadUser) || 0);
+      }).catch(() => {});
+    };
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isSignedIn, adminRoute]);
+
+  useEffect(() => {
+    if (!supportChatOpen || !isSignedIn || adminRoute) return undefined;
+    let cancelled = false;
+    const load = () => {
+      api
+        .getSupportThread()
+        .then((d) => {
+          if (cancelled) return;
+          const incoming = Array.isArray(d.messages) ? d.messages : [];
+          setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, incoming));
+          setSupportNeedsHuman(!!d.needsHuman);
+          setSupportUnreadUser(0);
+          setSupportError(null);
+          setSupportAdminTyping(!!d.adminTyping);
+        })
+        .catch((e) => {
+          if (!cancelled) setSupportError(e?.message || 'Could not load chat');
+        });
+    };
+    load();
+    const id = setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [supportChatOpen, isSignedIn, adminRoute]);
+
+  useEffect(() => {
+    if (!supportChatOpen) {
+      supportPrevAdminCountRef.current = -1;
+      setSupportAgentJoinedBanner(false);
+      return;
+    }
+    const n = supportMessages.filter((m) => m.role === 'admin').length;
+    if (supportPrevAdminCountRef.current === -1) {
+      supportPrevAdminCountRef.current = n;
+      return;
+    }
+    // First admin message in this open session (fade-in banner once).
+    if (supportPrevAdminCountRef.current < 1 && n >= 1) {
+      supportPrevAdminCountRef.current = n;
+      setSupportAgentJoinedBanner(true);
+      const t = setTimeout(() => setSupportAgentJoinedBanner(false), 5200);
+      return () => clearTimeout(t);
+    }
+    supportPrevAdminCountRef.current = n;
+  }, [supportChatOpen, supportMessages]);
+
+  useEffect(() => {
+    if (!supportChatOpen) {
+      setSupportPendingImage(null);
+      setSupportReplyTo(null);
+      return;
+    }
+    try {
+      const p = parseSupportReplyDraft(readPersistedSupportReplyDraft());
+      if (p) {
+        setSupportReplyTo((cur) => (supportReplyDraftHasTarget(cur) ? cur : p));
+      }
+    } catch (_) {}
+  }, [supportChatOpen]);
+
+  useEffect(() => {
+    try {
+      if (!supportCustomerReplyStorageInitRef.current) {
+        supportCustomerReplyStorageInitRef.current = true;
+        if (!supportReplyTo) return;
+      }
+      if (!supportReplyTo || !supportReplyDraftHasTarget(supportReplyTo)) {
+        return;
+      }
+      writePersistedSupportReplyDraft(JSON.stringify(supportReplyTo));
+    } catch (_) {}
+  }, [supportReplyTo]);
+
+  useEffect(() => {
+    setAdminSupportPendingImage(null);
+    if (!adminSupportSelectedUserId) {
+      setAdminSupportReplyTo(null);
+      return;
+    }
+    try {
+      const p = parseSupportReplyDraft(readPersistedAdminReplyDraft(adminSupportSelectedUserId));
+      setAdminSupportReplyTo(p || null);
+    } catch (_) {
+      setAdminSupportReplyTo(null);
+    }
+  }, [adminSupportSelectedUserId]);
+
+  useEffect(() => {
+    if (!adminSupportSelectedUserId) return;
+    if (!adminSupportReplyTo || !supportReplyDraftHasTarget(adminSupportReplyTo)) return;
+    try {
+      writePersistedAdminReplyDraft(adminSupportSelectedUserId, JSON.stringify(adminSupportReplyTo));
+    } catch (_) {}
+  }, [adminSupportSelectedUserId, adminSupportReplyTo]);
+
+  useEffect(() => {
+    if (!showAdminNav) return undefined;
+    const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
+    if (!hasAdminAccess) return undefined;
+    const load = () => {
+      api.getAdminSupportInbox().then((list) => setAdminSupportInbox(Array.isArray(list) ? list : [])).catch(() => {});
+    };
+    load();
+    const ms = adminSupportModalOpen ? 8000 : 20000;
+    const id = setInterval(load, ms);
+    return () => clearInterval(id);
+  }, [showAdminNav, adminSupportModalOpen, adminPinVerified, user?.role]);
+
+  useEffect(() => {
+    if (!adminSupportModalOpen || !adminSupportSelectedUserId || adminSupportPhase !== 'thread') return undefined;
+    const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
+    if (!hasAdminAccess) return undefined;
+    let cancelled = false;
+    const uid = adminSupportSelectedUserId;
+    const load = () => {
+      api
+        .getAdminSupportThread(uid)
+        .then((d) => {
+          if (cancelled) return;
+          const incoming = Array.isArray(d.messages) ? d.messages : [];
+          setAdminSupportThreadMessages((prev) => mergeSupportReplyMetaFromPrev(prev, incoming));
+          setAdminSupportThreadMeta({
+            userEmail: d.userEmail,
+            userName: d.userName,
+            profileAvatar: d.profileAvatar,
+            needsHuman: d.needsHuman,
+            userId: d.userId,
+            autoClearAt: d.autoClearAt ?? null,
+          });
+          setAdminSupportUserTyping(!!d.userTyping);
+        })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [adminSupportModalOpen, adminSupportSelectedUserId, adminSupportPhase, adminPinVerified, user?.role]);
+
+  useEffect(() => {
+    if (!supportChatOpen) setSupportComposerFocused(false);
+  }, [supportChatOpen]);
+
+  useEffect(() => {
+    if (!adminSupportModalOpen || adminSupportPhase !== 'thread') setAdminSupportComposerFocused(false);
+  }, [adminSupportModalOpen, adminSupportPhase]);
+
+  useEffect(() => {
+    if (!supportChatOpen || !isSignedIn || adminRoute) return undefined;
+    const active =
+      !!(String(supportDraft).trim() || supportPendingImage || supportComposerFocused);
+    if (!active) {
+      api.postSupportTyping(false).catch(() => {});
+      return undefined;
+    }
+    const ping = () => api.postSupportTyping(true).catch(() => {});
+    ping();
+    const id = setInterval(ping, 2000);
+    return () => {
+      clearInterval(id);
+      api.postSupportTyping(false).catch(() => {});
+    };
+  }, [
+    supportChatOpen,
+    isSignedIn,
+    adminRoute,
+    supportDraft,
+    supportPendingImage,
+    supportComposerFocused,
+  ]);
+
+  useEffect(() => {
+    if (!adminSupportModalOpen || adminSupportPhase !== 'thread' || !adminSupportSelectedUserId) return undefined;
+    const hasAdminAccess = adminPinVerified || (user?.role === 'admin' && api.getToken());
+    if (!hasAdminAccess) return undefined;
+    const uid = adminSupportSelectedUserId;
+    const active =
+      !!(
+        String(adminSupportReplyDraft).trim() ||
+        adminSupportPendingImage ||
+        adminSupportComposerFocused
+      );
+    if (!active) {
+      api.postAdminSupportTyping(uid, false).catch(() => {});
+      return undefined;
+    }
+    const ping = () => api.postAdminSupportTyping(uid, true).catch(() => {});
+    ping();
+    const id = setInterval(ping, 2000);
+    return () => {
+      clearInterval(id);
+      api.postAdminSupportTyping(uid, false).catch(() => {});
+    };
+  }, [
+    adminSupportModalOpen,
+    adminSupportPhase,
+    adminSupportSelectedUserId,
+    adminSupportReplyDraft,
+    adminSupportPendingImage,
+    adminSupportComposerFocused,
+    adminPinVerified,
+    user?.role,
+  ]);
+
+  useEffect(() => {
+    if (!adminSupportModalOpen || adminSupportPhase !== 'thread' || !adminSupportThreadMeta?.autoClearAt)
+      return undefined;
+    const id = setInterval(() => bumpAdminAutoClearCountdown(), 1000);
+    return () => clearInterval(id);
+  }, [adminSupportModalOpen, adminSupportPhase, adminSupportThreadMeta?.autoClearAt]);
+
+  useEffect(() => {
+    setAdminSupportAutoClearCustomMin('');
+    setAdminSupportAutoClearCustomSec('');
+  }, [adminSupportSelectedUserId]);
+
+  const applyAdminSupportAutoClear = useCallback(
+    async (opts) => {
+      const uid = adminSupportSelectedUserId;
+      if (!uid) return;
+      setAdminSupportAutoClearBusy(true);
+      setAdminSupportError(null);
+      try {
+        const d = await api.postAdminSupportAutoClear(uid, opts);
+        const incoming = Array.isArray(d.messages) ? d.messages : [];
+        setAdminSupportThreadMessages((prev) => mergeSupportReplyMetaFromPrev(prev, incoming));
+        setAdminSupportThreadMeta((prev) => ({
+          userEmail: d.userEmail ?? prev?.userEmail,
+          userName: d.userName ?? prev?.userName,
+          profileAvatar:
+            typeof d.profileAvatar === 'string' && d.profileAvatar.trim()
+              ? d.profileAvatar.trim()
+              : prev?.profileAvatar,
+          needsHuman: !!d.needsHuman,
+          userId: d.userId ?? prev?.userId ?? uid,
+          autoClearAt: d.autoClearAt ?? null,
+        }));
+      } catch (err) {
+        setAdminSupportError(err?.message || 'Could not update timer');
+      } finally {
+        setAdminSupportAutoClearBusy(false);
+      }
+    },
+    [adminSupportSelectedUserId],
+  );
+
+  const supportMessagesUi = useMemo(
+    () => filterSupportMessagesForUi(supportMessages),
+    [supportMessages],
+  );
+
+  const adminSupportMessagesUi = useMemo(
+    () => filterSupportMessagesForAdminUi(adminSupportThreadMessages),
+    [adminSupportThreadMessages],
+  );
 
   const networkLabel = (n) => ({ mtn: 'MTN', telecel: 'Telecel', bigtime: 'AT BigTime', ishare: 'AT iShare' }[n] || 'MTN');
   const stableOrderCodeSuffix = (id, createdAt) => {
@@ -1344,7 +2495,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   useEffect(() => {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
-      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'];
+      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'];
       const mainAppPages = ['dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
       if (adminSubPages.includes(currentPage)) return;
       if (mainAppPages.includes(currentPage)) return;
@@ -1357,7 +2508,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** Leaving /admin must drop admin-only pages from state; PIN sessions are not admin UI on `/`. */
   useEffect(() => {
     if (location.pathname === '/admin') return;
-    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'];
+    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'];
     setCurrentPage((p) => (adminPages.includes(p) ? 'dashboard' : p));
     setSelectedMenu((m) => (adminPages.includes(m) ? 'dashboard' : m));
   }, [location.pathname]);
@@ -1373,6 +2524,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   };
 
   const handleMenuSelect = (menu) => {
+    if (menu === 'support') {
+      setSupportChatOpen(true);
+      setSupportError(null);
+      setProfileOpen(false);
+      setSidebarOpen(false);
+      return;
+    }
     setSelectedMenu(menu);
     if (menu === 'profile-page') {
       setCurrentPage('profile');
@@ -1493,8 +2651,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const isBigTime = activeTab === 'bigtime';
   const isIshare = activeTab === 'ishare';
 
-  const MenuItem = ({ id, icon, label, hasSubmenu = false }) => {
+  const MenuItem = ({ id, icon, label, hasSubmenu = false, badge }) => {
     const isSelected = selectedMenu === id;
+    const showBadge = typeof badge === 'number' && badge > 0;
     return (
       <div
         className={`rounded-xl transition-all ${isSelected ? 'p-[2px]' : ''}`}
@@ -1530,6 +2689,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             {icon}
           </div>
           <span className="flex-1 text-left">{label}</span>
+          {showBadge ? (
+            <span className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold flex items-center justify-center bg-rose-500 text-white">
+              {badge > 9 ? '9+' : badge}
+            </span>
+          ) : null}
           {hasSubmenu && (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -1616,6 +2780,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     Message: (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
         <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      </svg>
+    ),
+    Inbox: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+        <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
       </svg>
     ),
     WhatsApp: (props) => (
@@ -1996,6 +3166,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
             <MenuItem id="transactions" icon={<Svg.Clock stroke={stroke} />} label="Transactions" />
+            {isSignedIn && !showAdminNav && (
+              <MenuItem id="support" icon={<Svg.Message stroke={stroke} />} label="Support" badge={supportUnreadUser} />
+            )}
             {!showAdminNav && <MenuItem id="join-us" icon={<Svg.WhatsApp stroke={stroke} />} label="Join Us" />}
             {showAdminNav && (
               <>
@@ -3466,7 +4639,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             );
           })()
-        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
+        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
           <>
             {(() => {
               const adminPageTitles = {
@@ -3478,6 +4651,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-wallet': 'Wallet Management',
                 'admin-applications': 'Agent Applications',
                 'admin-broadcasts': 'Broadcasts',
+                'admin-support': 'Messages',
                 'admin-analytics': 'Analytics',
               };
               const adminPageSubtitles = {
@@ -3489,6 +4663,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-wallet': 'Manage user wallet balances',
                 'admin-applications': 'Manage agent membership applications',
                 'admin-broadcasts': 'Pop-up announcements for customers — image, caption, optional link button, and timing',
+                'admin-support': 'Customer conversations — tap a thread to open and reply',
                 'admin-analytics': 'Dashboard overview, metrics, and recent users',
               };
               const title = adminPageTitles[currentPage] || 'Admin';
@@ -5378,7 +6553,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
-            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts'].includes(currentPage) && (
+            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support'].includes(currentPage) && (
               <div className={`rounded-xl sm:rounded-2xl p-8 text-center border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-white border-slate-200 text-slate-500'}`}>
                 <p className="text-base">Details for this section will be added here.</p>
               </div>
@@ -5876,8 +7051,1671 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         </div>
       )}
 
+      {/* Support chat FAB — same look/position stack as cart; hidden on /admin */}
+      {typeof document !== 'undefined' && isSignedIn && !adminRoute && api.getToken() && createPortal(
+        <>
+          {supportChatOpen && (
+            <div className="fixed inset-0 z-[99990] flex items-center justify-center p-4">
+              <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={() => {
+                  cancelSupportOutbound();
+                  setSupportChatOpen(false);
+                  setSupportEditingMessageId(null);
+                  setSupportDraft('');
+                  setSupportPendingImage(null);
+                  setSupportReplyTo(null);
+                  setSupportError(null);
+                  setSupportMsgActionsMenu(null);
+                  setSupportSending(false);
+                }}
+                aria-hidden="true"
+              />
+              <div
+                className={`relative w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[min(560px,85vh)] ${isDark ? 'bg-black border border-white/10' : 'bg-slate-50 border border-slate-200'}`}
+                role="dialog"
+                aria-labelledby="support-chat-title"
+                aria-label={`${APP_BRAND_DISPLAY_NAME} support chat`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className={`flex items-center justify-between gap-2 p-4 border-b shrink-0 rounded-t-2xl ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <SupportInboxAvatar
+                      src={brandLogoUrl}
+                      initial={supportInboxAvatarInitial(APP_BRAND_DISPLAY_NAME, 'Support')}
+                      isDark={isDark}
+                      className="h-11 w-11"
+                    />
+                    <div className="flex flex-col min-w-0 flex-1 gap-0.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h2
+                          id="support-chat-title"
+                          className={`text-lg font-semibold tracking-tight truncate ${isDark ? 'text-white' : 'text-slate-900'}`}
+                        >
+                          {APP_BRAND_DISPLAY_NAME}
+                        </h2>
+                        <span
+                          className={`inline-flex h-[1.35rem] w-[1.35rem] shrink-0 items-center justify-center rounded-full shadow-sm ring-2 ${isDark ? 'bg-sky-500 text-white ring-white/25' : 'bg-sky-600 text-white ring-sky-800/20'}`}
+                          title="Verified official support"
+                          role="img"
+                          aria-label="Verified official"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M20 6 9 17l-5-5" />
+                          </svg>
+                        </span>
+                      </div>
+                      <p className={`text-xs font-medium ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Support</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      cancelSupportOutbound();
+                      setSupportChatOpen(false);
+                      setSupportEditingMessageId(null);
+                      setSupportDraft('');
+                      setSupportPendingImage(null);
+                      setSupportReplyTo(null);
+                      setSupportError(null);
+                      setSupportMsgActionsMenu(null);
+                      setSupportSending(false);
+                    }}
+                    className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
+                    aria-label="Close support chat"
+                  >
+                    <Svg.Close stroke={stroke} />
+                  </button>
+                </div>
+                {supportAgentJoinedBanner ? (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={`support-agent-joined-banner mx-3 mt-2 rounded-lg px-3 py-2 text-center text-[11px] font-normal leading-snug tracking-wide ${isDark ? 'text-white/40 bg-white/[0.03]' : 'text-slate-500/85 bg-slate-200/35'}`}
+                  >
+                    An agent has joined the chat.
+                  </div>
+                ) : null}
+                <div
+                  className={`flex-1 min-h-0 overflow-y-auto p-4 space-y-3 min-h-[160px] max-h-[320px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}
+                >
+                  {supportError ? (
+                    <p className={`text-sm ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>{supportError}</p>
+                  ) : null}
+                  {supportMessagesUi.length === 0 && !supportError ? (
+                    <SupportAssistantIdle
+                      isDark={isDark}
+                      avatar={
+                        <SupportInboxAvatar
+                          src={brandLogoUrl}
+                          initial={supportInboxAvatarInitial(APP_BRAND_DISPLAY_NAME, 'Support')}
+                          isDark={isDark}
+                          className="h-7 w-7 shrink-0"
+                        />
+                      }
+                    />
+                  ) : null}
+                  {supportMessagesUi.map((m) => {
+                    const isUser = m.role === 'user';
+                    const isAdmin = m.role === 'admin';
+                    const msgIso = supportMsgIso(m);
+                    const timeLabel = supportMessageTimestamp(msgIso);
+                    const timeMuted = isDark ? 'text-white/40' : 'text-slate-400';
+                    const supportTeamAvatarEl = isAdmin ? (
+                      <SupportInboxAvatar
+                        src={brandLogoUrl}
+                        initial={supportInboxAvatarInitial(APP_BRAND_DISPLAY_NAME, 'Support')}
+                        isDark={isDark}
+                        className="h-7 w-7 shrink-0"
+                      />
+                    ) : null;
+                    const bubble = isUser
+                      ? 'bg-indigo-600 text-white ml-8'
+                      : isAdmin
+                        ? ''
+                        : isDark
+                          ? 'bg-white/10 text-white/90 mr-8'
+                          : 'bg-slate-200/80 text-slate-800 mr-8';
+                    if (m.image) {
+                      const captionInCard =
+                        isUser && m.body
+                          ? isDark
+                            ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-indigo-500/25 bg-indigo-950/35 text-white/95'
+                            : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-indigo-100 bg-indigo-50/95 text-slate-900'
+                          : isAdmin && m.body
+                            ? isDark
+                              ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-white/10 bg-white/5 text-white/90'
+                              : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-slate-100 bg-slate-50/95 text-slate-800'
+                            : m.body
+                              ? isDark
+                                ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-white/10 text-white/90'
+                                : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-slate-100 text-slate-800'
+                              : '';
+                      return (
+                        <div
+                          key={m.id || `${msgIso}-${String(m.body || '').slice(0, 24)}`}
+                          className={`flex items-end gap-1.5 touch-pan-y ${isUser ? 'justify-end' : 'justify-start'}`}
+                          onPointerDown={(e) => supportThreadSwipeDown(e, m)}
+                          onPointerUp={(e) => supportThreadSwipeUp(e, m)}
+                          onPointerCancel={supportThreadSwipeCancel}
+                        >
+                          {!isUser && isAdmin ? supportTeamAvatarEl : null}
+                          <div
+                            className={`flex flex-col gap-0.5 max-w-[95%] ${isUser ? 'items-end ml-8' : 'items-start mr-8'}${
+                              isUser && m.role === 'user' && m.id
+                                ? ' touch-manipulation select-none [-webkit-tap-highlight-color:transparent]'
+                                : ''
+                            }`}
+                            onDoubleClick={
+                              isUser && m.role === 'user' && m.id
+                                ? (e) => handleSupportOwnBubbleInteract(e, m.id)
+                                : undefined
+                            }
+                            onTouchEnd={
+                              isUser && m.role === 'user' && m.id
+                                ? (e) => handleSupportOwnBubbleInteract(e, m.id)
+                                : undefined
+                            }
+                            {...(isUser && m.role === 'user' && m.id
+                              ? { 'aria-label': 'Double-tap message for edit or delete' }
+                              : {})}
+                          >
+                            <div
+                              className={`max-w-full overflow-hidden rounded-xl ring-1 ${isDark ? 'ring-white/10 bg-zinc-900' : 'ring-slate-200/90 bg-white'}`}
+                            >
+                              <SupportReplyQuoteInBubble m={m} isDark={isDark} viewerIsUser inImageCard />
+                              <div className={isDark ? 'bg-zinc-950/40' : 'bg-slate-50'}>
+                                <img src={m.image} alt="" className="block max-h-48 max-w-full object-contain" />
+                              </div>
+                              {m.body ? (
+                                <div className={captionInCard}>
+                                  {m.role === 'system' ? supportInlineBold(m.body) : m.body}
+                                </div>
+                              ) : null}
+                            </div>
+                            {timeLabel || m.editedAt ? (
+                              <div
+                                className={`flex flex-wrap items-center gap-x-1 px-0.5 ${isUser ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {timeLabel ? (
+                                  <time
+                                    dateTime={msgIso || undefined}
+                                    className={`text-[10px] font-medium tabular-nums leading-none ${timeMuted}`}
+                                  >
+                                    {timeLabel}
+                                  </time>
+                                ) : null}
+                                {m.editedAt ? (
+                                  <span className={`text-[10px] font-medium ${timeMuted}`}>· edited</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={m.id || `${msgIso}-${String(m.body || '').slice(0, 24)}`}
+                        className={`flex items-end gap-1.5 touch-pan-y ${isUser ? 'justify-end' : 'justify-start'}`}
+                        onPointerDown={(e) => supportThreadSwipeDown(e, m)}
+                        onPointerUp={(e) => supportThreadSwipeUp(e, m)}
+                        onPointerCancel={supportThreadSwipeCancel}
+                      >
+                        {!isUser && isAdmin ? supportTeamAvatarEl : null}
+                        <div
+                          className={`flex flex-col gap-0.5 max-w-[95%] ${isUser ? 'items-end ml-8' : 'items-start mr-8'}${
+                            isUser && m.role === 'user' && m.id
+                              ? ' touch-manipulation select-none [-webkit-tap-highlight-color:transparent]'
+                              : ''
+                          }`}
+                          onDoubleClick={
+                            isUser && m.role === 'user' && m.id
+                              ? (e) => handleSupportOwnBubbleInteract(e, m.id)
+                              : undefined
+                          }
+                          onTouchEnd={
+                            isUser && m.role === 'user' && m.id
+                              ? (e) => handleSupportOwnBubbleInteract(e, m.id)
+                              : undefined
+                          }
+                          {...(isUser && m.role === 'user' && m.id
+                            ? { 'aria-label': 'Double-tap message for edit or delete' }
+                            : {})}
+                        >
+                          <div
+                            className={
+                              isAdmin
+                                ? supportAdminReplyBubbleClass(isDark)
+                                : `rounded-2xl px-3 py-2 text-sm max-w-full whitespace-pre-wrap ${bubble}`
+                            }
+                          >
+                            <SupportReplyQuoteInBubble m={m} isDark={isDark} viewerIsUser />
+                            {m.role === 'system' ? supportInlineBold(m.body) : m.body || null}
+                          </div>
+                          {timeLabel || m.editedAt ? (
+                            <div
+                              className={`flex flex-wrap items-center gap-x-1 px-0.5 ${isUser ? 'justify-end' : 'justify-start'}`}
+                            >
+                              {timeLabel ? (
+                                <time
+                                  dateTime={msgIso || undefined}
+                                  className={`text-[10px] font-medium tabular-nums leading-none ${timeMuted}`}
+                                >
+                                  {timeLabel}
+                                </time>
+                              ) : null}
+                              {m.editedAt ? (
+                                <span className={`text-[10px] font-medium ${timeMuted}`}>· edited</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {supportAdminTyping ? (
+                    <SupportTypingIndicator
+                      align="start"
+                      isDark={isDark}
+                      avatar={
+                        <SupportInboxAvatar
+                          src={brandLogoUrl}
+                          initial={supportInboxAvatarInitial(APP_BRAND_DISPLAY_NAME, 'Support')}
+                          isDark={isDark}
+                          className="h-7 w-7 shrink-0"
+                        />
+                      }
+                    />
+                  ) : null}
+                </div>
+                {supportNeedsHuman ? (
+                  <p className={`px-4 pb-2 text-xs ${isDark ? 'text-amber-300/90' : 'text-amber-800'}`}>Team notified — replies appear here.</p>
+                ) : null}
+                <div className={`border-t shrink-0 rounded-b-2xl relative z-[2] ${isDark ? 'border-white/10 bg-black/40' : 'border-slate-200 bg-white'}`}>
+                  <div className="p-3">
+                  {supportEditingMessageId ? (
+                    <div
+                      className={`mb-2 flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-xs ${isDark ? 'bg-sky-500/15 text-sky-100/95' : 'bg-sky-50 text-sky-950'}`}
+                    >
+                      <span className="font-medium min-w-0">Editing a message — send to save.</span>
+                      <button
+                        type="button"
+                        className={`shrink-0 font-semibold underline-offset-2 hover:underline ${isDark ? 'text-sky-200' : 'text-sky-800'}`}
+                        onClick={() => {
+                          setSupportEditingMessageId(null);
+                          setSupportDraft('');
+                          setSupportPendingImage(null);
+                          setSupportError(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
+                  {(() => {
+                    const inReplyCard = !!(supportReplyTo && !supportEditingMessageId);
+                    const chatRow = (
+                    <div
+                      className={
+                        inReplyCard
+                          ? 'telesopy-chat-row text-white'
+                          : `telesopy-chat-row ${isDark ? 'text-white' : 'text-slate-800'}`
+                      }
+                    >
+                    <div className="telesopy-grid-btn-wrap">
+                      <input
+                        ref={supportAttachmentInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="telesopy-file-input"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          if (!f || !f.type.startsWith('image/')) return;
+                          if (f.size > 900 * 1024) {
+                            setSupportError('Image too large (max ~900KB).');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const url = typeof reader.result === 'string' ? reader.result : '';
+                            if (!url.startsWith('data:image/')) return;
+                            setSupportError(null);
+                            setSupportPendingImage(url);
+                          };
+                          reader.readAsDataURL(f);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="telesopy-sidebar-btn"
+                        disabled={supportSending}
+                        title="Attach image"
+                        aria-label="Attach image"
+                        onClick={() => supportAttachmentInputRef.current?.click()}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M12 5v14M5 12h14" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="telesopy-chat-bar-wrap">
+                      <UltraxasChatBar
+                        value={supportDraft}
+                        onChange={setSupportDraft}
+                        onSubmit={() => {
+                          if (supportSending) return;
+                          const finishOutbound = (ac) => {
+                            if (supportOutboundAbortRef.current === ac) supportOutboundAbortRef.current = null;
+                            setSupportSending(false);
+                          };
+                          if (supportEditingMessageId) {
+                            const mid = supportEditingMessageId;
+                            const orig = supportMessages.find((x) => String(x.id) === String(mid));
+                            const hadImage = !!(orig && orig.image);
+                            if (supportPendingImage) {
+                              const caption = supportDraft.trim();
+                              supportOutboundAbortRef.current?.abort();
+                              const ac = new AbortController();
+                              supportOutboundAbortRef.current = ac;
+                              setSupportSending(true);
+                              setSupportError(null);
+                              const img = supportPendingImage;
+                              setSupportPendingImage(null);
+                              api
+                                .patchSupportMessage({
+                                  messageId: mid,
+                                  text: caption,
+                                  image: img,
+                                  signal: ac.signal,
+                                })
+                                .then((d) => {
+                                  void api.postSupportTyping(false).catch(() => {});
+                                  const inc = Array.isArray(d.messages) ? d.messages : [];
+                                  setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
+                                  setSupportNeedsHuman(!!d.needsHuman);
+                                  setSupportDraft('');
+                                  setSupportEditingMessageId(null);
+                                })
+                                .catch((err) => {
+                                  if (supportIsAbortError(err)) {
+                                    setSupportPendingImage(img);
+                                    return;
+                                  }
+                                  setSupportError(err?.message || 'Update failed');
+                                  setSupportPendingImage(img);
+                                })
+                                .finally(() => finishOutbound(ac));
+                              return;
+                            }
+                            if (hadImage && !supportPendingImage) {
+                              const t = supportDraft.trim();
+                              if (!t) {
+                                setSupportError('Add text after removing the photo, or keep a photo.');
+                                return;
+                              }
+                              supportOutboundAbortRef.current?.abort();
+                              const ac = new AbortController();
+                              supportOutboundAbortRef.current = ac;
+                              setSupportSending(true);
+                              setSupportError(null);
+                              api
+                                .patchSupportMessage({
+                                  messageId: mid,
+                                  text: t,
+                                  removeImage: true,
+                                  signal: ac.signal,
+                                })
+                                .then((d) => {
+                                  void api.postSupportTyping(false).catch(() => {});
+                                  const inc = Array.isArray(d.messages) ? d.messages : [];
+                                  setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
+                                  setSupportNeedsHuman(!!d.needsHuman);
+                                  setSupportDraft('');
+                                  setSupportEditingMessageId(null);
+                                })
+                                .catch((err) => {
+                                  if (!supportIsAbortError(err)) {
+                                    setSupportError(err?.message || 'Update failed');
+                                  }
+                                })
+                                .finally(() => finishOutbound(ac));
+                              return;
+                            }
+                            const t = supportDraft.trim();
+                            if (!t) return;
+                            supportOutboundAbortRef.current?.abort();
+                            const ac = new AbortController();
+                            supportOutboundAbortRef.current = ac;
+                            setSupportSending(true);
+                            setSupportError(null);
+                            api
+                              .patchSupportMessage({ messageId: mid, text: t, signal: ac.signal })
+                              .then((d) => {
+                                void api.postSupportTyping(false).catch(() => {});
+                                const inc = Array.isArray(d.messages) ? d.messages : [];
+                                setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
+                                setSupportNeedsHuman(!!d.needsHuman);
+                                setSupportDraft('');
+                                setSupportEditingMessageId(null);
+                              })
+                              .catch((err) => {
+                                if (!supportIsAbortError(err)) {
+                                  setSupportError(err?.message || 'Update failed');
+                                }
+                              })
+                              .finally(() => finishOutbound(ac));
+                            return;
+                          }
+                          if (supportPendingImage) {
+                            const caption = supportDraft.trim();
+                            supportOutboundAbortRef.current?.abort();
+                            const ac = new AbortController();
+                            supportOutboundAbortRef.current = ac;
+                            setSupportSending(true);
+                            setSupportError(null);
+                            const img = supportPendingImage;
+                            const replySnap = supportReplyTo;
+                            const replyToId = replySnap?.id;
+                            setSupportPendingImage(null);
+                            api
+                              .postSupportMessage({
+                                text: caption,
+                                image: img,
+                                requestHuman: false,
+                                replyToMessageId: replyToId,
+                                replyToPreview: replySnap?.preview,
+                                replyToRole: replySnap?.role,
+                                signal: ac.signal,
+                              })
+                              .then((d) => {
+                                void api.postSupportTyping(false).catch(() => {});
+                                const inc = Array.isArray(d.messages) ? d.messages : [];
+                                setSupportMessages((prev) => {
+                                  const merged = mergeSupportReplyMetaFromPrev(prev, inc);
+                                  return injectUserReplyMetaIfMissing(merged, replySnap);
+                                });
+                                setSupportNeedsHuman(!!d.needsHuman);
+                                setSupportDraft('');
+                                clearPersistedSupportReplyDraft();
+                                setSupportReplyTo(null);
+                              })
+                              .catch((err) => {
+                                if (supportIsAbortError(err)) {
+                                  setSupportPendingImage(img);
+                                  return;
+                                }
+                                setSupportError(err?.message || 'Send failed');
+                                setSupportPendingImage(img);
+                              })
+                              .finally(() => finishOutbound(ac));
+                            return;
+                          }
+                          const t = supportDraft.trim();
+                          if (!t) return;
+                          supportOutboundAbortRef.current?.abort();
+                          const ac = new AbortController();
+                          supportOutboundAbortRef.current = ac;
+                          setSupportSending(true);
+                          setSupportError(null);
+                          const replySnap = supportReplyTo;
+                          const replyToText = replySnap?.id;
+                          api
+                            .postSupportMessage({
+                              text: t,
+                              requestHuman: false,
+                              replyToMessageId: replyToText,
+                              replyToPreview: replySnap?.preview,
+                              replyToRole: replySnap?.role,
+                              signal: ac.signal,
+                            })
+                            .then((d) => {
+                              void api.postSupportTyping(false).catch(() => {});
+                              const inc = Array.isArray(d.messages) ? d.messages : [];
+                              setSupportMessages((prev) => {
+                                const merged = mergeSupportReplyMetaFromPrev(prev, inc);
+                                return injectUserReplyMetaIfMissing(merged, replySnap);
+                              });
+                              setSupportNeedsHuman(!!d.needsHuman);
+                              setSupportDraft('');
+                              clearPersistedSupportReplyDraft();
+                              setSupportReplyTo(null);
+                            })
+                            .catch((err) => {
+                              if (!supportIsAbortError(err)) {
+                                setSupportError(err?.message || 'Send failed');
+                              }
+                            })
+                            .finally(() => finishOutbound(ac));
+                        }}
+                        placeholder={
+                          supportEditingMessageId
+                            ? supportPendingImage
+                              ? 'Optional note…'
+                              : 'Update your message…'
+                            : supportPendingImage
+                              ? 'Optional message with your photo…'
+                              : 'Message support…'
+                        }
+                        sending={supportSending}
+                        onCancelSend={cancelSupportOutbound}
+                        isDark={isDark}
+                        allowSendEmpty={!!supportPendingImage}
+                        onInputFocusChange={setSupportComposerFocused}
+                      />
+                    </div>
+                    </div>
+                    );
+                    if (inReplyCard) {
+                      return (
+                        <div
+                          className={`mb-2 overflow-hidden rounded-2xl text-white shadow-md ring-1 ${isDark ? 'bg-indigo-950 ring-indigo-400/25' : 'bg-indigo-600 ring-indigo-500/35'}`}
+                        >
+                          <div className="px-3 pt-3 pb-1">
+                            <SupportComposerReplyPreview
+                              replyTo={supportReplyTo}
+                              isDark={isDark}
+                              viewerIsUser
+                              embedded
+                              onDismiss={() => {
+                                clearPersistedSupportReplyDraft();
+                                setSupportReplyTo(null);
+                              }}
+                            />
+                          </div>
+                          {supportPendingImage ? (
+                            <div className="px-3 pb-2">
+                              <div className="relative inline-block">
+                                <div
+                                  className={`h-10 w-14 shrink-0 overflow-hidden rounded-md ring-1 ${isDark ? 'ring-white/25' : 'ring-white/35'}`}
+                                >
+                                  <img src={supportPendingImage} alt="" className="h-full w-full object-cover" />
+                                </div>
+                                <button
+                                  type="button"
+                                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-light leading-none bg-white/25 text-white ring-1 ring-white/30 hover:bg-white/35"
+                                  onClick={() => {
+                                    setSupportPendingImage(null);
+                                    setSupportError(null);
+                                  }}
+                                  aria-label="Remove attachment"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div
+                            className={`border-t px-2 py-2 ${isDark ? 'border-white/15 bg-black/20' : 'border-white/20 bg-indigo-700/35'}`}
+                          >
+                            {chatRow}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        {supportReplyTo && supportEditingMessageId ? (
+                          <SupportComposerReplyPreview
+                            replyTo={supportReplyTo}
+                            isDark={isDark}
+                            viewerIsUser
+                            onDismiss={() => {
+                              clearPersistedSupportReplyDraft();
+                              setSupportReplyTo(null);
+                            }}
+                          />
+                        ) : null}
+                        {supportPendingImage ? (
+                          <div className="mb-2">
+                            <div className="relative inline-block">
+                              <div
+                                className={`h-10 w-14 shrink-0 overflow-hidden rounded-md ${isDark ? 'ring-1 ring-white/15' : 'ring-1 ring-slate-200/90'}`}
+                              >
+                                <img src={supportPendingImage} alt="" className="h-full w-full object-cover" />
+                              </div>
+                              <button
+                                type="button"
+                                className={`absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-light leading-none shadow ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/20 hover:bg-zinc-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'}`}
+                                onClick={() => {
+                                  setSupportPendingImage(null);
+                                  setSupportError(null);
+                                }}
+                                aria-label="Remove attachment"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="flex flex-col gap-2 w-full">{chatRow}</div>
+                      </>
+                    );
+                  })()}
+                  <div className="mt-2 px-3 pb-3 text-center">
+                    <button
+                      type="button"
+                      disabled={supportSending || !!supportEditingMessageId}
+                      onClick={async () => {
+                        setSupportPendingImage(null);
+                        setSupportSending(true);
+                        setSupportError(null);
+                        try {
+                          const replySnap = supportReplyTo;
+                          const d = await api.postSupportMessage({
+                            text: '',
+                            requestHuman: true,
+                            replyToMessageId: replySnap?.id,
+                            replyToPreview: replySnap?.preview,
+                            replyToRole: replySnap?.role,
+                          });
+                          void api.postSupportTyping(false).catch(() => {});
+                          const inc = Array.isArray(d.messages) ? d.messages : [];
+                          setSupportMessages((prev) => {
+                            const merged = mergeSupportReplyMetaFromPrev(prev, inc);
+                            return injectUserReplyMetaIfMissing(merged, replySnap);
+                          });
+                          setSupportNeedsHuman(!!d.needsHuman);
+                          clearPersistedSupportReplyDraft();
+                          setSupportReplyTo(null);
+                        } catch (err) {
+                          setSupportError(err?.message || 'Request failed');
+                        } finally {
+                          setSupportSending(false);
+                        }
+                      }}
+                      className={`text-xs font-semibold underline-offset-2 hover:underline disabled:opacity-50 ${isDark ? 'text-amber-300/90' : 'text-amber-800'}`}
+                    >
+                      Request a human
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSupportChatOpen((o) => {
+                if (o) {
+                  cancelSupportOutbound();
+                  setSupportEditingMessageId(null);
+                  setSupportDraft('');
+                  setSupportPendingImage(null);
+                  setSupportReplyTo(null);
+                  setSupportMsgActionsMenu(null);
+                  setSupportSending(false);
+                }
+                return !o;
+              });
+              setSupportError(null);
+            }}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-pointer"
+            style={{
+              position: 'fixed',
+              zIndex: 99999,
+              bottom: 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
+              right: 'max(0.75rem, env(safe-area-inset-right))',
+              left: 'auto',
+              top: 'auto',
+            }}
+            aria-label="Open support chat"
+          >
+            <Svg.Message stroke="currentColor" className="pointer-events-none w-[22px] h-[22px] sm:w-[26px] sm:h-[26px]" />
+            {supportUnreadUser > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold flex items-center justify-center pointer-events-none bg-rose-500 text-white">
+                {supportUnreadUser > 9 ? '9+' : supportUnreadUser}
+              </span>
+            ) : null}
+          </button>
+          {supportMsgActionsMenu && supportChatOpen ? (
+            <SupportMessageActionsMenu
+              anchor={supportMsgActionsMenu}
+              isDark={isDark}
+              align="end"
+              disabled={
+                supportSending ||
+                String(supportEditingMessageId) === String(supportMsgActionsMenu.messageId)
+              }
+              onClose={closeSupportMsgActionsMenu}
+              onEdit={() => {
+                const mid = supportMsgActionsMenu.messageId;
+                const row = supportMessages.find((x) => String(x.id) === String(mid));
+                if (!row || supportSending) return;
+                setSupportEditingMessageId(row.id);
+                setSupportDraft(row.body || '');
+                setSupportPendingImage(row.image || null);
+                setSupportError(null);
+              }}
+              onDelete={() => {
+                const mid = supportMsgActionsMenu.messageId;
+                if (supportSending || !window.confirm('Delete this message?')) return;
+                const clearComposer = String(supportEditingMessageId) === String(mid);
+                setSupportSending(true);
+                setSupportError(null);
+                api
+                  .deleteSupportMessage(mid)
+                  .then((d) => {
+                    const inc = Array.isArray(d.messages) ? d.messages : [];
+                    setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
+                    setSupportNeedsHuman(!!d.needsHuman);
+                    setSupportEditingMessageId((prev) => (String(prev) === String(mid) ? null : prev));
+                    if (clearComposer) {
+                      setSupportDraft('');
+                      setSupportPendingImage(null);
+                    }
+                    setSupportMsgActionsMenu(null);
+                  })
+                  .catch((err) => setSupportError(err?.message || 'Delete failed'))
+                  .finally(() => setSupportSending(false));
+              }}
+            />
+          ) : null}
+        </>,
+        document.body
+      )}
+
+      {/* Admin inbox: same floating pattern as user support — centered modal + FAB (no full-page route) */}
+      {typeof document !== 'undefined' &&
+        showAdminNav &&
+        createPortal(
+          <>
+            {adminSupportModalOpen && (
+              <div className="fixed inset-0 z-[99990] flex items-center justify-center p-4">
+                <div
+                  className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                  onClick={() => {
+                    setAdminSupportModalOpen(false);
+                    setAdminSupportEditingMessageId(null);
+                    setAdminSupportReplyDraft('');
+                    setAdminSupportPendingImage(null);
+                    setAdminSupportReplyTo(null);
+                    setAdminSupportMsgActionsMenu(null);
+                  }}
+                  aria-hidden="true"
+                />
+                <div
+                  className={`relative w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[min(640px,90vh)] ${isDark ? 'bg-black border border-white/10' : 'bg-slate-50 border border-slate-200'}`}
+                  role="dialog"
+                  aria-labelledby="admin-inbox-title"
+                  aria-label="Admin support inbox"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {adminSupportPhase === 'inbox' ? (
+                    <>
+                      <div className={`flex items-center justify-between gap-2 p-4 border-b shrink-0 rounded-t-2xl ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                        <div className="min-w-0 flex-1">
+                          <h2
+                            id="admin-inbox-title"
+                            className={`text-lg font-semibold tracking-tight truncate ${isDark ? 'text-white' : 'text-slate-900'}`}
+                          >
+                            Messages
+                          </h2>
+                          <p className={`text-xs font-medium ${isDark ? 'text-white/55' : 'text-slate-500'}`}>
+                            {adminSupportLoading && adminSupportInbox.length === 0
+                              ? 'Loading…'
+                              : `${adminSupportInbox.length} conversation${adminSupportInbox.length === 1 ? '' : 's'}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={adminSupportLoading}
+                            onClick={() => {
+                              setAdminSupportLoading(true);
+                              api
+                                .getAdminSupportInbox()
+                                .then((list) => setAdminSupportInbox(Array.isArray(list) ? list : []))
+                                .catch(() => {})
+                                .finally(() => setAdminSupportLoading(false));
+                            }}
+                            className={`text-xs font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${isDark ? 'text-white/80 hover:bg-white/10 border border-white/10' : 'text-slate-700 hover:bg-slate-100 border border-slate-200'}`}
+                          >
+                            Refresh
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdminSupportModalOpen(false);
+                              setAdminSupportEditingMessageId(null);
+                              setAdminSupportReplyDraft('');
+                              setAdminSupportPendingImage(null);
+                              setAdminSupportReplyTo(null);
+                            }}
+                            className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
+                            aria-label="Close inbox"
+                          >
+                            <Svg.Close stroke={stroke} />
+                          </button>
+                        </div>
+                      </div>
+                      {adminSupportError ? (
+                        <div className={`mx-3 mt-3 rounded-xl p-3 text-sm shrink-0 ${isDark ? 'bg-rose-500/15 border border-rose-500/35 text-rose-100' : 'bg-rose-50 border border-rose-200 text-rose-900'}`}>
+                          {adminSupportError}
+                        </div>
+                      ) : null}
+                      <div className={`flex-1 overflow-y-auto p-2 min-h-[200px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                        {adminSupportLoading && adminSupportInbox.length === 0 ? (
+                          <p className={`px-3 py-8 text-center text-sm ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Loading…</p>
+                        ) : adminSupportInbox.length === 0 ? (
+                          <p className={`px-3 py-8 text-center text-sm ${isDark ? 'text-white/45' : 'text-slate-500'}`}>
+                            No conversations yet. Customer threads appear here when they message support.
+                          </p>
+                        ) : (
+                          adminSupportInbox.map((row) => {
+                            const primary = (row.userName || row.userEmail || 'Customer').toString().trim() || 'Customer';
+                            const secondary =
+                              row.userName && row.userEmail
+                                ? String(row.userEmail)
+                                : `User ID ${String(row.userId)}`;
+                            const unread = (row.unreadForAdmin || 0) > 0;
+                            const timeLabel = supportInboxRelativeTime(row.updatedAt);
+                            const initial = supportInboxAvatarInitial(row.userName, row.userEmail);
+                            return (
+                              <button
+                                key={row.userId}
+                                type="button"
+                                onClick={() => {
+                                  setAdminSupportSelectedUserId(String(row.userId));
+                                  setAdminSupportPhase('thread');
+                                }}
+                                className={`w-full text-left rounded-xl px-2.5 py-2.5 mb-1 transition-all duration-150 ${isDark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
+                              >
+                                <div className="flex gap-3">
+                                  <SupportInboxAvatar
+                                    src={row.profileAvatar}
+                                    initial={initial}
+                                    isDark={isDark}
+                                    className="h-10 w-10"
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className={`text-sm font-semibold leading-tight truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                        {primary}
+                                      </span>
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        {unread ? (
+                                          <span
+                                            className="min-w-[1.125rem] h-[1.125rem] px-1 rounded-full text-[10px] font-bold flex items-center justify-center bg-rose-500 text-white tabular-nums"
+                                            title="Unread"
+                                          >
+                                            {row.unreadForAdmin > 9 ? '9+' : row.unreadForAdmin}
+                                          </span>
+                                        ) : null}
+                                        {timeLabel ? (
+                                          <span
+                                            className={`text-[10px] font-medium tabular-nums uppercase tracking-wide ${isDark ? 'text-white/35' : 'text-slate-400'}`}
+                                          >
+                                            {timeLabel}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    <p className={`text-[11px] mt-0.5 truncate ${isDark ? 'text-white/45' : 'text-slate-500'}`}>{secondary}</p>
+                                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                      {row.needsHuman ? (
+                                        <span
+                                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${isDark ? 'bg-amber-500/15 text-amber-200/95 border border-amber-500/25' : 'bg-amber-50 text-amber-900 border border-amber-200/80'}`}
+                                        >
+                                          Human requested
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className={`text-xs mt-1.5 line-clamp-2 leading-snug ${isDark ? 'text-white/48' : 'text-slate-600'}`}>
+                                      {row.lastSnippet || '—'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  ) : adminSupportPhase === 'thread' && adminSupportSelectedUserId ? (
+                    <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl">
+                      <div className={`flex items-start justify-between gap-2 p-3 border-b shrink-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
+                        <div className="flex items-start gap-2 min-w-0 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdminSupportPhase('inbox');
+                              setAdminSupportSelectedUserId(null);
+                              setAdminSupportThreadMessages([]);
+                              setAdminSupportThreadMeta(null);
+                              setAdminSupportEditingMessageId(null);
+                              setAdminSupportReplyDraft('');
+                              setAdminSupportPendingImage(null);
+                              setAdminSupportReplyTo(null);
+                              setAdminSupportMsgActionsMenu(null);
+                            }}
+                            className={`p-2 rounded-xl shrink-0 mt-0.5 ${isDark ? 'hover:bg-white/10 text-white' : 'hover:bg-slate-100 text-slate-800'}`}
+                            aria-label="Back to inbox"
+                          >
+                            <Svg.ArrowLeft width={22} height={22} aria-hidden />
+                          </button>
+                          <SupportInboxAvatar
+                            src={adminSupportThreadMeta?.profileAvatar}
+                            initial={supportInboxAvatarInitial(
+                              adminSupportThreadMeta?.userName,
+                              adminSupportThreadMeta?.userEmail,
+                            )}
+                            isDark={isDark}
+                            className="h-9 w-9 mt-0.5"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className={`font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {adminSupportThreadMeta?.userName || adminSupportThreadMeta?.userEmail || 'Conversation'}
+                            </p>
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                              {adminSupportThreadMeta?.userEmail ? `${adminSupportThreadMeta.userEmail} · ` : ''}User ID{' '}
+                              {String(adminSupportSelectedUserId)}
+                            </p>
+                            {adminSupportThreadMeta?.needsHuman ? (
+                              <p className={`text-xs mt-1 font-semibold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                                Flagged for human support
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdminSupportModalOpen(false);
+                            setAdminSupportEditingMessageId(null);
+                            setAdminSupportReplyDraft('');
+                            setAdminSupportPendingImage(null);
+                            setAdminSupportReplyTo(null);
+                            setAdminSupportMsgActionsMenu(null);
+                          }}
+                          className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
+                          aria-label="Close"
+                        >
+                          <Svg.Close stroke={stroke} />
+                        </button>
+                      </div>
+                      <div
+                        className={`flex flex-wrap items-center gap-2 px-3 py-2 border-b shrink-0 text-xs ${isDark ? 'border-white/10 bg-black/20' : 'border-slate-200 bg-slate-50/80'}`}
+                      >
+                        <span className={`font-medium shrink-0 ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                          Auto-clear chat
+                        </span>
+                        {adminSupportThreadMeta?.autoClearAt ? (
+                          <span
+                            className={`tabular-nums shrink-0 ${isDark ? 'text-amber-200/95' : 'text-amber-800'}`}
+                            title={String(adminSupportThreadMeta.autoClearAt)}
+                          >
+                            in {formatSupportAutoClearRemaining(adminSupportThreadMeta.autoClearAt)}
+                          </span>
+                        ) : (
+                          <span className={isDark ? 'text-white/40' : 'text-slate-500'}>Off</span>
+                        )}
+                        <button
+                          type="button"
+                          disabled={adminSupportAutoClearBusy || !adminSupportThreadMeta?.autoClearAt}
+                          onClick={() => applyAdminSupportAutoClear({ cancel: true })}
+                          className={`shrink-0 px-2 py-1 rounded-lg font-medium disabled:opacity-40 ${isDark ? 'bg-white/10 hover:bg-white/15 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-800'}`}
+                        >
+                          Clear timer
+                        </button>
+                        <select
+                          key={`support-ac-${adminSupportSelectedUserId}-${adminSupportThreadMeta?.autoClearAt || 'off'}`}
+                          defaultValue=""
+                          disabled={adminSupportAutoClearBusy}
+                          aria-label="Schedule chat clear"
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            e.target.value = '';
+                            if (!v.startsWith('ds:')) return;
+                            const n = Number(v.slice(3));
+                            if (!Number.isFinite(n)) return;
+                            applyAdminSupportAutoClear({ durationSeconds: n });
+                          }}
+                          className={`min-w-[9rem] max-w-full rounded-lg px-2 py-1 border text-[11px] ${isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                        >
+                          <option value="">Quick schedule…</option>
+                          <option value="ds:30">30 seconds</option>
+                          <option value="ds:60">1 minute</option>
+                          <option value="ds:120">2 minutes</option>
+                          <option value="ds:300">5 minutes</option>
+                          <option value="ds:900">15 minutes</option>
+                          <option value="ds:3600">1 hour</option>
+                          <option value="ds:21600">6 hours</option>
+                          <option value="ds:86400">24 hours</option>
+                          <option value="ds:604800">7 days</option>
+                        </select>
+                        <span className={`shrink-0 ${isDark ? 'text-white/40' : 'text-slate-400'}`}>·</span>
+                        <span className={`shrink-0 ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Custom</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={adminSupportAutoClearCustomMin}
+                          onChange={(e) => setAdminSupportAutoClearCustomMin(e.target.value)}
+                          disabled={adminSupportAutoClearBusy}
+                          aria-label="Custom minutes"
+                          className={`w-11 rounded-md border px-1.5 py-1 text-center tabular-nums text-[11px] ${isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                        />
+                        <span className={isDark ? 'text-white/45' : 'text-slate-500'}>m</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={59}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={adminSupportAutoClearCustomSec}
+                          onChange={(e) => setAdminSupportAutoClearCustomSec(e.target.value)}
+                          disabled={adminSupportAutoClearBusy}
+                          aria-label="Custom seconds"
+                          className={`w-11 rounded-md border px-1.5 py-1 text-center tabular-nums text-[11px] ${isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                        />
+                        <span className={isDark ? 'text-white/45' : 'text-slate-500'}>s</span>
+                        <button
+                          type="button"
+                          disabled={adminSupportAutoClearBusy}
+                          onClick={() => {
+                            const m =
+                              adminSupportAutoClearCustomMin === ''
+                                ? 0
+                                : Number(adminSupportAutoClearCustomMin);
+                            const s =
+                              adminSupportAutoClearCustomSec === ''
+                                ? 0
+                                : Number(adminSupportAutoClearCustomSec);
+                            applyAdminSupportAutoClear({
+                              minutes: Number.isFinite(m) ? m : 0,
+                              seconds: Number.isFinite(s) ? s : 0,
+                            });
+                          }}
+                          className={`shrink-0 px-2 py-1 rounded-lg font-medium disabled:opacity-40 ${isDark ? 'bg-sky-600/35 hover:bg-sky-600/45 text-sky-50' : 'bg-sky-600 text-white hover:bg-sky-700'}`}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      {adminSupportError ? (
+                        <div className={`mx-3 mt-2 rounded-xl p-2 text-xs shrink-0 ${isDark ? 'bg-rose-500/15 border border-rose-500/35 text-rose-100' : 'bg-rose-50 border border-rose-200 text-rose-900'}`}>
+                          {adminSupportError}
+                        </div>
+                      ) : null}
+                      <div className={`flex-1 overflow-y-auto p-3 space-y-3 min-h-[140px] max-h-[min(42vh,340px)] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                        {adminSupportMessagesUi.map((m) => {
+                          const isUser = m.role === 'user';
+                          const isAdm = m.role === 'admin';
+                          const msgIso = supportMsgIso(m);
+                          const timeLabel = supportMessageTimestamp(msgIso);
+                          const timeMuted = isDark ? 'text-white/40' : 'text-slate-400';
+                          const bubble = isUser
+                            ? isDark
+                              ? 'bg-sky-600/40 text-sky-50'
+                              : 'bg-sky-100 text-sky-950 border border-sky-200'
+                            : isAdm
+                              ? ''
+                              : isDark
+                                ? 'bg-white/10 text-white/85'
+                                : 'bg-slate-200/80 text-slate-800';
+                          const customerAv = adminSupportThreadMeta?.profileAvatar;
+                          const customerInitial = supportInboxAvatarInitial(
+                            adminSupportThreadMeta?.userName,
+                            adminSupportThreadMeta?.userEmail,
+                          );
+                          const customerAvatarEl = isUser ? (
+                            <SupportInboxAvatar
+                              src={customerAv}
+                              initial={customerInitial}
+                              isDark={isDark}
+                              className="h-7 w-7"
+                            />
+                          ) : null;
+                          const timeRowEl =
+                            timeLabel || m.editedAt ? (
+                              <div
+                                className={`flex flex-wrap items-center gap-x-1 px-0.5 ${isUser ? 'justify-end' : 'justify-start'}`}
+                              >
+                                {timeLabel ? (
+                                  <time
+                                    dateTime={msgIso || undefined}
+                                    className={`text-[10px] font-medium tabular-nums leading-none ${timeMuted}`}
+                                  >
+                                    {timeLabel}
+                                  </time>
+                                ) : null}
+                                {m.editedAt ? (
+                                  <span className={`text-[10px] font-medium ${timeMuted}`}>· edited</span>
+                                ) : null}
+                              </div>
+                            ) : null;
+                          if (m.image) {
+                            const captionInCard =
+                              isUser && m.body
+                                ? isDark
+                                  ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-sky-500/25 bg-sky-950/30 text-sky-50'
+                                  : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-sky-200 bg-sky-50/95 text-sky-950'
+                                : isAdm && m.body
+                                  ? isDark
+                                    ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-white/10 bg-white/5 text-white/90'
+                                    : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-slate-100 bg-slate-50/95 text-slate-800'
+                                  : m.body
+                                    ? isDark
+                                      ? 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-white/10 text-white/90'
+                                      : 'px-3 py-2.5 text-sm whitespace-pre-wrap border-t border-slate-100 text-slate-800'
+                                    : '';
+                            const imageCard = (
+                              <div
+                                className={`max-w-full overflow-hidden rounded-xl ring-1 ${isDark ? 'ring-white/10 bg-zinc-900' : 'ring-slate-200/90 bg-white'}`}
+                              >
+                                <SupportReplyQuoteInBubble m={m} isDark={isDark} viewerIsUser={false} inImageCard />
+                                <div className={isDark ? 'bg-zinc-950/40' : 'bg-slate-50'}>
+                                  <img src={m.image} alt="" className="block max-h-40 max-w-full object-contain" />
+                                </div>
+                                {m.body ? (
+                                  <div className={captionInCard}>
+                                    {m.role === 'system' ? supportInlineBold(m.body) : m.body}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                            return (
+                              <div
+                                key={m.id}
+                                className={`flex items-end gap-1.5 touch-pan-y ${isUser ? 'justify-end' : 'justify-start'}`}
+                                onPointerDown={(e) => adminSupportThreadSwipeDown(e, m)}
+                                onPointerUp={(e) => adminSupportThreadSwipeUp(e, m)}
+                                onPointerCancel={adminSupportThreadSwipeCancel}
+                              >
+                                {isUser ? (
+                                  <>
+                                    <div className="flex flex-col gap-0.5 items-end max-w-[92%]">
+                                      {imageCard}
+                                      {timeRowEl}
+                                    </div>
+                                    {customerAvatarEl}
+                                  </>
+                                ) : (
+                                  <div
+                                    className={`flex flex-col gap-0.5 items-start max-w-[92%] mr-6${
+                                      isAdm && m.id && adminSupportSelectedUserId
+                                        ? ' touch-manipulation select-none [-webkit-tap-highlight-color:transparent]'
+                                        : ''
+                                    }`}
+                                    onDoubleClick={
+                                      isAdm && m.id && adminSupportSelectedUserId
+                                        ? (e) => handleAdminOwnBubbleInteract(e, m.id)
+                                        : undefined
+                                    }
+                                    onTouchEnd={
+                                      isAdm && m.id && adminSupportSelectedUserId
+                                        ? (e) => handleAdminOwnBubbleInteract(e, m.id)
+                                        : undefined
+                                    }
+                                    {...(isAdm && m.id && adminSupportSelectedUserId
+                                      ? { 'aria-label': 'Double-tap message for edit or delete' }
+                                      : {})}
+                                  >
+                                    {imageCard}
+                                    {timeRowEl}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          return (
+                            <div
+                              key={m.id}
+                              className={`flex items-end gap-1.5 touch-pan-y ${isUser ? 'justify-end' : 'justify-start'}`}
+                              onPointerDown={(e) => adminSupportThreadSwipeDown(e, m)}
+                              onPointerUp={(e) => adminSupportThreadSwipeUp(e, m)}
+                              onPointerCancel={adminSupportThreadSwipeCancel}
+                            >
+                              {isUser ? (
+                                <>
+                                  <div className="flex flex-col gap-0.5 items-end max-w-[92%]">
+                                    <div className={`rounded-2xl px-3 py-2 text-sm max-w-full whitespace-pre-wrap ${bubble}`}>
+                                      <SupportReplyQuoteInBubble m={m} isDark={isDark} viewerIsUser={false} />
+                                      {m.role === 'system' ? supportInlineBold(m.body) : m.body || null}
+                                    </div>
+                                    {timeRowEl}
+                                  </div>
+                                  {customerAvatarEl}
+                                </>
+                              ) : (
+                                <div
+                                  className={`flex flex-col gap-0.5 items-start max-w-[92%] mr-6${
+                                    isAdm && m.id && adminSupportSelectedUserId
+                                      ? ' touch-manipulation select-none [-webkit-tap-highlight-color:transparent]'
+                                      : ''
+                                  }`}
+                                  onDoubleClick={
+                                    isAdm && m.id && adminSupportSelectedUserId
+                                      ? (e) => handleAdminOwnBubbleInteract(e, m.id)
+                                      : undefined
+                                  }
+                                  onTouchEnd={
+                                    isAdm && m.id && adminSupportSelectedUserId
+                                      ? (e) => handleAdminOwnBubbleInteract(e, m.id)
+                                      : undefined
+                                  }
+                                  {...(isAdm && m.id && adminSupportSelectedUserId
+                                    ? { 'aria-label': 'Double-tap message for edit or delete' }
+                                    : {})}
+                                >
+                                  <div
+                                    className={
+                                      isAdm
+                                        ? supportAdminReplyBubbleClass(isDark)
+                                        : `rounded-2xl px-3 py-2 text-sm max-w-full whitespace-pre-wrap ${bubble}`
+                                    }
+                                  >
+                                    <SupportReplyQuoteInBubble m={m} isDark={isDark} viewerIsUser={false} />
+                                    {m.role === 'system' ? supportInlineBold(m.body) : m.body || null}
+                                  </div>
+                                  {timeRowEl}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {adminSupportUserTyping ? (
+                          <SupportTypingIndicator
+                            align="end"
+                            isDark={isDark}
+                            avatar={
+                              <SupportInboxAvatar
+                                src={adminSupportThreadMeta?.profileAvatar}
+                                initial={supportInboxAvatarInitial(
+                                  adminSupportThreadMeta?.userName,
+                                  adminSupportThreadMeta?.userEmail,
+                                )}
+                                isDark={isDark}
+                                className="h-7 w-7 shrink-0"
+                              />
+                            }
+                          />
+                        ) : null}
+                      </div>
+                      <div className={`border-t shrink-0 rounded-b-2xl relative z-[2] ${isDark ? 'border-white/10 bg-black/40' : 'border-slate-200 bg-white'}`}>
+                        <div className="p-3">
+                        {adminSupportReplyTo ? (
+                          <SupportComposerReplyPreview
+                            replyTo={adminSupportReplyTo}
+                            isDark={isDark}
+                            viewerIsUser={false}
+                            onDismiss={() => {
+                              clearPersistedAdminReplyDraft(adminSupportSelectedUserId);
+                              setAdminSupportReplyTo(null);
+                            }}
+                          />
+                        ) : null}
+                        {adminSupportPendingImage ? (
+                          <div className="mb-2">
+                            <div className="relative inline-block">
+                              <div
+                                className={`h-10 w-14 shrink-0 overflow-hidden rounded-md ${isDark ? 'ring-1 ring-white/15' : 'ring-1 ring-slate-200/90'}`}
+                              >
+                                <img src={adminSupportPendingImage} alt="" className="h-full w-full object-cover" />
+                              </div>
+                              <button
+                                type="button"
+                                className={`absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-light leading-none shadow ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/20 hover:bg-zinc-700' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'}`}
+                                onClick={() => {
+                                  setAdminSupportPendingImage(null);
+                                  setAdminSupportError(null);
+                                }}
+                                aria-label="Remove attachment"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {adminSupportEditingMessageId ? (
+                          <div
+                            className={`mb-2 flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-xs ${isDark ? 'bg-sky-500/15 text-sky-100/95' : 'bg-sky-50 text-sky-950'}`}
+                          >
+                            <span className="font-medium min-w-0">Editing a message — send to save.</span>
+                            <button
+                              type="button"
+                              className={`shrink-0 font-semibold underline-offset-2 hover:underline ${isDark ? 'text-sky-200' : 'text-sky-800'}`}
+                              onClick={() => {
+                                setAdminSupportEditingMessageId(null);
+                                setAdminSupportReplyDraft('');
+                                setAdminSupportPendingImage(null);
+                                clearPersistedAdminReplyDraft(adminSupportSelectedUserId);
+                                setAdminSupportReplyTo(null);
+                                setAdminSupportError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className={`telesopy-chat-row ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                          <div className="telesopy-grid-btn-wrap">
+                            <input
+                              ref={adminSupportAttachmentInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="telesopy-file-input"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                if (!f || !f.type.startsWith('image/')) return;
+                                if (f.size > 900 * 1024) {
+                                  setAdminSupportError('Image too large (max ~900KB).');
+                                  return;
+                                }
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  const url = typeof reader.result === 'string' ? reader.result : '';
+                                  if (!url.startsWith('data:image/')) return;
+                                  setAdminSupportError(null);
+                                  setAdminSupportPendingImage(url);
+                                };
+                                reader.readAsDataURL(f);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="telesopy-sidebar-btn"
+                              disabled={adminSupportReplySending}
+                              title="Attach image"
+                              aria-label="Attach image"
+                              onClick={() => adminSupportAttachmentInputRef.current?.click()}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M12 5v14M5 12h14" />
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="telesopy-chat-bar-wrap">
+                            <UltraxasChatBar
+                              value={adminSupportReplyDraft}
+                              onChange={setAdminSupportReplyDraft}
+                              onSubmit={async () => {
+                                if (adminSupportReplySending || !adminSupportSelectedUserId) return;
+                                const uid = adminSupportSelectedUserId;
+                                if (adminSupportEditingMessageId) {
+                                  const mid = adminSupportEditingMessageId;
+                                  const orig = adminSupportThreadMessages.find(
+                                    (x) => String(x.id) === String(mid),
+                                  );
+                                  const hadImage = !!(orig && orig.image);
+                                  if (adminSupportPendingImage) {
+                                    const caption = adminSupportReplyDraft.trim();
+                                    setAdminSupportReplySending(true);
+                                    setAdminSupportError(null);
+                                    const img = adminSupportPendingImage;
+                                    setAdminSupportPendingImage(null);
+                                    try {
+                                      const d = await api.patchAdminSupportMessage(uid, {
+                                        messageId: mid,
+                                        text: caption,
+                                        image: img,
+                                      });
+                                      void api.postAdminSupportTyping(uid, false).catch(() => {});
+                                      const inc = Array.isArray(d.messages) ? d.messages : [];
+                                      setAdminSupportThreadMessages((prev) =>
+                                        mergeSupportReplyMetaFromPrev(prev, inc),
+                                      );
+                                      setAdminSupportReplyDraft('');
+                                      setAdminSupportEditingMessageId(null);
+                                      const list = await api.getAdminSupportInbox();
+                                      setAdminSupportInbox(Array.isArray(list) ? list : []);
+                                    } catch (err) {
+                                      setAdminSupportError(err?.message || 'Update failed');
+                                      setAdminSupportPendingImage(img);
+                                    } finally {
+                                      setAdminSupportReplySending(false);
+                                    }
+                                    return;
+                                  }
+                                  if (hadImage && !adminSupportPendingImage) {
+                                    const t = adminSupportReplyDraft.trim();
+                                    if (!t) {
+                                      setAdminSupportError(
+                                        'Add text after removing the photo, or keep a photo.',
+                                      );
+                                      return;
+                                    }
+                                    setAdminSupportReplySending(true);
+                                    setAdminSupportError(null);
+                                    try {
+                                      const d = await api.patchAdminSupportMessage(uid, {
+                                        messageId: mid,
+                                        text: t,
+                                        removeImage: true,
+                                      });
+                                      void api.postAdminSupportTyping(uid, false).catch(() => {});
+                                      const inc = Array.isArray(d.messages) ? d.messages : [];
+                                      setAdminSupportThreadMessages((prev) =>
+                                        mergeSupportReplyMetaFromPrev(prev, inc),
+                                      );
+                                      setAdminSupportReplyDraft('');
+                                      setAdminSupportEditingMessageId(null);
+                                      const list = await api.getAdminSupportInbox();
+                                      setAdminSupportInbox(Array.isArray(list) ? list : []);
+                                    } catch (err) {
+                                      setAdminSupportError(err?.message || 'Update failed');
+                                    } finally {
+                                      setAdminSupportReplySending(false);
+                                    }
+                                    return;
+                                  }
+                                  const t = adminSupportReplyDraft.trim();
+                                  if (!t) return;
+                                  setAdminSupportReplySending(true);
+                                  setAdminSupportError(null);
+                                  try {
+                                    const d = await api.patchAdminSupportMessage(uid, {
+                                      messageId: mid,
+                                      text: t,
+                                    });
+                                    void api.postAdminSupportTyping(uid, false).catch(() => {});
+                                    const inc = Array.isArray(d.messages) ? d.messages : [];
+                                    setAdminSupportThreadMessages((prev) =>
+                                      mergeSupportReplyMetaFromPrev(prev, inc),
+                                    );
+                                    setAdminSupportReplyDraft('');
+                                    setAdminSupportEditingMessageId(null);
+                                    const list = await api.getAdminSupportInbox();
+                                    setAdminSupportInbox(Array.isArray(list) ? list : []);
+                                  } catch (err) {
+                                    setAdminSupportError(err?.message || 'Update failed');
+                                  } finally {
+                                    setAdminSupportReplySending(false);
+                                  }
+                                  return;
+                                }
+                                if (adminSupportPendingImage) {
+                                  const caption = adminSupportReplyDraft.trim();
+                                  setAdminSupportReplySending(true);
+                                  setAdminSupportError(null);
+                                  const img = adminSupportPendingImage;
+                                  const replySnap = adminSupportReplyTo;
+                                  const replyToId = replySnap?.id;
+                                  setAdminSupportPendingImage(null);
+                                  try {
+                                    const d = await api.postAdminSupportReply(
+                                      uid,
+                                      caption,
+                                      img,
+                                      replyToId,
+                                      replySnap ? { preview: replySnap.preview, role: replySnap.role } : null,
+                                    );
+                                    void api.postAdminSupportTyping(uid, false).catch(() => {});
+                                    const injected = injectAdminReplyMetaIfMissing(
+                                      Array.isArray(d.messages) ? d.messages : [],
+                                      replySnap,
+                                    );
+                                    setAdminSupportThreadMessages((prev) =>
+                                      mergeSupportReplyMetaFromPrev(prev, injected),
+                                    );
+                                    setAdminSupportReplyDraft('');
+                                    clearPersistedAdminReplyDraft(uid);
+                                    setAdminSupportReplyTo(null);
+                                    const list = await api.getAdminSupportInbox();
+                                    setAdminSupportInbox(Array.isArray(list) ? list : []);
+                                  } catch (err) {
+                                    setAdminSupportError(err?.message || 'Reply failed');
+                                    setAdminSupportPendingImage(img);
+                                  } finally {
+                                    setAdminSupportReplySending(false);
+                                  }
+                                  return;
+                                }
+                                const t = adminSupportReplyDraft.trim();
+                                if (!t) return;
+                                setAdminSupportReplySending(true);
+                                setAdminSupportError(null);
+                                const replySnap = adminSupportReplyTo;
+                                try {
+                                  const d = await api.postAdminSupportReply(
+                                    uid,
+                                    t,
+                                    undefined,
+                                    replySnap?.id,
+                                    replySnap ? { preview: replySnap.preview, role: replySnap.role } : null,
+                                  );
+                                  void api.postAdminSupportTyping(uid, false).catch(() => {});
+                                  const injected = injectAdminReplyMetaIfMissing(
+                                    Array.isArray(d.messages) ? d.messages : [],
+                                    replySnap,
+                                  );
+                                  setAdminSupportThreadMessages((prev) =>
+                                    mergeSupportReplyMetaFromPrev(prev, injected),
+                                  );
+                                  setAdminSupportReplyDraft('');
+                                  clearPersistedAdminReplyDraft(uid);
+                                  setAdminSupportReplyTo(null);
+                                  const list = await api.getAdminSupportInbox();
+                                  setAdminSupportInbox(Array.isArray(list) ? list : []);
+                                } catch (err) {
+                                  setAdminSupportError(err?.message || 'Reply failed');
+                                } finally {
+                                  setAdminSupportReplySending(false);
+                                }
+                              }}
+                              placeholder={
+                                adminSupportEditingMessageId
+                                  ? adminSupportPendingImage
+                                    ? 'Optional caption…'
+                                    : 'Update your reply…'
+                                  : adminSupportPendingImage
+                                    ? 'Optional caption…'
+                                    : 'Reply to customer…'
+                              }
+                              disabled={adminSupportReplySending}
+                              isDark={isDark}
+                              allowSendEmpty={!!adminSupportPendingImage}
+                              onInputFocusChange={setAdminSupportComposerFocused}
+                            />
+                          </div>
+                        </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+            {!adminSupportModalOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminSupportModalOpen(true);
+                  setAdminSupportPhase('inbox');
+                  setSidebarOpen(false);
+                }}
+                className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform relative cursor-pointer ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/15' : 'bg-white text-slate-900'}`}
+                style={{
+                  position: 'fixed',
+                  zIndex: 99999,
+                  bottom:
+                    isSignedIn && !adminRoute && api.getToken()
+                      ? 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 7.5rem)'
+                      : 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
+                  right: 'max(0.75rem, env(safe-area-inset-right))',
+                  left: 'auto',
+                  top: 'auto',
+                }}
+                aria-label="Open admin inbox"
+                title="Inbox"
+              >
+                <Svg.Inbox stroke="currentColor" className="pointer-events-none w-[22px] h-[22px] sm:w-[26px] sm:h-[26px]" />
+                {(() => {
+                  const n = adminSupportInbox.reduce((acc, r) => acc + (Number(r.unreadForAdmin) > 0 ? Number(r.unreadForAdmin) : 0), 0);
+                  if (n <= 0) return null;
+                  return (
+                    <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 rounded-full text-xs font-bold flex items-center justify-center pointer-events-none bg-rose-500 text-white tabular-nums">
+                      {n > 99 ? '99+' : n}
+                    </span>
+                  );
+                })()}
+              </button>
+            )}
+            {adminSupportMsgActionsMenu &&
+            adminSupportModalOpen &&
+            adminSupportPhase === 'thread' &&
+            adminSupportSelectedUserId ? (
+              <SupportMessageActionsMenu
+                anchor={adminSupportMsgActionsMenu}
+                isDark={isDark}
+                align="start"
+                disabled={
+                  adminSupportReplySending ||
+                  String(adminSupportEditingMessageId) === String(adminSupportMsgActionsMenu.messageId)
+                }
+                onClose={closeAdminSupportMsgActionsMenu}
+                onEdit={() => {
+                  const mid = adminSupportMsgActionsMenu.messageId;
+                  const row = adminSupportThreadMessages.find((x) => String(x.id) === String(mid));
+                  if (!row || adminSupportReplySending) return;
+                  setAdminSupportEditingMessageId(row.id);
+                  setAdminSupportReplyDraft(row.body || '');
+                  setAdminSupportPendingImage(row.image || null);
+                  setAdminSupportError(null);
+                }}
+                onDelete={() => {
+                  const mid = adminSupportMsgActionsMenu.messageId;
+                  const uid = adminSupportSelectedUserId;
+                  if (adminSupportReplySending || !window.confirm('Delete this message?')) return;
+                  const clearComposer = String(adminSupportEditingMessageId) === String(mid);
+                  setAdminSupportReplySending(true);
+                  setAdminSupportError(null);
+                  api
+                    .deleteAdminSupportMessage(uid, mid)
+                    .then(async (d) => {
+                      const inc = Array.isArray(d.messages) ? d.messages : [];
+                      setAdminSupportThreadMessages((prev) =>
+                        mergeSupportReplyMetaFromPrev(prev, inc),
+                      );
+                      setAdminSupportEditingMessageId((prev) =>
+                        String(prev) === String(mid) ? null : prev,
+                      );
+                      if (clearComposer) {
+                        setAdminSupportReplyDraft('');
+                        setAdminSupportPendingImage(null);
+                      }
+                      const list = await api.getAdminSupportInbox();
+                      setAdminSupportInbox(Array.isArray(list) ? list : []);
+                      setAdminSupportMsgActionsMenu(null);
+                    })
+                    .catch((err) => setAdminSupportError(err?.message || 'Delete failed'))
+                    .finally(() => setAdminSupportReplySending(false));
+                }}
+              />
+            ) : null}
+          </>,
+          document.body
+        )}
+
       {/* Cart FAB - portaled so it can be dragged anywhere on the viewport */}
-      {typeof document !== 'undefined' && createPortal(
+      {typeof document !== 'undefined' &&
+        createPortal(
         <button
           ref={cartButtonRef}
           onClick={handleCartButtonClick}
