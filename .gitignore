@@ -13,6 +13,9 @@ build/
 # API data (local JSON DB)
 server/data/
 
+# Scratch copy of production SQLite API (scp from VPS); not the Vite app server/
+.backend-mirror/
+
 # Logs and cache
 npm-debug.log*
 *.log

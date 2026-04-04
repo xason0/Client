@@ -53,6 +53,72 @@
   100% { background-position: -200% 0; }
 }
 
+/* Support chat — subtle typing dots */
+@keyframes support-typing-dot {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.support-typing-dot {
+  animation: support-typing-dot 1.05s ease-in-out infinite;
+}
+.support-typing-dot:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.support-typing-dot:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes support-idle-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+.support-idle-dot {
+  animation: support-idle-dot-pulse 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-idle-dot {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+@keyframes support-agent-joined-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 0.88;
+    transform: translateY(0);
+  }
+}
+.support-agent-joined-banner {
+  animation: support-agent-joined-banner-in 0.55s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-agent-joined-banner {
+    animation: none;
+    opacity: 0.88;
+    transform: none;
+  }
+}
+
 /* Reduce accidental pinch-zoom on mobile; copy/paste and selection are allowed site-wide */
 html {
   touch-action: manipulation;

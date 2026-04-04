@@ -82,6 +82,8 @@ function emptyDb() {
     agentApplications: demoAgentApplications(),
     /** Admin image+caption promos shown to users (see GET /api/broadcasts). */
     broadcasts: [],
+    /** userId (string) -> { userId, userEmail, userName, messages[], unreadForAdmin, unreadForUser, needsHuman, updatedAt } */
+    supportThreads: {},
   };
 }
 
@@ -120,6 +122,10 @@ export function readDb() {
   }
   if (!Array.isArray(raw.broadcasts)) {
     raw.broadcasts = [];
+    dirty = true;
+  }
+  if (!raw.supportThreads || typeof raw.supportThreads !== 'object' || Array.isArray(raw.supportThreads)) {
+    raw.supportThreads = {};
     dirty = true;
   }
   if (dirty) writeDb(raw);

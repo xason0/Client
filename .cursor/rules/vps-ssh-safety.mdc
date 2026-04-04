@@ -1,0 +1,27 @@
+---
+description: VPS SSH target and production safety (no breakage)
+alwaysApply: true
+---
+
+# VPS SSH — automation@87.106.69.120
+
+## Default remote
+
+- **SSH user/host:** `automation@87.106.69.120`
+- Use **non-interactive** checks when verifying:  
+  `ssh -o BatchMode=yes -o ConnectTimeout=15 automation@87.106.69.120 "<command>"`
+
+## Do not break production
+
+- **Live API + SQLite:** `~/backend/server.js` with `db.js` on the VPS — this is what **`pm2 restart dataplus-api`** runs.
+- **Do not** point PM2 at `Client/server/index.js` or swap the process to the JSON dev server; that breaks logins and data.
+- **Static app:** built Vite output is synced to **`~/client-dist`** (see repo `deploy-vps.sh`).
+- **Before editing `~/backend/server.js`:** copy a backup on the server (e.g. `cp server.js server.js.bak-$(date +%Y%m%d%H%M%S)`), then edit, then **`pm2 restart dataplus-api`** only after syntax check if possible.
+
+## Deploy pattern (frontend)
+
+- From the Client repo: `./deploy-vps.sh` pulls **`origin/main`** on the VPS, `npm ci` + `npm run build`, rsyncs `dist/` → `client-dist`, then restarts **`dataplus-api`**. Uncommitted local changes are **not** deployed until pushed to the branch the script uses.
+
+## Support / API parity
+
+- Customer support routes the SPA expects must exist on **`~/backend/server.js`**, not only in `Client/server/index.js`.

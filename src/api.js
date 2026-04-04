@@ -96,6 +96,47 @@ function adminHeaders() {
   };
 }
 
+/** Production hosts return 404 until support routes are deployed with the Node API. */
+function supportFetchError(res, data, fallback) {
+  const serverMsg = data && typeof data === 'object' && typeof data.error === 'string' ? data.error : '';
+  if (res.status === 404) {
+    return new Error(
+      serverMsg ||
+        'Support chat is not on this API yet (404). Deploy the latest server code to your API host, or set VITE_API_USE_LOCAL=true and run the local API.'
+    );
+  }
+  return new Error(serverMsg || fallback);
+}
+
+/** Normalize reply_* / camelCase and backfill quote text from the target message after a full page reload. */
+function normalizeSupportThreadMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return Array.isArray(messages) ? messages : [];
+  const byId = new Map();
+  for (const x of messages) {
+    if (x && x.id != null) byId.set(String(x.id), x);
+  }
+  return messages.map((m) => {
+    if (!m || typeof m !== 'object') return m;
+    const rt = m.replyTo ?? m.reply_to ?? m.reply_to_id;
+    if (rt == null || String(rt).trim() === '') return m;
+    const rid = String(rt).trim();
+    const prev = String(m.replyPreview ?? m.reply_preview ?? '').trim();
+    const roleStr = String(m.replyRole ?? m.reply_role ?? '').trim();
+    const hasRole = roleStr.length > 0;
+    if (prev && prev !== '…' && hasRole) return { ...m, replyTo: rid, replyPreview: prev, replyRole: roleStr };
+    const target = byId.get(rid);
+    if (!target) {
+      return { ...m, replyTo: rid, replyPreview: prev || '…', replyRole: hasRole ? roleStr : 'user' };
+    }
+    const bodyTrim = String(target.body || '').trim();
+    const fromTarget =
+      target.image && !bodyTrim ? '📷 Image' : bodyTrim.slice(0, 220) || '…';
+    const replyPreview = !prev || prev === '…' ? fromTarget : prev;
+    const replyRole = hasRole ? roleStr : String(target.role || 'user');
+    return { ...m, replyTo: rid, replyPreview, replyRole };
+  });
+}
+
 export const api = {
   getUrl: () => API_URL,
   getToken,
@@ -150,7 +191,7 @@ export const api = {
   async uploadProfileImage(avatarDataUrlOrNull) {
     const res = await fetch(`${API_URL}/api/profile/avatar`, {
       method: 'PUT',
-      headers: adminHeaders(),
+      headers: headers(),
       body: JSON.stringify({ avatar: avatarDataUrlOrNull ?? null }),
     });
     const data = await res.json().catch(() => ({}));
@@ -562,6 +603,223 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to delete');
+    return data;
+  },
+
+  async getSupportStatus() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/support/status`), { headers: headers(), cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to load support status');
+    return data;
+  },
+
+  async getSupportThread() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/support/thread`), { headers: headers(), cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to load chat');
+    const messages = normalizeSupportThreadMessages(Array.isArray(data.messages) ? data.messages : []);
+    return { ...data, messages, adminTyping: data.adminTyping === true };
+  },
+
+  async postSupportRead() {
+    const res = await fetch(`${API_URL}/api/support/read`, { method: 'POST', headers: headers(), body: '{}' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed');
+    return data;
+  },
+
+  async postSupportTyping(typing) {
+    const res = await fetch(`${API_URL}/api/support/typing`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ typing: !!typing }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed');
+    return data;
+  },
+
+  async postAdminSupportTyping(userId, typing) {
+    const res = await fetch(`${API_URL}/api/admin/support/typing`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({ userId, typing: !!typing }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed');
+    return data;
+  },
+
+  async postSupportMessage({ text, requestHuman, image, replyToMessageId, replyToPreview, replyToRole, signal } = {}) {
+    const res = await fetch(`${API_URL}/api/support/messages`, {
+      method: 'POST',
+      headers: headers(),
+      signal,
+      body: JSON.stringify({
+        text: text ?? '',
+        requestHuman: !!requestHuman,
+        ...(image ? { image: String(image) } : {}),
+        ...(replyToMessageId
+          ? {
+              replyToMessageId: String(replyToMessageId),
+              replyToPreview: String(replyToPreview ?? '').slice(0, 300),
+              ...(replyToRole ? { replyToRole: String(replyToRole) } : {}),
+            }
+          : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to send message');
+    return data;
+  },
+
+  async patchSupportMessage({ messageId, text, image, removeImage, signal } = {}) {
+    const body = { messageId: String(messageId || '') };
+    if (typeof text === 'string') body.text = text;
+    if (image) body.image = String(image);
+    if (removeImage) body.removeImage = true;
+    const res = await fetch(`${API_URL}/api/support/messages`, {
+      method: 'PATCH',
+      headers: headers(),
+      signal,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to update message');
+    return data;
+  },
+
+  async deleteSupportMessage(messageId) {
+    const res = await fetch(`${API_URL}/api/support/messages`, {
+      method: 'DELETE',
+      headers: headers(),
+      body: JSON.stringify({ messageId: String(messageId || '') }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to delete message');
+    return data;
+  },
+
+  async getAdminSupportInbox() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/support/inbox`), { headers: adminHeaders(), cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to load support inbox');
+    if (!Array.isArray(data)) return [];
+    return data.map((row) => {
+      if (!row || typeof row !== 'object') return row;
+      const pa = row.profileAvatar ?? row.profile_avatar ?? '';
+      const s = typeof pa === 'string' ? pa.trim() : '';
+      return { ...row, profileAvatar: s };
+    });
+  },
+
+  async getAdminSupportThread(userId) {
+    const res = await fetch(
+      withNoStoreTs(`${API_URL}/api/admin/support/thread/${encodeURIComponent(userId)}`),
+      { headers: adminHeaders(), cache: 'no-store' }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to load conversation');
+    const pa = data.profileAvatar ?? data.profile_avatar ?? '';
+    const s = typeof pa === 'string' ? pa.trim() : '';
+    const messages = normalizeSupportThreadMessages(Array.isArray(data.messages) ? data.messages : []);
+    return { ...data, messages, profileAvatar: s, userTyping: data.userTyping === true };
+  },
+
+  async postAdminSupportAutoClear(userId, { cancel, minutes, seconds, durationSeconds } = {}) {
+    let body;
+    if (cancel === true) {
+      body = { cancel: true };
+    } else if (durationSeconds != null && String(durationSeconds).trim() !== '') {
+      body = { durationSeconds: Number(durationSeconds) };
+    } else if (
+      (minutes != null && minutes !== '') ||
+      (seconds != null && seconds !== '')
+    ) {
+      body = {
+        minutes: minutes != null && minutes !== '' ? Number(minutes) : 0,
+        seconds: seconds != null && seconds !== '' ? Number(seconds) : 0,
+      };
+    } else if (minutes != null && Number.isFinite(Number(minutes))) {
+      body = { minutes: Number(minutes) };
+    } else {
+      body = {};
+    }
+    const res = await fetch(
+      `${API_URL}/api/admin/support/thread/${encodeURIComponent(userId)}/auto-clear`,
+      { method: 'POST', headers: adminHeaders(), body: JSON.stringify(body) }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to set auto-clear');
+    const pa = data.profileAvatar ?? data.profile_avatar ?? '';
+    const s = typeof pa === 'string' ? pa.trim() : '';
+    return { ...data, profileAvatar: s, userTyping: data.userTyping === true };
+  },
+
+  async postAdminSupportReply(userId, text, image, replyToMessageId, replyMeta = null) {
+    const rid =
+      replyToMessageId != null && String(replyToMessageId).trim() !== ''
+        ? String(replyToMessageId).trim()
+        : '';
+    const res = await fetch(`${API_URL}/api/admin/support/reply`, {
+      method: 'POST',
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        userId,
+        text: text ?? '',
+        ...(image ? { image: String(image) } : {}),
+        ...(rid
+          ? {
+              replyToMessageId: rid,
+              replyToPreview: String(
+                replyMeta && typeof replyMeta === 'object' ? replyMeta.preview ?? '' : '',
+              ).slice(0, 300),
+              ...(replyMeta?.role ? { replyToRole: String(replyMeta.role) } : {}),
+            }
+          : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to send reply');
+    return data;
+  },
+
+  async patchAdminSupportMessage(userId, { messageId, text, image, removeImage }) {
+    const body = {
+      userId: String(userId || ''),
+      messageId: String(messageId || ''),
+    };
+    if (typeof text === 'string') body.text = text;
+    if (image) body.image = String(image);
+    if (removeImage) body.removeImage = true;
+    const res = await fetch(`${API_URL}/api/admin/support/messages`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to update message');
+    return data;
+  },
+
+  async deleteAdminSupportMessage(userId, messageId) {
+    const res = await fetch(`${API_URL}/api/admin/support/messages`, {
+      method: 'DELETE',
+      headers: adminHeaders(),
+      body: JSON.stringify({
+        userId: String(userId || ''),
+        messageId: String(messageId || ''),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw supportFetchError(res, data, 'Failed to delete message');
     return data;
   },
 };

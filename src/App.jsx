@@ -399,17 +399,6 @@ function supportMessagePreviewForReply(m) {
   return '(empty)';
 }
 
-function supportReplyBannerLabel(replyRole, viewerIsUser) {
-  if (viewerIsUser) {
-    if (replyRole === 'user') return 'You';
-    if (replyRole === 'admin') return 'Support';
-    return 'Notice';
-  }
-  if (replyRole === 'user') return 'Customer';
-  if (replyRole === 'admin') return 'You';
-  return 'Notice';
-}
-
 /** Normalize reply fields from API (camelCase or snake_case). */
 function supportMessageReplyMeta(m) {
   if (!m || typeof m !== 'object') return null;
@@ -573,32 +562,35 @@ function supportReplyQuoteWaClasses(tone, isDark, inImageCard) {
       };
 }
 
-/** WhatsApp-style quoted context inside a message bubble (or image card). */
+/** Thinner accent bar for inline reply quotes (bubble + composer). */
+function slimSupportReplyBarClass(c) {
+  const b = c.bar;
+  if (b.includes('w-[3px]')) return b.replace('w-[3px] rounded-sm', 'w-[2px] rounded-full');
+  return `w-[2px] rounded-full ${b}`;
+}
+
+/** Quoted context inside a message bubble — preview text only, compact strip. */
 function SupportReplyQuoteInBubble({ m, isDark, viewerIsUser, inImageCard }) {
   const meta = supportMessageReplyMeta(m);
   if (!meta) return null;
-  const label = supportReplyBannerLabel(meta.replyRole, viewerIsUser);
   const tone = supportReplyQuoteTone(m.role, viewerIsUser);
   const c = supportReplyQuoteWaClasses(tone, isDark, !!inImageCard);
   const ownSide = tone === 'customerOwn' || tone === 'adminOwn';
+  const barCls = slimSupportReplyBarClass(c);
   const outerClass = inImageCard
-    ? 'flex gap-2.5 min-w-0 px-2 pt-2'
+    ? 'flex gap-1 min-w-0 px-1.5 pt-1.5'
     : ownSide
       ? isDark
-        ? 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-white/20'
+        ? 'flex gap-1 min-w-0 pb-1.5 mb-0 border-b border-white/15'
         : tone === 'customerOwn'
-          ? 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-white/25'
-          : 'flex gap-2.5 min-w-0 pb-2.5 mb-0 border-b border-slate-600/20'
-      : 'flex gap-2 min-w-0 border-b border-current/10 pb-2 mb-2 opacity-[0.98]';
+          ? 'flex gap-1 min-w-0 pb-1.5 mb-0 border-b border-white/20'
+          : 'flex gap-1 min-w-0 pb-1.5 mb-0 border-b border-slate-600/15'
+      : 'flex gap-1 min-w-0 border-b border-current/10 pb-1 mb-1.5 opacity-[0.98]';
   return (
     <div className={outerClass}>
-      <div
-        className={`shrink-0 self-stretch min-h-[2.25rem] ${ownSide ? 'rounded-sm' : 'w-1 rounded-full'} ${c.bar}`}
-        aria-hidden
-      />
-      <div className={`min-w-0 flex-1 ${ownSide ? 'px-2.5 py-2' : 'rounded-md px-2 py-1'} ${c.box}`}>
-        <div className={`text-xs leading-tight ${c.name}`}>{label}</div>
-        <div className={`text-[11px] leading-snug mt-1 line-clamp-2 break-words ${c.preview}`}>{meta.replyPreview}</div>
+      <div className={`shrink-0 self-stretch min-h-[1.125rem] ${barCls}`} aria-hidden />
+      <div className={`min-w-0 flex-1 ${ownSide ? 'px-2 py-1' : 'rounded-md px-1.5 py-1'} ${c.box}`}>
+        <p className={`text-[11px] leading-tight line-clamp-2 break-words ${c.preview}`}>{meta.replyPreview}</p>
       </div>
     </div>
   );
@@ -607,22 +599,18 @@ function SupportReplyQuoteInBubble({ m, isDark, viewerIsUser, inImageCard }) {
 /** Composer strip while drafting — same WA reply look, dismiss × like pending image. */
 function SupportComposerReplyPreview({ replyTo, isDark, viewerIsUser, onDismiss, embedded }) {
   if (!supportReplyDraftHasTarget(replyTo)) return null;
-  const label = supportReplyBannerLabel(replyTo.role || 'system', viewerIsUser);
   const tone = viewerIsUser ? 'customerOwn' : 'adminOwn';
   const c = supportReplyQuoteWaClasses(tone, isDark, false);
+  const barCls = slimSupportReplyBarClass(c);
   if (embedded && viewerIsUser) {
     return (
       <div className="relative w-full min-w-0 pr-9">
-        <div className="flex gap-2.5 min-w-0">
-          <div
-            className={`shrink-0 self-stretch min-h-[2.75rem] rounded-sm ${c.bar}`}
-            aria-hidden
-          />
-          <div className={`min-w-0 flex-1 rounded-lg px-2.5 py-2 ${c.box}`}>
-            <div className={`text-xs leading-tight ${c.name}`}>{label}</div>
-            <div className={`text-[11px] leading-snug mt-1 line-clamp-2 break-words ${c.preview}`}>
+        <div className="flex gap-1 min-w-0">
+          <div className={`shrink-0 self-stretch min-h-[1.25rem] ${barCls}`} aria-hidden />
+          <div className={`min-w-0 flex-1 rounded-md px-2 py-1 ${c.box}`}>
+            <p className={`text-[11px] leading-tight line-clamp-2 break-words ${c.preview}`}>
               {replyTo.preview || '…'}
-            </div>
+            </p>
           </div>
         </div>
         <button
@@ -639,13 +627,12 @@ function SupportComposerReplyPreview({ replyTo, isDark, viewerIsUser, onDismiss,
   return (
     <div className="mb-2">
       <div className="relative inline-block max-w-full min-w-0">
-        <div className="flex gap-2 min-w-0 max-w-full pr-7">
-          <div className={`w-1 shrink-0 rounded-full self-stretch min-h-[2.25rem] ${c.bar}`} aria-hidden />
+        <div className="flex gap-1 min-w-0 max-w-full pr-7">
+          <div className={`shrink-0 self-stretch min-h-[1.25rem] ${barCls}`} aria-hidden />
           <div className={`min-w-0 flex-1 rounded-md px-2 py-1 ${c.box}`}>
-            <div className={`text-xs font-semibold leading-tight ${c.name}`}>{label}</div>
-            <div className={`text-[11px] leading-snug mt-0.5 line-clamp-2 break-words ${c.preview}`}>
+            <p className={`text-[11px] leading-tight line-clamp-2 break-words ${c.preview}`}>
               {replyTo.preview || '…'}
-            </div>
+            </p>
           </div>
         </div>
         <button
@@ -913,6 +900,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [cartButtonPosition, setCartButtonPosition] = useState(null);
   const cartButtonRef = useRef(null);
   const cartButtonDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
+  const [supportChatFabPosition, setSupportChatFabPosition] = useState(null);
+  const supportChatFabRef = useRef(null);
+  const supportChatFabDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
+  const [adminInboxFabPosition, setAdminInboxFabPosition] = useState(null);
+  const adminInboxFabRef = useRef(null);
+  const adminInboxFabDragRef = useRef({ didMove: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const fileInputRef = useRef(null);
   const supportAttachmentInputRef = useRef(null);
   const adminSupportAttachmentInputRef = useRef(null);
@@ -2400,6 +2393,112 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       return;
     }
     setCartOpen(true);
+  };
+
+  const handleSupportChatFabDragStart = (e) => {
+    if (e.cancelable) e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    let startLeft = supportChatFabPosition?.x;
+    let startTop = supportChatFabPosition?.y;
+    if (startLeft == null || startTop == null) {
+      const el = supportChatFabRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+        setSupportChatFabPosition({ x: startLeft, y: startTop });
+      } else return;
+    }
+    supportChatFabDragRef.current = { didMove: false, startX: clientX, startY: clientY, startLeft, startTop };
+    const onMove = (ev) => {
+      if (ev.cancelable) ev.preventDefault();
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const { startX, startY, startLeft: sl, startTop: st } = supportChatFabDragRef.current;
+      const dx = cx - startX;
+      const dy = cy - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) supportChatFabDragRef.current.didMove = true;
+      setSupportChatFabPosition(clampCartButtonPosition(sl + dx, st + dy));
+    };
+    const onEnd = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  };
+
+  const handleSupportChatFabClick = () => {
+    if (supportChatFabDragRef.current.didMove) {
+      supportChatFabDragRef.current.didMove = false;
+      return;
+    }
+    setSupportChatOpen((o) => {
+      if (o) {
+        cancelSupportOutbound();
+        setSupportEditingMessageId(null);
+        setSupportDraft('');
+        setSupportPendingImage(null);
+        setSupportReplyTo(null);
+        setSupportMsgActionsMenu(null);
+        setSupportSending(false);
+      }
+      return !o;
+    });
+    setSupportError(null);
+  };
+
+  const handleAdminInboxFabDragStart = (e) => {
+    if (e.cancelable) e.preventDefault();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    let startLeft = adminInboxFabPosition?.x;
+    let startTop = adminInboxFabPosition?.y;
+    if (startLeft == null || startTop == null) {
+      const el = adminInboxFabRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        startLeft = rect.left;
+        startTop = rect.top;
+        setAdminInboxFabPosition({ x: startLeft, y: startTop });
+      } else return;
+    }
+    adminInboxFabDragRef.current = { didMove: false, startX: clientX, startY: clientY, startLeft, startTop };
+    const onMove = (ev) => {
+      if (ev.cancelable) ev.preventDefault();
+      const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const { startX, startY, startLeft: sl, startTop: st } = adminInboxFabDragRef.current;
+      const dx = cx - startX;
+      const dy = cy - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) adminInboxFabDragRef.current.didMove = true;
+      setAdminInboxFabPosition(clampCartButtonPosition(sl + dx, st + dy));
+    };
+    const onEnd = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onEnd);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onEnd);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onEnd);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onEnd);
+  };
+
+  const handleAdminInboxFabClick = () => {
+    if (adminInboxFabDragRef.current.didMove) {
+      adminInboxFabDragRef.current.didMove = false;
+      return;
+    }
+    setAdminSupportModalOpen(true);
+    setAdminSupportPhase('inbox');
+    setSidebarOpen(false);
   };
 
   useEffect(() => {
@@ -7095,14 +7194,39 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           {APP_BRAND_DISPLAY_NAME}
                         </h2>
                         <span
-                          className={`inline-flex h-[1.35rem] w-[1.35rem] shrink-0 items-center justify-center rounded-full shadow-sm ring-2 ${isDark ? 'bg-sky-500 text-white ring-white/25' : 'bg-sky-600 text-white ring-sky-800/20'}`}
+                          className="inline-flex h-[1.35rem] w-[1.35rem] shrink-0 items-center justify-center drop-shadow-sm"
                           title="Verified official support"
                           role="img"
                           aria-label="Verified official"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                            <path d="M20 6 9 17l-5-5" />
-                          </svg>
+                          {isDark ? (
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              className="h-full w-full pointer-events-none select-none"
+                              aria-hidden
+                            >
+                              <path
+                                fill="#38bdf8"
+                                fillRule="evenodd"
+                                d="M8.603 3.799A4.49 4.49 0 0112 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 013.498 1.307 4.491 4.491 0 011.307 3.497A4.49 4.49 0 0121.75 12a4.49 4.49 0 01-1.549 3.397 4.491 4.491 0 01-1.307 3.497 4.491 4.491 0 01-3.497 1.307A4.49 4.49 0 0112 21.75a4.49 4.49 0 01-3.397-1.549 4.491 4.491 0 01-3.497-1.307 4.491 4.491 0 01-1.307-3.497A4.49 4.49 0 012.25 12a4.49 4.49 0 011.549-3.397 4.491 4.491 0 011.307-3.497 4.491 4.491 0 013.497-1.307z"
+                                clipRule="evenodd"
+                              />
+                              <path
+                                fill="#fff"
+                                d="M15.59 9.792a.75.75 0 01.544 1.331l-4.5 4.5a.75.75 0 01-1.212-.192l-1.5-2.25a.75.75 0 111.212-.884l.96 1.44 3.738-3.739a.75.75 0 011.354.588z"
+                              />
+                            </svg>
+                          ) : (
+                            <img
+                              src={`${import.meta.env.BASE_URL}verified-support-badge.png`}
+                              alt=""
+                              width={22}
+                              height={22}
+                              draggable={false}
+                              className="h-full w-full object-contain pointer-events-none select-none"
+                            />
+                          )}
                         </span>
                       </div>
                       <p className={`text-xs font-medium ${isDark ? 'text-white/55' : 'text-slate-500'}`}>Support</p>
@@ -7736,30 +7860,23 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             </div>
           )}
           <button
+            ref={supportChatFabRef}
             type="button"
-            onClick={() => {
-              setSupportChatOpen((o) => {
-                if (o) {
-                  cancelSupportOutbound();
-                  setSupportEditingMessageId(null);
-                  setSupportDraft('');
-                  setSupportPendingImage(null);
-                  setSupportReplyTo(null);
-                  setSupportMsgActionsMenu(null);
-                  setSupportSending(false);
-                }
-                return !o;
-              });
-              setSupportError(null);
-            }}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-pointer"
+            onClick={handleSupportChatFabClick}
+            onMouseDown={handleSupportChatFabDragStart}
+            onTouchStart={handleSupportChatFabDragStart}
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-grab active:cursor-grabbing"
             style={{
               position: 'fixed',
               zIndex: 99999,
-              bottom: 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
-              right: 'max(0.75rem, env(safe-area-inset-right))',
-              left: 'auto',
-              top: 'auto',
+              ...(supportChatFabPosition
+                ? { left: supportChatFabPosition.x, top: supportChatFabPosition.y, right: 'auto', bottom: 'auto' }
+                : {
+                    bottom: 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
+                    right: 'max(0.75rem, env(safe-area-inset-right))',
+                    left: 'auto',
+                    top: 'auto',
+                  }),
             }}
             aria-label="Open support chat"
           >
@@ -8624,23 +8741,26 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             )}
             {!adminSupportModalOpen && (
               <button
+                ref={adminInboxFabRef}
                 type="button"
-                onClick={() => {
-                  setAdminSupportModalOpen(true);
-                  setAdminSupportPhase('inbox');
-                  setSidebarOpen(false);
-                }}
-                className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform relative cursor-pointer ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/15' : 'bg-white text-slate-900'}`}
+                onClick={handleAdminInboxFabClick}
+                onMouseDown={handleAdminInboxFabDragStart}
+                onTouchStart={handleAdminInboxFabDragStart}
+                className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform relative cursor-grab active:cursor-grabbing ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/15' : 'bg-white text-slate-900'}`}
                 style={{
                   position: 'fixed',
                   zIndex: 99999,
-                  bottom:
-                    isSignedIn && !adminRoute && api.getToken()
-                      ? 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 7.5rem)'
-                      : 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
-                  right: 'max(0.75rem, env(safe-area-inset-right))',
-                  left: 'auto',
-                  top: 'auto',
+                  ...(adminInboxFabPosition
+                    ? { left: adminInboxFabPosition.x, top: adminInboxFabPosition.y, right: 'auto', bottom: 'auto' }
+                    : {
+                        bottom:
+                          isSignedIn && !adminRoute && api.getToken()
+                            ? 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 7.5rem)'
+                            : 'calc(max(4rem, env(safe-area-inset-bottom) + 3rem) + 3.75rem)',
+                        right: 'max(0.75rem, env(safe-area-inset-right))',
+                        left: 'auto',
+                        top: 'auto',
+                      }),
                 }}
                 aria-label="Open admin inbox"
                 title="Inbox"
