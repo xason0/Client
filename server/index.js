@@ -1535,6 +1535,9 @@ app.post('/api/support/messages', requireAuth, (req, res) => {
     }
     const t = getSupportThread(db, req.userId, u);
     if (!Array.isArray(t.messages)) t.messages = [];
+    const priorMessages = t.messages;
+    const hasAdminInThread = priorMessages.some((m) => m && m.role === 'admin');
+    const alreadyHasWaitAck = priorMessages.some(isSupportWaitAckMessage);
     const msg = {
       id: randomUUID(),
       role: 'user',
@@ -1542,7 +1545,7 @@ app.post('/api/support/messages', requireAuth, (req, res) => {
       createdAt: new Date().toISOString(),
     };
     if (image) msg.image = image;
-    attachSupportReplyMeta(msg, t.messages, req.body?.replyToMessageId, {
+    attachSupportReplyMeta(msg, priorMessages, req.body?.replyToMessageId, {
       preview: req.body?.replyToPreview,
       role: req.body?.replyToRole,
     });
@@ -1558,7 +1561,7 @@ app.post('/api/support/messages', requireAuth, (req, res) => {
         body: SUPPORT_HUMAN_ACK,
         createdAt: new Date().toISOString(),
       });
-    } else {
+    } else if (!hasAdminInThread && !alreadyHasWaitAck) {
       t.messages.push({
         id: randomUUID(),
         role: 'system',

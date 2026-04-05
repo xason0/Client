@@ -22,6 +22,21 @@ alwaysApply: true
 
 - From the Client repo: `./deploy-vps.sh` pulls **`origin/main`** on the VPS, `npm ci` + `npm run build`, rsyncs `dist/` → `client-dist`, then restarts **`dataplus-api`**. Uncommitted local changes are **not** deployed until pushed to the branch the script uses.
 
+## Rule: sync API on VPS, then restart PM2 (required)
+
+**Whenever** production API behavior is tied to `Client/vps-server.js` (support routes, fixes, parity with `server/index.js`), the live file is **`~/backend/server.js`**, not the repo copy alone. **`deploy-vps.sh` / `deploy-on-vps.sh` do not copy `vps-server.js` into `~/backend` automatically.**
+
+After a VPS deploy or any change that should update the API, run **on the VPS** (or via SSH):
+
+```bash
+cd ~/Client && bash scripts/sync-vps-server-to-backend.sh && (pm2 reload dataplus-api 2>/dev/null || pm2 restart dataplus-api)
+```
+
+- `sync-vps-server-to-backend.sh` backs up `~/backend/server.js`, copies `~/Client/vps-server.js` → `~/backend/server.js`, runs `node --check`.
+- Then reload/restart **`dataplus-api`** so the process picks up the new file.
+
+**Agents:** If you SSH to deploy or fix API drift, treat **sync + PM2 reload** as part of the same workflow—not optional.
+
 ## Support / API parity
 
 - Customer support routes the SPA expects must exist on **`~/backend/server.js`**, not only in `Client/server/index.js`.

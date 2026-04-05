@@ -1566,6 +1566,8 @@ app.post('/api/support/messages', authMiddleware, (req, res) => {
     );
 
     const curBefore = supportLoadMessages(userId);
+    const hasAdminInThread = curBefore.some((m) => m && m.role === 'admin');
+    const alreadyHasWaitAck = curBefore.some(supportMessageIsWaitAckSql);
     const rMeta = supportResolveReplyInsertSql(curBefore, req.body?.replyToMessageId, {
       preview: req.body?.replyToPreview,
       role: req.body?.replyToRole,
@@ -1581,7 +1583,7 @@ app.post('/api/support/messages', authMiddleware, (req, res) => {
     if (requestHuman) {
       db.prepare('UPDATE support_threads SET needs_human = 1 WHERE user_id = ?').run(userId);
       insert.run(randomUUID(), userId, 'system', SUPPORT_HUMAN_ACK, null, null, null, null);
-    } else {
+    } else if (!hasAdminInThread && !alreadyHasWaitAck) {
       insert.run(randomUUID(), userId, 'system', SUPPORT_WAIT_ACK, null, null, null, null);
     }
 
