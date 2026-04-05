@@ -1035,6 +1035,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** { messageId, left, right, top, bottom } from getBoundingClientRect — Edit/Delete popover anchor. */
   const [supportMsgActionsMenu, setSupportMsgActionsMenu] = useState(null);
   const [adminSupportMsgActionsMenu, setAdminSupportMsgActionsMenu] = useState(null);
+  /** In-app delete confirm for support bubbles (replaces window.confirm / iOS system alert). */
+  const [supportDeleteConfirmMessageId, setSupportDeleteConfirmMessageId] = useState(null);
+  const [adminSupportDeleteConfirmMessageId, setAdminSupportDeleteConfirmMessageId] = useState(null);
   const [adminSupportAutoClearBusy, setAdminSupportAutoClearBusy] = useState(false);
   const [adminSupportAutoClearCustomMin, setAdminSupportAutoClearCustomMin] = useState('');
   const [adminSupportAutoClearCustomSec, setAdminSupportAutoClearCustomSec] = useState('');
@@ -1695,12 +1698,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [adminSupportModalOpen]);
 
   useEffect(() => {
-    if (!supportChatOpen) setSupportMsgActionsMenu(null);
+    if (!supportChatOpen) {
+      setSupportMsgActionsMenu(null);
+      setSupportDeleteConfirmMessageId(null);
+    }
   }, [supportChatOpen]);
 
   useEffect(() => {
     if (!adminSupportModalOpen || adminSupportPhase !== 'thread') {
       setAdminSupportMsgActionsMenu(null);
+      setAdminSupportDeleteConfirmMessageId(null);
     }
   }, [adminSupportModalOpen, adminSupportPhase]);
 
@@ -2446,6 +2453,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         setSupportPendingImage(null);
         setSupportReplyTo(null);
         setSupportMsgActionsMenu(null);
+        setSupportDeleteConfirmMessageId(null);
         setSupportSending(false);
       }
       return !o;
@@ -7916,27 +7924,81 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               }}
               onDelete={() => {
                 const mid = supportMsgActionsMenu.messageId;
-                if (supportSending || !window.confirm('Delete this message?')) return;
-                const clearComposer = String(supportEditingMessageId) === String(mid);
-                setSupportSending(true);
-                setSupportError(null);
-                api
-                  .deleteSupportMessage(mid)
-                  .then((d) => {
-                    const inc = Array.isArray(d.messages) ? d.messages : [];
-                    setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
-                    setSupportNeedsHuman(!!d.needsHuman);
-                    setSupportEditingMessageId((prev) => (String(prev) === String(mid) ? null : prev));
-                    if (clearComposer) {
-                      setSupportDraft('');
-                      setSupportPendingImage(null);
-                    }
-                    setSupportMsgActionsMenu(null);
-                  })
-                  .catch((err) => setSupportError(err?.message || 'Delete failed'))
-                  .finally(() => setSupportSending(false));
+                if (supportSending) return;
+                setSupportDeleteConfirmMessageId(mid);
+                setSupportMsgActionsMenu(null);
               }}
             />
+          ) : null}
+          {supportDeleteConfirmMessageId && supportChatOpen ? (
+            <div
+              className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="support-delete-msg-title"
+            >
+              <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={() => {
+                  if (!supportSending) setSupportDeleteConfirmMessageId(null);
+                }}
+                aria-hidden="true"
+              />
+              <div
+                className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 border ${isDark ? 'bg-zinc-950 border-white/15' : 'bg-white border-slate-200'}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3
+                  id="support-delete-msg-title"
+                  className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                >
+                  Delete this message?
+                </h3>
+                <p className={`text-sm mb-6 leading-relaxed ${isDark ? 'text-white/75' : 'text-slate-600'}`}>
+                  This removes the message from the chat. You can’t undo this.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    disabled={supportSending}
+                    onClick={() => setSupportDeleteConfirmMessageId(null)}
+                    className={`flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-white/10 text-white hover:bg-white/20 border border-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200'}`}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={supportSending}
+                    onClick={() => {
+                      const mid = supportDeleteConfirmMessageId;
+                      if (!mid || supportSending) return;
+                      const clearComposer = String(supportEditingMessageId) === String(mid);
+                      setSupportSending(true);
+                      setSupportError(null);
+                      setSupportDeleteConfirmMessageId(null);
+                      api
+                        .deleteSupportMessage(mid)
+                        .then((d) => {
+                          const inc = Array.isArray(d.messages) ? d.messages : [];
+                          setSupportMessages((prev) => mergeSupportReplyMetaFromPrev(prev, inc));
+                          setSupportNeedsHuman(!!d.needsHuman);
+                          setSupportEditingMessageId((prev) => (String(prev) === String(mid) ? null : prev));
+                          if (clearComposer) {
+                            setSupportDraft('');
+                            setSupportPendingImage(null);
+                          }
+                          setSupportMsgActionsMenu(null);
+                        })
+                        .catch((err) => setSupportError(err?.message || 'Delete failed'))
+                        .finally(() => setSupportSending(false));
+                    }}
+                    className="flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-60 bg-red-600 text-white hover:bg-red-500 border border-red-500/80"
+                  >
+                    {supportSending ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : null}
         </>,
         document.body
@@ -8817,33 +8879,90 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 }}
                 onDelete={() => {
                   const mid = adminSupportMsgActionsMenu.messageId;
-                  const uid = adminSupportSelectedUserId;
-                  if (adminSupportReplySending || !window.confirm('Delete this message?')) return;
-                  const clearComposer = String(adminSupportEditingMessageId) === String(mid);
-                  setAdminSupportReplySending(true);
-                  setAdminSupportError(null);
-                  api
-                    .deleteAdminSupportMessage(uid, mid)
-                    .then(async (d) => {
-                      const inc = Array.isArray(d.messages) ? d.messages : [];
-                      setAdminSupportThreadMessages((prev) =>
-                        mergeSupportReplyMetaFromPrev(prev, inc),
-                      );
-                      setAdminSupportEditingMessageId((prev) =>
-                        String(prev) === String(mid) ? null : prev,
-                      );
-                      if (clearComposer) {
-                        setAdminSupportReplyDraft('');
-                        setAdminSupportPendingImage(null);
-                      }
-                      const list = await api.getAdminSupportInbox();
-                      setAdminSupportInbox(Array.isArray(list) ? list : []);
-                      setAdminSupportMsgActionsMenu(null);
-                    })
-                    .catch((err) => setAdminSupportError(err?.message || 'Delete failed'))
-                    .finally(() => setAdminSupportReplySending(false));
+                  if (adminSupportReplySending) return;
+                  setAdminSupportDeleteConfirmMessageId(mid);
+                  setAdminSupportMsgActionsMenu(null);
                 }}
               />
+            ) : null}
+            {adminSupportDeleteConfirmMessageId &&
+            adminSupportModalOpen &&
+            adminSupportPhase === 'thread' &&
+            adminSupportSelectedUserId ? (
+              <div
+                className="fixed inset-0 z-[100000] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="admin-support-delete-msg-title"
+              >
+                <div
+                  className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                  onClick={() => {
+                    if (!adminSupportReplySending) setAdminSupportDeleteConfirmMessageId(null);
+                  }}
+                  aria-hidden="true"
+                />
+                <div
+                  className={`relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl p-5 sm:p-6 border ${isDark ? 'bg-zinc-950 border-white/15' : 'bg-white border-slate-200'}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3
+                    id="admin-support-delete-msg-title"
+                    className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                  >
+                    Delete this message?
+                  </h3>
+                  <p className={`text-sm mb-6 leading-relaxed ${isDark ? 'text-white/75' : 'text-slate-600'}`}>
+                    This removes the message from the customer’s thread. You can’t undo this.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      disabled={adminSupportReplySending}
+                      onClick={() => setAdminSupportDeleteConfirmMessageId(null)}
+                      className={`flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-50 ${isDark ? 'bg-white/10 text-white hover:bg-white/20 border border-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200'}`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={adminSupportReplySending}
+                      onClick={() => {
+                        const mid = adminSupportDeleteConfirmMessageId;
+                        const uid = adminSupportSelectedUserId;
+                        if (!mid || !uid || adminSupportReplySending) return;
+                        const clearComposer = String(adminSupportEditingMessageId) === String(mid);
+                        setAdminSupportReplySending(true);
+                        setAdminSupportError(null);
+                        setAdminSupportDeleteConfirmMessageId(null);
+                        api
+                          .deleteAdminSupportMessage(uid, mid)
+                          .then(async (d) => {
+                            const inc = Array.isArray(d.messages) ? d.messages : [];
+                            setAdminSupportThreadMessages((prev) =>
+                              mergeSupportReplyMetaFromPrev(prev, inc),
+                            );
+                            setAdminSupportEditingMessageId((prev) =>
+                              String(prev) === String(mid) ? null : prev,
+                            );
+                            if (clearComposer) {
+                              setAdminSupportReplyDraft('');
+                              setAdminSupportPendingImage(null);
+                            }
+                            const list = await api.getAdminSupportInbox();
+                            setAdminSupportInbox(Array.isArray(list) ? list : []);
+                            setAdminSupportMsgActionsMenu(null);
+                          })
+                          .catch((err) => setAdminSupportError(err?.message || 'Delete failed'))
+                          .finally(() => setAdminSupportReplySending(false));
+                      }}
+                      className="flex-1 py-2.5 rounded-xl font-semibold transition-colors disabled:opacity-60 bg-red-600 text-white hover:bg-red-500 border border-red-500/80"
+                    >
+                      {adminSupportReplySending ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : null}
           </>,
           document.body
