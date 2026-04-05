@@ -2843,6 +2843,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         <path d="M18 6L6 18M6 6l12 12" />
       </svg>
     ),
+    RefreshCw: (props) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+        <path d="M21 3v5h-5" />
+        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+        <path d="M3 21v-5h5" />
+      </svg>
+    ),
     Trash: (props) => (
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={props.stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
         <polyline points="3 6 5 6 21 6" />
@@ -7988,9 +7996,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                 .catch(() => {})
                                 .finally(() => setAdminSupportLoading(false));
                             }}
-                            className={`text-xs font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${isDark ? 'text-white/80 hover:bg-white/10 border border-white/10' : 'text-slate-700 hover:bg-slate-100 border border-slate-200'}`}
+                            className={`p-2 rounded-lg shrink-0 transition-colors disabled:opacity-50 border ${isDark ? 'text-white/80 hover:bg-white/10 border-white/10' : 'text-slate-700 hover:bg-slate-100 border-slate-200'}`}
+                            aria-label="Refresh inbox"
+                            title="Refresh"
                           >
-                            Refresh
+                            <Svg.RefreshCw
+                              stroke={stroke}
+                              width={18}
+                              height={18}
+                              className={`pointer-events-none ${adminSupportLoading ? 'animate-spin' : ''}`}
+                              aria-hidden
+                            />
                           </button>
                           <button
                             type="button"
