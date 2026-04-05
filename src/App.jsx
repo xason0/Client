@@ -8024,14 +8024,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   aria-hidden="true"
                 />
                 <div
-                  className={`relative w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[min(640px,90vh)] ${isDark ? 'bg-black border border-white/10' : 'bg-slate-50 border border-slate-200'}`}
+                  className={`relative w-full max-w-md rounded-2xl shadow-2xl flex flex-col min-h-0 max-h-[min(640px,min(90dvh,90vh))] overflow-hidden ${isDark ? 'bg-black border border-white/10' : 'bg-slate-50 border border-slate-200'}`}
                   role="dialog"
                   aria-labelledby="admin-inbox-title"
                   aria-label="Admin support inbox"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {adminSupportPhase === 'inbox' ? (
-                    <>
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl">
                       <div className={`flex items-center justify-between gap-2 p-4 border-b shrink-0 rounded-t-2xl ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
                         <div className="min-w-0 flex-1">
                           <h2
@@ -8091,7 +8091,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           {adminSupportError}
                         </div>
                       ) : null}
-                      <div className={`flex-1 overflow-y-auto p-2 min-h-[200px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                      <div
+                        className={`min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-2 [-webkit-overflow-scrolling:touch] ${isDark ? 'text-white/90' : 'text-slate-800'}`}
+                      >
                         {adminSupportLoading && adminSupportInbox.length === 0 ? (
                           <p className={`px-3 py-8 text-center text-sm ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Loading…</p>
                         ) : adminSupportInbox.length === 0 ? (
@@ -8168,7 +8170,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           })
                         )}
                       </div>
-                    </>
+                    </div>
                   ) : adminSupportPhase === 'thread' && adminSupportSelectedUserId ? (
                     <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl">
                       <div className={`flex items-start justify-between gap-2 p-3 border-b shrink-0 ${isDark ? 'border-white/10' : 'border-slate-200'}`}>
@@ -8337,7 +8339,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           {adminSupportError}
                         </div>
                       ) : null}
-                      <div className={`flex-1 overflow-y-auto p-3 space-y-3 min-h-[140px] max-h-[min(42vh,340px)] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
+                      <div
+                        className={`min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-3 space-y-3 [-webkit-overflow-scrolling:touch] ${isDark ? 'text-white/90' : 'text-slate-800'}`}
+                      >
                         {adminSupportMessagesUi.map((m) => {
                           const isUser = m.role === 'user';
                           const isAdm = m.role === 'admin';
