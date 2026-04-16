@@ -25,6 +25,9 @@ function profileImageStorageKey(userId) {
 
 const BROADCAST_DISMISS_KEY = 'dataplus_broadcast_dismissed';
 
+/** First-visit hint for support chat UI (customer-facing, support tone). Bump suffix to show again. */
+const SUPPORT_CHAT_INTRO_SEEN_KEY = 'dataplus_support_chat_intro_seen_v3';
+
 /** Double-tap / double-click window for opening support message actions (ms). */
 const SUPPORT_MSG_ACTION_DBL_MS = 320;
 
@@ -1038,6 +1041,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** In-app delete confirm for support bubbles (replaces window.confirm / iOS system alert). */
   const [supportDeleteConfirmMessageId, setSupportDeleteConfirmMessageId] = useState(null);
   const [adminSupportDeleteConfirmMessageId, setAdminSupportDeleteConfirmMessageId] = useState(null);
+  /** One-time “support is in the corner” card for first visits (non-admin). */
+  const [supportChatIntroOpen, setSupportChatIntroOpen] = useState(false);
   const [adminSupportAutoClearBusy, setAdminSupportAutoClearBusy] = useState(false);
   const [adminSupportAutoClearCustomMin, setAdminSupportAutoClearCustomMin] = useState('');
   const [adminSupportAutoClearCustomSec, setAdminSupportAutoClearCustomSec] = useState('');
@@ -1393,7 +1398,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         if (raw.length > 13) return Math.floor(asNum / (10 ** (raw.length - 13)));
       }
     }
-    const parsed = Date.parse(raw);
+    // SQLite datetime('now'): "YYYY-MM-DD HH:mm:ss" — not reliably parsed in all engines
+    let normalized = raw;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(raw)) {
+      normalized = raw.replace(' ', 'T');
+    }
+    const parsed = Date.parse(normalized);
     return Number.isFinite(parsed) ? parsed : NaN;
   };
 
@@ -1696,6 +1706,27 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       }
     } catch (_) {}
   }, [adminSupportModalOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || adminRoute || !isSignedIn || !token) {
+      setSupportChatIntroOpen(false);
+      return;
+    }
+    if (!user) return;
+    try {
+      if (localStorage.getItem(SUPPORT_CHAT_INTRO_SEEN_KEY) === '1') {
+        setSupportChatIntroOpen(false);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    if (broadcastModalOpen) {
+      setSupportChatIntroOpen(false);
+      return;
+    }
+    setSupportChatIntroOpen(true);
+  }, [adminRoute, isSignedIn, token, user, broadcastModalOpen]);
 
   useEffect(() => {
     if (!supportChatOpen) {
@@ -2014,6 +2045,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return `ORD-${stableOrderCodeSuffix(order?.id, fallbackCreatedAt || order?.created_at || order?.createdAt)}`;
   };
   const normalizeAdminOrderRow = (o) => {
+    const canonicalCreatedIso = getOrderCreatedAtIso(o);
     const netKey = o.network;
     const net = networkLabel(typeof netKey === 'string' && netKey.length <= 24 ? netKey.toLowerCase() : 'mtn');
     const bundle = (o.bundle_size || o.bundle || o.data_bundle || o.plan || '').toString().trim() || '—';
@@ -2026,7 +2058,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       o.recipient ||
       ''
     ).toString();
-    const orderIdDisplay = formatOrderDisplayId(o, o.created_at);
+    const orderIdDisplay = formatOrderDisplayId(o, canonicalCreatedIso || o.created_at);
     const ref =
       o.reference ||
       o.payment_reference ||
@@ -2034,7 +2066,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       o.transaction_reference ||
       o.pay_ref ||
       (() => {
-        const t = o.created_at ? Date.parse(o.created_at) : Date.now();
+        const ms = parseTimestampMs(canonicalCreatedIso || o.created_at);
+        const t = Number.isFinite(ms) ? ms : Date.now();
         const tail = String(o.id ?? '').replace(/\D/g, '').slice(-6) || String(Math.abs((t % 1e9) | 0)).padStart(6, '0');
         return `${t}${tail}`.replace(/\D/g, '').slice(0, 17);
       })();
@@ -2055,6 +2088,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     const amount = Number.isFinite(numPrice) ? numPrice.toFixed(2) : String(rawPrice ?? '0');
     const st = (o.status && String(o.status).toLowerCase()) || 'processing';
     const statusLabel = st === 'completed' ? 'Completed' : st === 'failed' || st === 'cancelled' ? 'Failed' : 'Processing';
+    let placedAtDate = '—';
+    let placedAtTime = '—';
+    if (canonicalCreatedIso) {
+      const d = new Date(canonicalCreatedIso);
+      if (!Number.isNaN(d.getTime())) {
+        placedAtDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        placedAtTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      }
+    }
     return {
       id: o.id,
       key: String(o.id ?? ref),
@@ -2068,7 +2110,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       recipient,
       amount,
       statusLabel,
-      dateIso: o.created_at,
+      dateIso: canonicalCreatedIso,
+      placedAtDate,
+      placedAtTime,
     };
   };
   const normalizeAdminTxRow = (t, idx) => {
@@ -2439,6 +2483,36 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     document.addEventListener('touchmove', onMove, { passive: false });
     document.addEventListener('touchend', onEnd);
   };
+
+  const dismissSupportChatIntro = useCallback(() => {
+    try {
+      localStorage.setItem(SUPPORT_CHAT_INTRO_SEEN_KEY, '1');
+    } catch (_) {}
+    setSupportChatIntroOpen(false);
+  }, []);
+
+  const openSupportFromIntro = useCallback(() => {
+    dismissSupportChatIntro();
+    setSupportError(null);
+    setSupportChatOpen(true);
+  }, [dismissSupportChatIntro]);
+
+  useEffect(() => {
+    if (adminRoute) setSupportChatIntroOpen(false);
+  }, [adminRoute]);
+
+  useEffect(() => {
+    if (supportChatOpen) dismissSupportChatIntro();
+  }, [supportChatOpen, dismissSupportChatIntro]);
+
+  useEffect(() => {
+    if (!supportChatIntroOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') dismissSupportChatIntro();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [supportChatIntroOpen, dismissSupportChatIntro]);
 
   const handleSupportChatFabClick = () => {
     if (supportChatFabDragRef.current.didMove) {
@@ -3113,6 +3187,110 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           100% { transform: translate3d(0, 0, 0); }
         }
       `}</style>
+
+      {typeof document !== 'undefined' &&
+        isSignedIn &&
+        token &&
+        !adminRoute &&
+        supportChatIntroOpen &&
+        createPortal(
+          <>
+            <div
+              className={`fixed inset-0 z-[99986] backdrop-blur-sm motion-safe:transition-opacity ${isDark ? 'bg-black/25' : 'bg-slate-900/15'}`}
+              aria-hidden="true"
+              onClick={dismissSupportChatIntro}
+              role="presentation"
+            />
+            <div
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-[99990] flex justify-center p-4 md:justify-end md:p-6"
+              style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+            >
+              <div
+                className="pointer-events-auto relative w-full max-w-[min(100%,22rem)] md:max-w-[24rem]"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="support-chat-intro-title"
+                aria-describedby="support-chat-intro-body"
+              >
+                <div
+                  className={`pointer-events-none absolute -inset-3 -z-10 rounded-[2.75rem] opacity-50 blur-2xl ${isDark ? 'bg-sky-400/25' : 'bg-sky-400/40'}`}
+                  aria-hidden
+                />
+                <div
+                  className={`relative border shadow-2xl backdrop-blur-xl
+                    rounded-tl-[2.25rem] rounded-tr-[1.35rem] rounded-br-[0.85rem] rounded-bl-[2.1rem]
+                    ${isDark
+                      ? 'border-white/20 bg-gradient-to-br from-zinc-900/88 via-zinc-950/82 to-zinc-950/78'
+                      : 'border-white/75 bg-gradient-to-br from-white/78 via-white/62 to-sky-50/45'}`}
+                >
+                  <div
+                    className={`pointer-events-none absolute -bottom-2 right-11 z-0 h-6 w-6 rotate-45 rounded-[3px] border-r border-b shadow-md backdrop-blur-xl
+                      ${isDark ? 'border-white/20 bg-zinc-950/92' : 'border-white/75 bg-white/78'}`}
+                    aria-hidden
+                  />
+                  <div className="relative z-[1] px-4 pb-4 pt-3.5">
+                    <div className="flex items-start gap-3">
+                      <SupportInboxAvatar
+                        src={brandLogoUrl}
+                        initial={supportInboxAvatarInitial(APP_BRAND_DISPLAY_NAME, 'Support')}
+                        isDark={isDark}
+                        className="h-11 w-11 shrink-0 ring-2 ring-white/25 dark:ring-white/10"
+                      />
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p
+                              id="support-chat-intro-title"
+                              className={`text-sm font-semibold leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}
+                            >
+                              {APP_BRAND_DISPLAY_NAME} Support
+                            </p>
+                            <p className={`mt-0.5 text-[11px] font-medium ${isDark ? 'text-sky-300/95' : 'text-sky-600'}`}>
+                              New — live chat for help
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={dismissSupportChatIntro}
+                            className={`shrink-0 rounded-full p-2 transition-colors ${isDark ? 'text-white/65 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-900/[0.06]'}`}
+                            aria-label="Dismiss"
+                          >
+                            <Svg.Close stroke={stroke} width={18} height={18} />
+                          </button>
+                        </div>
+                        <p
+                          id="support-chat-intro-body"
+                          className={`mt-3 text-sm leading-relaxed ${isDark ? 'text-white/88' : 'text-slate-700'}`}
+                        >
+                          We have added <span className="font-semibold">in-app support chat</span> so you can reach us
+                          faster. Tap the highlighted <span className="font-semibold">message</span> bubble in the
+                          corner — same spot for orders, bundles, or to request a human.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={openSupportFromIntro}
+                            className={`min-h-[44px] flex-1 rounded-full px-5 py-2.5 text-sm font-semibold shadow-md transition-transform active:scale-[0.98] ${isDark ? 'bg-white text-black hover:bg-white/92' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                          >
+                            Open support chat
+                          </button>
+                          <button
+                            type="button"
+                            onClick={dismissSupportChatIntro}
+                            className={`min-h-[44px] rounded-full px-5 py-2.5 text-sm font-semibold transition-colors ${isDark ? 'bg-white/10 text-white/90 ring-1 ring-white/15 hover:bg-white/15' : 'bg-white/80 text-slate-800 ring-1 ring-slate-200/80 hover:bg-white'}`}
+                          >
+                            Not now
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
 
       {adminRoute && !adminPinVerified && !(isSignedIn && user?.role === 'admin') ? (
         <div className="flex-1 flex flex-col w-full min-h-full items-center justify-center p-6" style={{ minHeight: '100dvh' }}>
@@ -5025,7 +5203,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         const q = (adminOrdersSearch || '').trim().toLowerCase();
                         const rows = (adminOrders || []).map(normalizeAdminOrderRow);
                         const filtered = !q ? rows : rows.filter((r) => {
-                          const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel].join(' ').toLowerCase();
+                          const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel, r.placedAtDate, r.placedAtTime, r.dateIso || ''].join(' ').toLowerCase();
                           return blob.includes(q);
                         });
                         return filtered.length;
@@ -5039,7 +5217,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     const q = (adminOrdersSearch || '').trim().toLowerCase();
                     const rows = (adminOrders || []).map(normalizeAdminOrderRow);
                     const filtered = !q ? rows : rows.filter((r) => {
-                      const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel].join(' ').toLowerCase();
+                      const blob = [r.orderIdDisplay, r.reference, r.recipient, r.customer, r.customerSub, r.packageTitle, r.packageSub, r.packageFull, r.amount, r.statusLabel, r.placedAtDate, r.placedAtTime, r.dateIso || ''].join(' ').toLowerCase();
                       return blob.includes(q);
                     });
                     if (filtered.length === 0) {
@@ -5050,7 +5228,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           </p>
                           <p className="text-xs leading-relaxed">
                             {adminOrders.length === 0 && !adminOrdersError
-                              ? 'After customers pay from wallet checkout, each order will list here with order ID, reference, name, package, phone, amount, and status.'
+                              ? 'After customers pay from wallet checkout, each order will list here with order ID, reference, date and time placed, name, package, phone, amount, and status.'
                               : 'Try another search term.'}
                           </p>
                         </div>
@@ -5071,10 +5249,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     return (
                       <>
                         <div className="hidden md:block overflow-x-auto max-h-[min(85vh,1200px)] overflow-y-auto">
-                          <table className="w-full text-left text-sm min-w-[920px]">
+                          <table className="w-full text-left text-sm min-w-[1040px]">
                             <thead className={`sticky top-0 z-[1] ${isDark ? 'bg-zinc-900/95 border-b border-white/10' : 'bg-slate-100 border-b border-slate-200'}`}>
                               <tr>
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Order ID</th>
+                                <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Placed</th>
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Reference</th>
                                 <th className={`px-4 py-3 font-semibold whitespace-nowrap ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Customer</th>
                                 <th className={`px-4 py-3 font-semibold min-w-[180px] ${isDark ? 'text-white/90' : 'text-slate-800'}`}>Package</th>
@@ -5088,6 +5267,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               {filtered.map((row) => (
                                 <tr key={row.key} className={isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}>
                                   <td className={`px-4 py-3.5 font-semibold align-top ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.orderIdDisplay}</td>
+                                  <td className={`px-4 py-3.5 align-top whitespace-nowrap ${isDark ? 'text-white/85' : 'text-slate-800'}`}>
+                                    <span className="font-medium block">{row.placedAtDate}</span>
+                                    <span className={`text-xs block mt-0.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.placedAtTime}</span>
+                                  </td>
                                   <td className={`px-4 py-3.5 font-mono text-xs align-top break-all max-w-[140px] ${isDark ? 'text-white/70' : 'text-slate-700'}`}>{row.reference}</td>
                                   <td className={`px-4 py-3.5 align-top ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                     <span className="font-medium block">{row.customer}</span>
@@ -5172,6 +5355,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <p className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.orderIdDisplay}</p>
                                 </div>
                                 {statusPill(row)}
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Placed</p>
+                                <p className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{row.placedAtDate}</p>
+                                <p className={`text-xs mt-0.5 ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{row.placedAtTime}</p>
                               </div>
                               <div>
                                 <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDark ? 'text-white/45' : 'text-slate-500'}`}>Reference</p>
@@ -7881,10 +8069,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             onClick={handleSupportChatFabClick}
             onMouseDown={handleSupportChatFabDragStart}
             onTouchStart={handleSupportChatFabDragStart}
-            className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-grab active:cursor-grabbing"
+            className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-all relative cursor-grab active:cursor-grabbing ${supportChatIntroOpen ? `ring-4 ring-sky-500 ring-offset-2 scale-110 shadow-lg ${isDark ? 'ring-offset-zinc-950' : 'ring-offset-slate-50'}` : ''}`}
             style={{
               position: 'fixed',
-              zIndex: 99999,
+              zIndex: supportChatIntroOpen ? 100000 : 99999,
               ...(supportChatFabPosition
                 ? { left: supportChatFabPosition.x, top: supportChatFabPosition.y, right: 'auto', bottom: 'auto' }
                 : {
@@ -8831,7 +9019,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center hover:scale-110 active:scale-95 transition-transform relative cursor-grab active:cursor-grabbing ${isDark ? 'bg-zinc-800 text-white ring-1 ring-white/15' : 'bg-white text-slate-900'}`}
                 style={{
                   position: 'fixed',
-                  zIndex: 99999,
+                  zIndex: supportChatIntroOpen ? 99984 : 99999,
                   ...(adminInboxFabPosition
                     ? { left: adminInboxFabPosition.x, top: adminInboxFabPosition.y, right: 'auto', bottom: 'auto' }
                     : {
@@ -8983,7 +9171,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white text-slate-900 shadow-xl flex items-center justify-center hover:scale-110 transition-transform relative cursor-grab active:cursor-grabbing"
           style={{
             position: 'fixed',
-            zIndex: 99998,
+            zIndex: supportChatIntroOpen ? 99984 : 99998,
             ...(cartButtonPosition
               ? { left: cartButtonPosition.x, top: cartButtonPosition.y, right: 'auto', bottom: 'auto' }
               : { bottom: 'max(4rem, calc(env(safe-area-inset-bottom) + 3rem))', right: 'max(0.75rem, env(safe-area-inset-right))', left: 'auto', top: 'auto' }

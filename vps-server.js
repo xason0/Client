@@ -243,12 +243,17 @@ function adminAuthMiddleware(req, res, next) {
 // ---- Auth ----
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, fullName } = req.body;
+    const { email, password, fullName, phone } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    const phoneRaw = typeof phone === 'string' ? phone.trim() : '';
+    const phoneDigits = phoneRaw.replace(/\D/g, '');
+    if (!phoneRaw || phoneDigits.length < 8) {
+      return res.status(400).json({ error: 'Please enter a valid phone number (at least 8 digits).' });
     }
     const em = email.trim().toLowerCase();
     const banned = db.prepare('SELECT id FROM users WHERE email = ? AND deleted_at IS NOT NULL').get(em);
@@ -259,15 +264,22 @@ app.post('/api/auth/register', async (req, res) => {
     if (existing) {
       return res.status(400).json({ error: 'Email already registered' });
     }
+    const phoneRows = db.prepare('SELECT phone FROM users WHERE phone IS NOT NULL AND trim(phone) != ?').all('');
+    for (const row of phoneRows) {
+      const d = String(row.phone || '').replace(/\D/g, '');
+      if (d.length >= 8 && d === phoneDigits) {
+        return res.status(400).json({ error: 'Phone number already registered' });
+      }
+    }
     const hash = await bcrypt.hash(password, 10);
     const result = db.prepare(
-      "INSERT INTO users (email, password_hash, full_name, created_at) VALUES (?, ?, ?, datetime('now'))"
-    ).run(em, hash, (fullName || '').trim() || null);
+      "INSERT INTO users (email, password_hash, full_name, phone, created_at) VALUES (?, ?, ?, ?, datetime('now'))"
+    ).run(em, hash, (fullName || '').trim() || null, phoneRaw);
     const userId = result.lastInsertRowid;
     db.prepare('INSERT OR IGNORE INTO wallets (user_id, balance) VALUES (?, 0)').run(userId);
     const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
-    const user = db.prepare('SELECT id, email, full_name, created_at FROM users WHERE id = ?').get(userId);
-    return res.json({ token, user });
+    const user = db.prepare('SELECT id, email, full_name, phone, role, created_at FROM users WHERE id = ?').get(userId);
+    return res.json({ token, user: { ...user, role: user?.role || 'user' } });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Registration failed' });
@@ -279,7 +291,9 @@ app.post('/api/auth/login', (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
-  const user = db.prepare('SELECT id, email, full_name, password_hash, created_at, deleted_at FROM users WHERE email = ?').get(email.trim().toLowerCase());
+  const user = db
+    .prepare('SELECT id, email, full_name, phone, role, password_hash, created_at, deleted_at FROM users WHERE email = ?')
+    .get(email.trim().toLowerCase());
   if (user && user.deleted_at) {
     return res.status(403).json({ error: 'Account deleted or banned. Contact support.' });
   }
@@ -291,8 +305,18 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
-  const role = db.prepare('SELECT role FROM users WHERE id = ?').get(user.id)?.role || 'user';
-  return res.json({ token, user: { id: user.id, email: user.email, full_name: user.full_name, created_at: user.created_at || null, role } });
+  const role = user.role || 'user';
+  return res.json({
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone ?? null,
+      created_at: user.created_at || null,
+      role,
+    },
+  });
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
