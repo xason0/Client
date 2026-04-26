@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useReducer } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useReducer, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
@@ -15,16 +15,128 @@ import {
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 10;
 
-/** Store dashboard → Settings: theme options for card style (digi-mall style). */
+/** Store dashboard → Settings: look for package cards on the public storefront. */
 const STORE_THEME_OPTIONS = [
-  { id: 'default', label: 'Default', desc: 'Clean, simple cards' },
-  { id: 'gradient', label: 'Gradient', desc: 'Smooth color gradients' },
-  { id: 'glass', label: 'Glass', desc: 'Glassmorphism effect' },
-  { id: 'neon', label: 'Neon', desc: 'Glowing neon borders' },
-  { id: 'minimal', label: 'Minimal', desc: 'Ultra clean design' },
-  { id: 'bold', label: 'Bold', desc: 'Strong colors & shadows' },
+  { id: 'default', label: 'Classic', desc: 'Clear cards with your accent' },
+  { id: 'gradient', label: 'Vivid', desc: 'Rich fill using your color' },
+  { id: 'glass', label: 'Frosted', desc: 'Soft, layered look' },
+  { id: 'neon', label: 'Bright edge', desc: 'Highlighted outline' },
+  { id: 'minimal', label: 'Simple', desc: 'Minimal lines' },
+  { id: 'bold', label: 'Strong', desc: 'Bold border and text' },
 ];
+const DEFAULT_STORE_ACCENT = '#0ea5e9';
+const STORE_ACCENT_PRESETS = [
+  '#0ea5e9',
+  '#8b5cf6',
+  '#ec4899',
+  '#f59e0b',
+  '#10b981',
+  '#6366f1',
+  '#f97316',
+  '#64748b',
+];
+function clampStoreAccentHex(s) {
+  if (typeof s === 'string' && /^#[0-9A-Fa-f]{6}$/.test(s)) return s;
+  return DEFAULT_STORE_ACCENT;
+}
 const MAX_STORE_LOGO_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Store → Settings: circular logo preview. Disc is a single def’d `<circle>` re-used via
+ * `<use href=… />` (SVG’s native instancing) — gradient on `<use>`, or ring-only clone over photo.
+ */
+function StoreSettingsLogoPreviewSvg({ logoDataUrl, accentColor, idBase }) {
+  const ac = clampStoreAccentHex(accentColor);
+  const gid = `splg-${idBase}`;
+  const did = `spld-${idBase}`;
+  const cid = `splc-${idBase}`;
+  const hid = `splh-${idBase}`;
+  const fid = `splf-${idBase}`;
+  return (
+    <svg
+      className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 block transition duration-200 active:scale-[0.99]"
+      viewBox="0 0 112 112"
+      aria-hidden
+    >
+      <defs>
+        <radialGradient id={gid} cx="32%" cy="28%" r="75%" gradientUnits="objectBoundingBox">
+          <stop offset="0%" stopColor={ac} />
+          <stop offset="65%" stopColor={ac} />
+          <stop offset="100%" stopColor="#0f172a" />
+        </radialGradient>
+        <filter id={fid} x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor={ac} floodOpacity="0.45" />
+        </filter>
+        {/** Reusable 100px disc: drawn via `<use href=…/>` (SVG `use` instance) */}
+        <circle id={did} cx="56" cy="56" r="50" fill="none" />
+        {logoDataUrl ? (
+          <clipPath id={cid}>
+            <circle cx="56" cy="56" r="50" />
+          </clipPath>
+        ) : null}
+        {/** Home icon template for store placeholder */}
+        <symbol id={hid} viewBox="0 0 24 24">
+          <path
+            d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.35"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9 22V12h6v10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.35"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </symbol>
+      </defs>
+      <g filter={`url(#${fid})`}>
+        {logoDataUrl ? (
+          <>
+            <image
+              href={logoDataUrl}
+              x="6"
+              y="6"
+              width="100"
+              height="100"
+              clipPath={`url(#${cid})`}
+              preserveAspectRatio="xMidYMid slice"
+            />
+            <use
+              href={`#${did}`}
+              fill="none"
+              stroke="white"
+              strokeWidth="3.5"
+              strokeOpacity="0.95"
+            />
+          </>
+        ) : (
+          <>
+            <use
+              href={`#${did}`}
+              fill={`url(#${gid})`}
+              stroke="white"
+              strokeWidth="3.5"
+              strokeOpacity="0.95"
+            />
+            <use
+              href={`#${hid}`}
+              x="32"
+              y="32"
+              width="48"
+              height="48"
+              className="text-white"
+            />
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
 
 /**
  * Origin used for "Your store link" copy and share URL. Set at build time:
@@ -1075,6 +1187,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     const defaults = {
       logoDataUrl: null,
       theme: 'default',
+      accentColor: DEFAULT_STORE_ACCENT,
       storeName: '',
       storeDescription: '',
       whatsapp: '',
@@ -1091,6 +1204,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         return {
           logoDataUrl: typeof p.logoDataUrl === 'string' && p.logoDataUrl ? p.logoDataUrl : null,
           theme: typeof p.theme === 'string' && STORE_THEME_OPTIONS.some((t) => t.id === p.theme) ? p.theme : 'default',
+          accentColor: clampStoreAccentHex(p.accentColor),
           storeName: typeof p.storeName === 'string' ? p.storeName.slice(0, 100) : defaults.storeName,
           storeDescription: typeof p.storeDescription === 'string' ? p.storeDescription.slice(0, 500) : defaults.storeDescription,
           whatsapp: typeof p.whatsapp === 'string' ? p.whatsapp : defaults.whatsapp,
@@ -1107,6 +1221,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [storeDisplaySettings, setStoreDisplaySettings] = useState(() => loadStoreDisplaySettings());
   const [storeSettingsMessage, setStoreSettingsMessage] = useState(null);
   const [storeLogoError, setStoreLogoError] = useState(null);
+  const storeLookPreviewId = useId().replace(/:/g, '');
   const storeLogoInputRef = useRef(null);
   const storeApiSyncTimerRef = useRef(null);
   const storePricingLocalPersistTimerRef = useRef(null);
@@ -3123,11 +3238,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (typeof window === 'undefined' || !effectiveStorePathSlug) return;
     try {
       const ownerName =
-        (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
-        (user?.full_name && String(user.full_name).trim()) ||
-        (user?.name && String(user.name).trim()) ||
-        (user?.email && String(user.email).split('@')[0]) ||
-        'Store';
+        (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store';
       const snap = {
         v: 1,
         slug: effectiveStorePathSlug,
@@ -3162,11 +3273,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
 
   buildMyStoreRequestBodyRef.current = () => {
     const ownerName =
-      (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
-      (user?.full_name && String(user.full_name).trim()) ||
-      (user?.name && String(user.name).trim()) ||
-      (user?.email && String(user.email).split('@')[0]) ||
-      'Store';
+      (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store';
     return {
       pathSlug: effectiveStorePathSlug,
       pathSlugOverride: hasCustomStorePath
@@ -3238,11 +3345,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
         },
         ownerName:
-          (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
-          (user?.full_name && String(user.full_name).trim()) ||
-          (user?.name && String(user.name).trim()) ||
-          (user?.email && String(user.email).split('@')[0]) ||
-          'Store',
+          (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store',
       };
     }
     if (
@@ -3339,6 +3442,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               logoDataUrl: typeof d.logoDataUrl === 'string' && d.logoDataUrl ? d.logoDataUrl : null,
               theme:
                 typeof d.theme === 'string' && STORE_THEME_OPTIONS.some((o) => o.id === d.theme) ? d.theme : prev.theme,
+              accentColor:
+                typeof d.accentColor === 'string' && /^#[0-9A-Fa-f]{6}$/i.test(d.accentColor)
+                  ? d.accentColor
+                  : prev.accentColor,
               storeName: typeof d.storeName === 'string' ? d.storeName.slice(0, 100) : prev.storeName,
               storeDescription:
                 typeof d.storeDescription === 'string' ? d.storeDescription.slice(0, 500) : prev.storeDescription,
@@ -4815,6 +4922,35 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   );
                 })}
               </div>
+              <input
+                ref={storeLogoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only"
+                onChange={(e) => {
+                  setStoreLogoError(null);
+                  const f = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!f) return;
+                  if (f.size > MAX_STORE_LOGO_BYTES) {
+                    setStoreLogoError('File must be 2MB or smaller.');
+                    return;
+                  }
+                  const ok = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                  if (!ok.includes(f.type)) {
+                    setStoreLogoError('Use JPEG, PNG, WebP, or GIF.');
+                    return;
+                  }
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    if (typeof reader.result === 'string') {
+                      setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: reader.result }));
+                    }
+                  };
+                  reader.readAsDataURL(f);
+                }}
+                aria-label="Choose store picture"
+              />
               {storeDashTab === 'overview' ? (
                 <div className="space-y-4 w-full min-w-0">
                   <div
@@ -5180,10 +5316,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0 ${
-                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                      <button
+                        type="button"
+                        onClick={() => storeLogoInputRef.current?.click()}
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0 cursor-pointer transition ${
+                          isDark ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
                         } ${storeDisplaySettings?.logoDataUrl ? 'ring-1 ' + (isDark ? 'ring-white/20' : 'ring-slate-200') : ''}`}
+                        title="Choose store picture"
+                        aria-label="Choose store picture"
                       >
                         {storeDisplaySettings?.logoDataUrl ? (
                           <img
@@ -5203,11 +5343,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                             >
-                              <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
+                              <path d="M9 22V12h6v10" />
                             </svg>
                           </span>
                         )}
-                      </div>
+                      </button>
                       <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         Custom Pricing
                       </h2>
@@ -6207,59 +6348,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     When you are signed in, storefront and payment options sync to the server (automatically after you
                     stop editing, or immediately when you save).
                   </p>
-                  <input
-                    ref={storeLogoInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="sr-only"
-                    onChange={(e) => {
-                      setStoreLogoError(null);
-                      const f = e.target.files?.[0];
-                      e.target.value = '';
-                      if (!f) return;
-                      if (f.size > MAX_STORE_LOGO_BYTES) {
-                        setStoreLogoError('File must be 2MB or smaller.');
-                        return;
-                      }
-                      const ok = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-                      if (!ok.includes(f.type)) {
-                        setStoreLogoError('Use JPEG, PNG, WebP, or GIF.');
-                        return;
-                      }
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        if (typeof reader.result === 'string') {
-                          setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: reader.result }));
-                        }
-                      };
-                      reader.readAsDataURL(f);
-                    }}
-                    aria-label="Upload store logo"
-                  />
                   <div
                     className={`rounded-2xl border p-4 sm:p-5 ${
                       isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
-                        }`}
-                        aria-hidden
-                      >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M4 20h16" />
-                          <path d="M4 4v4l3.5-3" />
-                          <rect x="8" y="10" width="8" height="6" rx="0.5" />
-                        </svg>
-                      </div>
-                      <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        Store logo
-                      </h2>
-                    </div>
-                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Upload a logo for your store (max 2MB, JPEG/PNG/WebP/GIF)
+                    <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      How your store looks
+                    </h2>
+                    <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Tap the picture to choose a logo, pick your accent color, and select how big cards should look. Max
+                      2MB — JPEG, PNG, WebP, or GIF. Square, at least 200×200 works best.
                     </p>
                     {storeLogoError ? (
                       <p className="text-sm mt-2 text-amber-600 dark:text-amber-400" role="alert">
@@ -6267,40 +6366,25 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       </p>
                     ) : null}
                     <div
-                      className={`mt-4 rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-4 min-h-[140px] ${
-                        isDark ? 'border-white/20 bg-white/5' : 'border-slate-200 bg-slate-50/80'
+                      className={`mt-4 rounded-2xl border p-4 sm:p-5 text-center ${
+                        isDark ? 'bg-black/20 border-white/10' : 'bg-slate-50 border-slate-200/80'
                       }`}
                     >
-                      {storeDisplaySettings.logoDataUrl ? (
-                        <img
-                          src={storeDisplaySettings.logoDataUrl}
-                          alt="Store logo preview"
-                          className="max-h-32 max-w-full object-contain rounded-lg"
-                        />
-                      ) : (
-                        <div className="text-slate-400" aria-hidden>
-                          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
-                            <path d="M9 22V12h6v10" />
-                          </svg>
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => storeLogoInputRef.current?.click()}
-                        className={`inline-flex items-center gap-2 rounded-xl border py-2 px-4 text-sm font-medium ${
-                          isDark
-                            ? 'border-white/20 text-slate-200 bg-white/5 hover:bg-white/10'
-                            : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
-                        }`}
+                        className="mx-auto flex flex-col items-center gap-2 min-w-0 w-full max-w-sm rounded-2xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent focus:ring-violet-500/60"
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                          <path d="M4 4v4l3.5-3" />
-                          <path d="M4 4h4" />
-                        </svg>
-                        Upload logo
+                        <StoreSettingsLogoPreviewSvg
+                          logoDataUrl={storeDisplaySettings.logoDataUrl}
+                          accentColor={storeDisplaySettings.accentColor}
+                          idBase={storeLookPreviewId}
+                        />
+                        <span
+                          className={`text-sm font-medium ${isDark ? 'text-violet-300' : 'text-violet-700'}`}
+                        >
+                          Tap to choose a picture
+                        </span>
                       </button>
                       {storeDisplaySettings.logoDataUrl ? (
                         <button
@@ -6309,85 +6393,93 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: null }));
                             setStoreLogoError(null);
                           }}
-                          className={`text-sm font-medium py-2 px-2 ${
-                            isDark ? 'text-rose-400 hover:text-rose-300' : 'text-rose-600 hover:text-rose-700'
-                          }`}
+                          className={`mt-2 text-sm font-medium ${isDark ? 'text-rose-400 hover:text-rose-300' : 'text-rose-600 hover:text-rose-700'}`}
                         >
-                          Remove
+                          Remove image
                         </button>
                       ) : null}
-                    </div>
-                    <p className={`text-xs mt-2 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                      Recommended: square image, at least 200×200 pixels
-                    </p>
-                  </div>
-                  <div
-                    className={`rounded-2xl border p-4 sm:p-5 ${
-                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
-                        }`}
-                        aria-hidden
+                      <p
+                        className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
                       >
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="6" cy="7" r="2" />
-                          <path d="M2 20l4-8M10 6l-2-2" />
-                          <path d="M8 4l-2-2" />
-                        </svg>
-                      </div>
-                      <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        Store theme
-                      </h2>
+                        {(storeDisplaySettings.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store name below'} · preview only
+                      </p>
                     </div>
-                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                      Choose a card style for your package listings
+                    <p className={`text-sm font-medium mt-5 ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                      Store accent
                     </p>
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {STORE_THEME_OPTIONS.map((opt) => {
-                        const sel = storeDisplaySettings.theme === opt.id;
+                    <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      This color is used for highlights and your public store layout.
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        type="color"
+                        value={clampStoreAccentHex(storeDisplaySettings.accentColor)}
+                        onChange={(e) =>
+                          setStoreDisplaySettings((s) => ({ ...s, accentColor: e.target.value }))
+                        }
+                        className="h-10 w-14 cursor-pointer rounded-lg border border-slate-300/80 dark:border-white/20 bg-transparent p-0.5"
+                        title="Store accent"
+                        aria-label="Store accent color"
+                      />
+                      {STORE_ACCENT_PRESETS.map((c) => {
+                        const on = clampStoreAccentHex(storeDisplaySettings.accentColor) === c;
                         return (
                           <button
-                            key={opt.id}
+                            key={c}
                             type="button"
-                            onClick={() => setStoreDisplaySettings((s) => ({ ...s, theme: opt.id }))}
-                            className={`relative rounded-xl border-2 p-3 text-left transition ${
-                              sel
-                                ? 'border-violet-500 ring-1 ring-violet-500/30'
-                                : isDark
-                                  ? 'border-white/10 hover:border-white/20'
-                                  : 'border-slate-200 hover:border-slate-300'
-                            } ${isDark ? (sel ? 'bg-violet-950/30' : 'bg-zinc-900/40') : sel ? 'bg-violet-50/50' : 'bg-white'}`}
-                          >
-                            {sel ? (
-                              <span
-                                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center"
-                                aria-hidden
-                              >
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
-                                  <path d="M20 6L9 17l-5-5" />
-                                </svg>
-                              </span>
-                            ) : null}
-                            <p
-                              className={`text-sm font-semibold pr-6 ${isDark ? 'text-white' : 'text-slate-900'}`}
-                            >
-                              {opt.label}
-                            </p>
-                            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{opt.desc}</p>
-                          </button>
+                            onClick={() => setStoreDisplaySettings((s) => ({ ...s, accentColor: c }))}
+                            className={`h-9 w-9 rounded-full border-2 transition ${on ? 'ring-2 ring-violet-500 ring-offset-2' : 'border-white/20'} `}
+                            style={{ background: c }}
+                            title={`Use ${c}`}
+                            aria-label={`Accent ${c}`}
+                          />
                         );
                       })}
                     </div>
-                    <p
-                      className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
-                    >
-                      Network colors (MTN yellow, Telecel grey, Big Time blue, Ishare violet) are applied automatically
-                      for each package provider in your store theme.
-                    </p>
+                    <div className="mt-6">
+                      <p className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                        Card style
+                      </p>
+                      <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        Shapes the price cards; your accent is mixed in.
+                      </p>
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {STORE_THEME_OPTIONS.map((opt) => {
+                          const sel = storeDisplaySettings.theme === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => setStoreDisplaySettings((s) => ({ ...s, theme: opt.id }))}
+                              className={`relative rounded-xl border-2 p-3 text-left transition ${
+                                sel
+                                  ? 'border-violet-500 ring-1 ring-violet-500/30'
+                                  : isDark
+                                    ? 'border-white/10 hover:border-white/20'
+                                    : 'border-slate-200 hover:border-slate-300'
+                              } ${isDark ? (sel ? 'bg-violet-950/30' : 'bg-zinc-900/40') : sel ? 'bg-violet-50/50' : 'bg-white'}`}
+                            >
+                              {sel ? (
+                                <span
+                                  className="absolute top-2 right-2 w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center"
+                                  aria-hidden
+                                >
+                                  <span className="text-white text-[10px]">✦</span>
+                                </span>
+                              ) : null}
+                              <p
+                                className={`text-sm font-semibold pr-6 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                              >
+                                {opt.label}
+                              </p>
+                              <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                                {opt.desc}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                   <div
                     className={`rounded-2xl border p-4 sm:p-5 ${

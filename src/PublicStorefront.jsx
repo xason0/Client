@@ -3,7 +3,6 @@ import React, { useMemo, useState } from 'react';
 /** Same horizontal padding as `App.jsx` main so /store/ width matches the signed-in app. */
 const SITE_PAD = 'px-3 sm:px-4 md:px-6 lg:px-8';
 const PUBLIC_KEY = 'dataplus_store_public_v1';
-const AFA_BASE = 12;
 
 export function readPublicStoreSnapshot(wantSlug) {
   if (typeof window === 'undefined' || !wantSlug) return null;
@@ -48,9 +47,77 @@ function displayPriceGhs({ base, customStr, activeMap, net, size }) {
   return { hidden: false, price: p, label: `GHS ${p.toFixed(2)}` };
 }
 
+const DEFAULT_STORE_ACCENT = '#0ea5e9';
+const THEME_IDS = new Set(['default', 'gradient', 'glass', 'neon', 'minimal', 'bold']);
+
+function publicStoreAccent(display) {
+  if (!display || typeof display.accentColor !== 'string') return DEFAULT_STORE_ACCENT;
+  const s = display.accentColor.trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(s) ? s : DEFAULT_STORE_ACCENT;
+}
+
+function publicStoreCardTheme(display) {
+  const t = display && typeof display.theme === 'string' ? display.theme : 'default';
+  return THEME_IDS.has(t) ? t : 'default';
+}
+
+/** Styling for each package row — driven by the seller’s accent and layout choice. */
+function packageTileStyle(themeId, accent, isDark) {
+  const a = accent;
+  if (themeId === 'gradient') {
+    return {
+      background: isDark ? `linear-gradient(145deg, ${a}20, #09090b 85%)` : `linear-gradient(145deg, ${a}1f, #ffffff 90%)`,
+      borderWidth: 2,
+      borderStyle: 'solid',
+      borderColor: `${a}6b`,
+    };
+  }
+  if (themeId === 'glass') {
+    return {
+      background: isDark ? 'rgba(38, 38, 45, 0.55)' : 'rgba(255, 255, 255, 0.72)',
+      backdropFilter: 'blur(10px)',
+      borderWidth: 2,
+      borderStyle: 'solid',
+      borderColor: `${a}45`,
+    };
+  }
+  if (themeId === 'neon') {
+    return {
+      background: isDark ? '#0c0c0e' : '#ffffff',
+      borderWidth: 2,
+      borderStyle: 'solid',
+      borderColor: a,
+      boxShadow: `0 0 12px ${a}55, inset 0 0 20px ${a}14`,
+    };
+  }
+  if (themeId === 'minimal') {
+    return {
+      background: isDark ? 'rgb(9, 9, 11)' : '#ffffff',
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(148, 163, 184, 0.45)',
+    };
+  }
+  if (themeId === 'bold') {
+    return {
+      background: isDark ? 'rgb(9, 9, 11)' : '#ffffff',
+      borderWidth: 3,
+      borderStyle: 'solid',
+      borderColor: a,
+      boxShadow: isDark ? `0 3px 0 ${a}50` : `0 3px 0 ${a}35`,
+    };
+  }
+  return {
+    background: isDark ? 'rgb(9, 9, 11)' : '#ffffff',
+    borderWidth: 2,
+    borderStyle: 'solid',
+    borderColor: `${a}45`,
+  };
+}
+
 /**
- * Customer-facing /store/:slug preview (digi-mall style).
- * `data` from live owner state or readPublicStoreSnapshot.
+ * Customer-facing /store/:slug storefront.
+ * `data` from live owner state, API, or `readPublicStoreSnapshot`.
  */
 const storeIconSvg = (
   <svg width="40" height="40" className="text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
@@ -73,13 +140,11 @@ export default function PublicStorefront({
   const [selectedBundle, setSelectedBundle] = useState(null);
 
   const ownerLabel = useMemo(() => {
-    if (!data) return 'Store';
-    return (
-      (data.display?.storeName && String(data.display.storeName).trim()) ||
-      (data.ownerName && String(data.ownerName).trim()) ||
-      'Store'
-    );
+    const n = data?.display?.storeName && String(data.display.storeName).trim();
+    return n || 'Store';
   }, [data]);
+  const accent = useMemo(() => publicStoreAccent(data?.display), [data]);
+  const cardTheme = useMemo(() => publicStoreCardTheme(data?.display), [data]);
 
   const isStoreClosed = data?.availability === false;
   const logo = data?.display?.logoDataUrl;
@@ -100,8 +165,8 @@ export default function PublicStorefront({
         className={`min-h-full flex flex-col items-center justify-center py-10 w-full min-w-0 max-w-full ${SITE_PAD} ${isDark ? 'bg-zinc-950 text-white' : 'bg-slate-100 text-slate-900'}`}
       >
         <p className="text-center text-sm w-full max-w-full sm:max-w-2xl">
-          This store is not available here yet. The owner can publish it from the DataPlus app (Store Dashboard →
-          Settings → Save), or open this link in the same browser where the store was saved.
+          This store is not set up in this browser yet. Ask the seller to save their store, or open this link in the
+          same browser they used to publish.
         </p>
         {typeof onOpenSignIn === 'function' ? (
           <button
@@ -128,7 +193,8 @@ export default function PublicStorefront({
           <div className="flex-1" />
           <div className="flex flex-col items-center gap-1 min-w-0">
             <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center ${isDark ? 'bg-sky-500/20 text-sky-300' : 'bg-sky-100 text-sky-600'}`}
+              className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ color: accent, background: isDark ? `${accent}33` : `${accent}22` }}
               aria-hidden
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -136,8 +202,10 @@ export default function PublicStorefront({
                 <path d="M9 22V12h6v10" />
               </svg>
             </div>
-            <span className={`text-xs font-semibold truncate max-w-full ${isDark ? 'text-white' : 'text-slate-800'}`}>
-              Vendor Store
+            <span
+              className={`text-xs font-semibold truncate max-w-full text-center max-w-[9rem] ${isDark ? 'text-white' : 'text-slate-800'}`}
+            >
+              {ownerLabel}
             </span>
           </div>
           <div className="flex-1 flex justify-end">
@@ -169,7 +237,8 @@ export default function PublicStorefront({
               <div
                 className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-0 flex items-center justify-center mx-auto"
                 style={{
-                  background: isDark ? 'linear-gradient(160deg, #c2410c, #ea580c)' : 'linear-gradient(160deg, #fb923c, #ea580c)',
+                  background: `linear-gradient(160deg, ${accent} 0%, #0f172a 100%)`,
+                  boxShadow: `0 6px 24px ${accent}44`,
                 }}
               >
                 {logo ? (
@@ -183,14 +252,13 @@ export default function PublicStorefront({
               <h1
                 className={`mt-5 text-xl sm:text-2xl font-bold tracking-tight uppercase ${isDark ? 'text-white' : 'text-slate-900'}`}
               >
-                {String(ownerLabel).toUpperCase()}
+                {ownerLabel}
               </h1>
               <p
-                className={`mt-2 inline-block rounded-full px-3.5 py-1 text-sm font-medium ${
-                  isDark ? 'bg-zinc-800 text-zinc-200' : 'bg-slate-200/80 text-slate-700'
-                }`}
+                className="mt-2 inline-block rounded-full px-3.5 py-1 text-sm font-medium text-white"
+                style={{ background: `${accent}e0` }}
               >
-                Currently Offline
+                Currently closed
               </p>
               <div
                 className={`mt-5 rounded-2xl border p-3.5 text-left ${
@@ -250,8 +318,11 @@ export default function PublicStorefront({
         >
           <div className="flex flex-col items-center text-center">
             <div
-              className="w-24 h-24 rounded-full overflow-hidden border-2 flex items-center justify-center"
-              style={{ background: isDark ? 'linear-gradient(145deg, #7c2d12, #ea580c)' : 'linear-gradient(145deg, #fb923c, #ea580c)' }}
+              className="w-24 h-24 rounded-full overflow-hidden border-2 border-white/25 flex items-center justify-center"
+              style={{
+                background: `linear-gradient(160deg, ${accent} 0%, #0f172a 100%)`,
+                boxShadow: `0 8px 28px ${accent}4d`,
+              }}
             >
               {logo ? (
                 <img src={logo} alt="" className="w-full h-full object-cover" />
@@ -264,12 +335,13 @@ export default function PublicStorefront({
             <h1
               className={`mt-3 text-lg sm:text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}
             >
-              {String(ownerLabel).toUpperCase()}
+              {ownerLabel}
             </h1>
             {desc ? <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{desc}</p> : null}
             <div className="mt-3">
               <span
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500 text-white text-xs font-semibold px-3 py-1.5"
+                className="inline-flex items-center gap-1.5 rounded-full text-white text-xs font-semibold px-3 py-1.5"
+                style={{ background: `${accent}ee` }}
               >
                 <span aria-hidden>✦</span>
                 Open for orders
@@ -318,7 +390,7 @@ export default function PublicStorefront({
         >
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sky-500" aria-hidden>
+              <span className="shrink-0" style={{ color: accent }} aria-hidden>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M7 2v2h1l1.5 7H18l2-4H6.2L5.1 2H2V0h3.2l.9 2z" />
                 </svg>
@@ -329,7 +401,12 @@ export default function PublicStorefront({
               <button
                 type="button"
                 onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-lg ${viewMode === 'grid' ? 'bg-sky-500 text-white' : isDark ? 'text-slate-400' : 'text-slate-500'}`}
+                className="p-1.5 rounded-lg"
+                style={
+                  viewMode === 'grid'
+                    ? { background: accent, color: '#fff' }
+                    : { color: isDark ? 'rgb(148, 163, 184)' : 'rgb(100, 116, 139)' }
+                }
                 aria-pressed={viewMode === 'grid'}
                 aria-label="Grid"
               >
@@ -343,7 +420,12 @@ export default function PublicStorefront({
               <button
                 type="button"
                 onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded-lg ${viewMode === 'list' ? 'bg-sky-500 text-white' : isDark ? 'text-slate-400' : 'text-slate-500'}`}
+                className="p-1.5 rounded-lg"
+                style={
+                  viewMode === 'list'
+                    ? { background: accent, color: '#fff' }
+                    : { color: isDark ? 'rgb(148, 163, 184)' : 'rgb(100, 116, 139)' }
+                }
                 aria-pressed={viewMode === 'list'}
                 aria-label="List"
               >
@@ -435,22 +517,21 @@ export default function PublicStorefront({
                             size: b.size,
                           });
                           if (d.hidden) return null;
+                          const tile = packageTileStyle(cardTheme, accent, isDark);
                           return (
                             <button
                               key={b.size}
                               type="button"
                               onClick={() => setSelectedBundle({ network: net.name, size: b.size, price: d.price })}
-                              className={`text-left rounded-xl border-2 p-2.5 transition ${
+                              className={`text-left rounded-xl p-2.5 transition w-full ${
                                 viewMode === 'list' ? 'flex items-center justify-between' : ''
-                              } ${isDark ? 'border-sky-800/50 bg-zinc-900' : 'border-sky-100 bg-white'}`}
+                              }`}
+                              style={tile}
                             >
                               <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{b.size}</p>
                               <p
-                                className={
-                                  viewMode === 'list'
-                                    ? `text-sm font-bold ${isDark ? 'text-sky-300' : 'text-sky-500'}`
-                                    : `text-sm font-bold mt-0.5 ${isDark ? 'text-sky-300' : 'text-sky-500'}`
-                                }
+                                className={`text-sm font-bold ${viewMode === 'list' ? '' : 'mt-0.5'}`}
+                                style={{ color: accent }}
                               >
                                 {d.label}
                               </p>
@@ -503,9 +584,6 @@ export default function PublicStorefront({
                 </div>
                 <div className="shrink-0 sm:text-right">
                   <p className="text-base font-bold text-amber-700 dark:text-amber-300">GHS {afaShow.toFixed(2)}</p>
-                  {afaShow > AFA_BASE ? (
-                    <p className="text-[10px] text-emerald-600">Profit: GHS {(afaShow - AFA_BASE).toFixed(2)}</p>
-                  ) : null}
                 </div>
               </div>
               <button
@@ -526,7 +604,7 @@ export default function PublicStorefront({
           className={`rounded-2xl border p-4 min-h-[140px] ${isDark ? 'bg-zinc-900 border-white/10' : 'bg-white border-slate-200'}`}
         >
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-sky-500" aria-hidden>
+            <span style={{ color: accent }} aria-hidden>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M2 2h2l.6 2M6 2h2l-1.5 9" />
                 <path d="M2 2h1l.6 2" />
@@ -542,8 +620,8 @@ export default function PublicStorefront({
               <p className="text-sm font-medium">
                 {selectedBundle.network} · {selectedBundle.size}
               </p>
-              <p className="text-sky-500 font-bold">GHS {Number(selectedBundle.price).toFixed(2)}</p>
-              <p className="text-xs mt-2 text-slate-500">Open the app and sign in to check out with your wallet.</p>
+              <p className="font-bold" style={{ color: accent }}>GHS {Number(selectedBundle.price).toFixed(2)}</p>
+              <p className="text-xs mt-2 text-slate-500">Open the app and sign in to complete checkout with your wallet.</p>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-6 text-slate-400 text-sm text-center">
@@ -561,11 +639,6 @@ export default function PublicStorefront({
               Select a package to continue
             </div>
           )}
-          <p
-            className="text-center text-xs mt-4 text-sky-500/80"
-          >
-            Powered by {String(ownerLabel)}
-          </p>
         </div>
 
         <p className={`text-center text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
