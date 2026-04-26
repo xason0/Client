@@ -70,6 +70,17 @@ try {
   db.exec('ALTER TABLE support_threads ADD COLUMN auto_clear_at TEXT');
 } catch (_) {}
 
+// Store vendor attribution (filled when a public /store purchase is recorded)
+try {
+  db.exec('ALTER TABLE orders ADD COLUMN store_owner_id INTEGER');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE orders ADD COLUMN store_base_ghs REAL');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE orders ADD COLUMN store_profit_ghs REAL');
+} catch (_) {}
+
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS afa_applications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +97,21 @@ try {
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   )`);
 } catch (_) {}
+
+// Per-user public storefront: slug, pricing overrides, AFA, etc. (syncs with client Store Dashboard)
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS user_stores (
+    user_id INTEGER NOT NULL PRIMARY KEY,
+    path_slug TEXT NOT NULL UNIQUE,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`);
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_stores_path_slug ON user_stores(path_slug)');
+} catch (_) {}
+
 // Default bundle definitions (admin can change via API)
 const DEFAULT_BUNDLES = {
   mtn: [
@@ -821,6 +847,309 @@ app.put('/api/admin/settings', adminAuthMiddleware, (req, res) => {
   }
   const row = db.prepare("SELECT value FROM app_settings WHERE key = 'sidebar_logo_url'").get();
   return res.json({ sidebarLogoUrl: row?.value || 'https://files.catbox.moe/l3islw.jpg' });
+});
+
+function sanitizePathSlugServer(raw) {
+  if (raw == null) return '';
+  return String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+}
+
+// ---- Public vendor store (read-only; no auth) ----
+app.get('/api/public/store/:slug', (req, res) => {
+  const slug = sanitizePathSlugServer(req.params.slug);
+  if (!slug) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const row = db
+    .prepare("SELECT data_json, updated_at FROM user_stores WHERE path_slug = ?")
+    .get(slug);
+  if (!row?.data_json) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  try {
+    const data = JSON.parse(row.data_json);
+    if (!data || typeof data !== 'object') {
+      return res.status(500).json({ error: 'Invalid store data' });
+    }
+    const at = data.updatedAt != null && Number.isFinite(Number(data.updatedAt)) ? Number(data.updatedAt) : 0;
+    return res.json({
+      ...data,
+      slug: data.slug || slug,
+      v: data.v != null ? data.v : 1,
+      ownerName: data.ownerName,
+      display: data.display,
+      service: data.service,
+      availability: data.availability !== false,
+      customBundlePrices: data.customBundlePrices || {},
+      customBundleActive: data.customBundleActive || {},
+      bundles: data.bundles || { mtn: [], telecel: [], bigtime: [], ishare: [] },
+      updatedAt: at || (row.updated_at ? Date.parse(String(row.updated_at)) : 0) || 0,
+    });
+  } catch (e) {
+    return res.status(500).json({ error: 'Invalid store data' });
+  }
+});
+
+// ---- My vendor store (signed-in owner) ----
+app.get('/api/store', authMiddleware, (req, res) => {
+  const row = db
+    .prepare("SELECT path_slug, data_json, updated_at FROM user_stores WHERE user_id = ?")
+    .get(req.userId);
+  if (!row?.data_json) {
+    return res.json({ store: null });
+  }
+  try {
+    const d = JSON.parse(row.data_json);
+    if (!d || typeof d !== 'object') {
+      return res.json({ store: null });
+    }
+    return res.json({
+      store: {
+        pathSlug: row.path_slug,
+        pathSlugOverride: d.pathSlugOverride != null ? String(d.pathSlugOverride) : null,
+        display: d.display || {},
+        service: d.service || {},
+        availability: d.availability !== false,
+        customBundlePrices: d.customBundlePrices && typeof d.customBundlePrices === 'object' ? d.customBundlePrices : {},
+        customBundleActive: d.customBundleActive && typeof d.customBundleActive === 'object' ? d.customBundleActive : {},
+        bundles: d.bundles || { mtn: [], telecel: [], bigtime: [], ishare: [] },
+        ownerName: d.ownerName || 'Store',
+        v: d.v != null ? d.v : 1,
+        updatedAt: d.updatedAt != null && Number.isFinite(Number(d.updatedAt)) ? Number(d.updatedAt) : 0,
+      },
+    });
+  } catch (e) {
+    return res.json({ store: null });
+  }
+});
+
+app.put('/api/store', authMiddleware, (req, res) => {
+  const b = req.body && typeof req.body === 'object' ? req.body : {};
+  const pathSlug = sanitizePathSlugServer(b.pathSlug);
+  if (!pathSlug) {
+    return res.status(400).json({ error: 'pathSlug (store URL) is required' });
+  }
+  const overrideRaw = b.pathSlugOverride;
+  const pathSlugOverride =
+    overrideRaw != null && String(overrideRaw).trim() !== '' ? sanitizePathSlugServer(overrideRaw) : null;
+  if (pathSlugOverride && pathSlugOverride !== pathSlug) {
+    return res.status(400).json({ error: 'pathSlug and pathSlugOverride are inconsistent' });
+  }
+  const other = db
+    .prepare("SELECT user_id FROM user_stores WHERE path_slug = ? AND user_id != ?")
+    .get(pathSlug, req.userId);
+  if (other) {
+    return res.status(409).json({ error: 'This store URL is already taken' });
+  }
+  const display = b.display && typeof b.display === 'object' ? b.display : {};
+  const service = b.service && typeof b.service === 'object' ? b.service : {};
+  const customBundlePrices =
+    b.customBundlePrices && typeof b.customBundlePrices === 'object' ? b.customBundlePrices : {};
+  const customBundleActive =
+    b.customBundleActive && typeof b.customBundleActive === 'object' ? b.customBundleActive : {};
+  const bundles =
+    b.bundles && typeof b.bundles === 'object' ? b.bundles : { mtn: [], telecel: [], bigtime: [], ishare: [] };
+  const ownerName = typeof b.ownerName === 'string' ? b.ownerName.slice(0, 200) : 'Store';
+  const availability = b.availability === false || b.availability === 0 || b.availability === '0' ? false : true;
+  const now = Date.now();
+  const payload = {
+    v: 1,
+    slug: pathSlug,
+    pathSlugOverride: pathSlugOverride,
+    display,
+    service,
+    customBundlePrices,
+    customBundleActive,
+    bundles: {
+      mtn: Array.isArray(bundles.mtn) ? bundles.mtn : [],
+      telecel: Array.isArray(bundles.telecel) ? bundles.telecel : [],
+      bigtime: Array.isArray(bundles.bigtime) ? bundles.bigtime : [],
+      ishare: Array.isArray(bundles.ishare) ? bundles.ishare : [],
+    },
+    ownerName,
+    availability,
+    updatedAt: now,
+  };
+  const json = JSON.stringify(payload);
+  const haveRow = db.prepare('SELECT 1 AS x FROM user_stores WHERE user_id = ?').get(req.userId);
+  if (haveRow) {
+    db
+      .prepare("UPDATE user_stores SET path_slug = ?, data_json = ?, updated_at = datetime('now') WHERE user_id = ?")
+      .run(pathSlug, json, req.userId);
+  } else {
+    if (db.prepare("SELECT 1 AS x FROM user_stores WHERE path_slug = ?").get(pathSlug)) {
+      return res.status(409).json({ error: 'This store URL is already taken' });
+    }
+    db
+      .prepare("INSERT INTO user_stores (user_id, path_slug, data_json, updated_at) VALUES (?, ?, ?, datetime('now'))")
+      .run(req.userId, pathSlug, json);
+  }
+  return res.json({ ok: true, pathSlug, updatedAt: now });
+});
+
+/**
+ * Store dashboard → Earnings: wallet + aggregates for this vendor (orders where store_owner_id = you).
+ * Period: today | this-week | this-month | last-month (default this-month). Revenue/profit in period
+ * use that window; total* and pending are all-time where relevant.
+ */
+function storeEarningsPeriodClause(period) {
+  const p = String(period || 'this-month').trim() || 'this-month';
+  if (p === 'today') {
+    return "date(o.created_at) = date('now', 'localtime')";
+  }
+  if (p === 'this-week') {
+    return "date(o.created_at) >= date('now', 'localtime', '-6 days')";
+  }
+  if (p === 'last-month') {
+    return "strftime('%Y-%m', o.created_at) = strftime('%Y-%m', 'now', 'localtime', '-1 month')";
+  }
+  return "strftime('%Y-%m', o.created_at) = strftime('%Y-%m', 'now', 'localtime')";
+}
+
+function orderProfitExpression(alias = 'o') {
+  return `COALESCE(${alias}.store_profit_ghs, CASE
+    WHEN ${alias}.store_base_ghs IS NOT NULL AND ${alias}.bundle_price IS NOT NULL
+    THEN ${alias}.bundle_price - ${alias}.store_base_ghs
+    ELSE 0
+  END)`;
+}
+
+app.get('/api/store/earnings', authMiddleware, (req, res) => {
+  const uid = req.userId;
+  const period = String(req.query?.period || 'this-month').trim() || 'this-month';
+  const wallet = db.prepare('SELECT balance, updated_at FROM wallets WHERE user_id = ?').get(uid);
+  const balanceGhs = wallet ? Number(wallet.balance || 0) : 0;
+  const perCond = storeEarningsPeriodClause(period);
+  const isCompleted = "LOWER(COALESCE(o.status,'')) = 'completed'";
+  const isNonTerminal = "LOWER(COALESCE(o.status,'')) NOT IN ('completed','failed','cancelled')";
+  const profitX = orderProfitExpression('o');
+
+  let revenueInPeriodGhs = 0;
+  let pendingProfitGhs = 0;
+  let totalRevenueGhs = 0;
+  let totalProfitGhs = 0;
+  let periodProfitGhs = 0;
+  try {
+    const r1 = db
+      .prepare(
+        `SELECT COALESCE(SUM(o.bundle_price), 0) AS t
+         FROM orders o
+         WHERE o.store_owner_id = ? AND ${isCompleted} AND ${perCond}`
+      )
+      .get(uid);
+    revenueInPeriodGhs = r1 && r1.t != null ? Number(r1.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] revenue in period', e);
+  }
+  try {
+    const r2 = db
+      .prepare(
+        `SELECT COALESCE(SUM(${profitX}), 0) AS t
+         FROM orders o
+         WHERE o.store_owner_id = ? AND ${isNonTerminal}`
+      )
+      .get(uid);
+    pendingProfitGhs = r2 && r2.t != null ? Number(r2.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] pending', e);
+  }
+  try {
+    const r3 = db
+      .prepare(
+        `SELECT COALESCE(SUM(o.bundle_price), 0) AS t
+         FROM orders o
+         WHERE o.store_owner_id = ? AND ${isCompleted}`
+      )
+      .get(uid);
+    totalRevenueGhs = r3 && r3.t != null ? Number(r3.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] total revenue', e);
+  }
+  try {
+    const r4 = db
+      .prepare(
+        `SELECT COALESCE(SUM(${profitX}), 0) AS t
+         FROM orders o
+         WHERE o.store_owner_id = ? AND ${isCompleted}`
+      )
+      .get(uid);
+    totalProfitGhs = r4 && r4.t != null ? Number(r4.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] total profit', e);
+  }
+  try {
+    const r5 = db
+      .prepare(
+        `SELECT COALESCE(SUM(${profitX}), 0) AS t
+         FROM orders o
+         WHERE o.store_owner_id = ? AND ${isCompleted} AND ${perCond}`
+      )
+      .get(uid);
+    periodProfitGhs = r5 && r5.t != null ? Number(r5.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] period profit', e);
+  }
+
+  let totalWithdrawnGhs = 0;
+  const withdrawals = [];
+  try {
+    const tw = db
+      .prepare(
+        `SELECT COALESCE(SUM(ABS(amount)), 0) AS t
+         FROM transactions
+         WHERE user_id = ? AND LOWER(COALESCE(type,'')) IN ('withdrawal', 'payout', 'store_payout')`
+      )
+      .get(uid);
+    totalWithdrawnGhs = tw && tw.t != null ? Number(tw.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] total withdrawn', e);
+  }
+  try {
+    const wrows = db
+      .prepare(
+        `SELECT id, type, amount, reference,
+                COALESCE(created_at, datetime('now')) AS created_at,
+                COALESCE(description, '') AS description
+         FROM transactions
+         WHERE user_id = ? AND LOWER(COALESCE(type,'')) IN ('withdrawal', 'payout', 'store_payout')
+         ORDER BY datetime(created_at) DESC
+         LIMIT 20`
+      )
+      .all(uid);
+    for (const row of wrows) {
+      withdrawals.push({
+        id: row.id,
+        type: row.type,
+        amount: row.amount,
+        reference: row.reference,
+        created_at: row.created_at,
+        description: row.description,
+      });
+    }
+  } catch (e) {
+    console.error('[store/earnings] withdrawals list', e);
+  }
+
+  const withdrawableGhs = balanceGhs;
+  return res.json({
+    balanceGhs,
+    walletUpdatedAt: wallet?.updated_at || null,
+    withdrawableGhs,
+    period,
+    revenueInPeriodGhs: revenueInPeriodGhs,
+    periodProfitGhs: periodProfitGhs,
+    profitPendingGhs: pendingProfitGhs,
+    totalRevenueGhs: totalRevenueGhs,
+    totalProfitGhs: totalProfitGhs,
+    totalWithdrawnGhs: totalWithdrawnGhs,
+    withdrawals,
+  });
 });
 
 // ---- Bundles (public) ----

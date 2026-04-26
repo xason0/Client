@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
+import PublicStorefront, { readPublicStoreSnapshot } from './PublicStorefront.jsx';
 import UltraxasChatBar from './components/UltraxasChatBar';
 import BroadcastRichEditor from './components/BroadcastRichEditor';
 import {
@@ -13,6 +14,39 @@ import {
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 10;
+
+/** Store dashboard → Settings: theme options for card style (digi-mall style). */
+const STORE_THEME_OPTIONS = [
+  { id: 'default', label: 'Default', desc: 'Clean, simple cards' },
+  { id: 'gradient', label: 'Gradient', desc: 'Smooth color gradients' },
+  { id: 'glass', label: 'Glass', desc: 'Glassmorphism effect' },
+  { id: 'neon', label: 'Neon', desc: 'Glowing neon borders' },
+  { id: 'minimal', label: 'Minimal', desc: 'Ultra clean design' },
+  { id: 'bold', label: 'Bold', desc: 'Strong colors & shadows' },
+];
+const MAX_STORE_LOGO_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Origin used for "Your store link" copy and share URL. Set at build time:
+ *   VITE_PUBLIC_SITE_URL=https://client.ultraxas.com
+ * so local dev (http://localhost:4173) still shows the real public link customers will use.
+ * If unset, uses `window.location.origin` in the browser.
+ */
+function getPublicSiteOrigin() {
+  const raw = (import.meta.env.VITE_PUBLIC_SITE_URL || '').trim();
+  if (raw) {
+    try {
+      const s = raw.includes('://') ? raw : `https://${raw}`;
+      return new URL(s).origin;
+    } catch {
+      return raw.replace(/\/$/, '');
+    }
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return '';
+}
 
 /** Per-user cache so two accounts / tabs on the same origin do not share one profile photo. */
 const PROFILE_IMG_STORAGE_PREFIX = 'dataplus_profile_img_';
@@ -213,6 +247,29 @@ function supportMessageTimestamp(iso) {
 
 function supportIsAbortError(err) {
   return err?.name === 'AbortError' || err?.code === 20;
+}
+
+/** Public store path segment for `/store/:slug` — lowercase, a-z, digits, hyphens. */
+function sanitizeStorePathSegment(raw) {
+  if (raw == null) return '';
+  return String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40);
+}
+
+function defaultStorePathSlugFromUser(u) {
+  const e = (u?.email && String(u.email).split('@')[0]) || '';
+  const fromEmail = sanitizeStorePathSegment(e);
+  if (fromEmail) return fromEmail;
+  if (u?.id != null) {
+    const id = String(u.id).replace(/\D/g, '') || String(u.id);
+    return `user${id}`.toLowerCase().slice(0, 40) || 'my-store';
+  }
+  return 'my-store';
 }
 
 /** Card style aligned with system “team notified” messages — admin replies in support. */
@@ -927,6 +984,131 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [orderDateFilter, setOrderDateFilter] = useState('Today');
   const [orderCustomStart, setOrderCustomStart] = useState('');
   const [orderCustomEnd, setOrderCustomEnd] = useState('');
+  const [storeDashTab, setStoreDashTab] = useState('overview');
+  const [storePathSlugOverride, setStorePathSlugOverride] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const v = localStorage.getItem('dataplus_store_slug_override');
+      return v ? sanitizeStorePathSegment(v) : '';
+    } catch {
+      return '';
+    }
+  });
+  const [storeAvailabilityOn, setStoreAvailabilityOn] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const v = localStorage.getItem('dataplus_store_availability');
+      if (v === '0' || v === 'false') return false;
+    } catch {
+      // ignore
+    }
+    return true;
+  });
+  const [storeActivePackageCount] = useState(0);
+  const [storeTotalPackageCount] = useState(0);
+  const [storePricingOpenId, setStorePricingOpenId] = useState(null);
+  const [storeCustomBundlePrices, setStoreCustomBundlePrices] = useState(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem('dataplus_store_custom_bundle_prices');
+      if (!raw) return {};
+      const p = JSON.parse(raw);
+      return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+    } catch {
+      return {};
+    }
+  });
+  const [storeCustomBundleActive, setStoreCustomBundleActive] = useState(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem('dataplus_store_custom_bundle_active');
+      if (!raw) return {};
+      const p = JSON.parse(raw);
+      return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+    } catch {
+      return {};
+    }
+  });
+  const [storePricingSaveMessage, setStorePricingSaveMessage] = useState(null);
+  const [storeEarningsPeriod, setStoreEarningsPeriod] = useState('this-month');
+  const [storeEarningsRefreshHint, setStoreEarningsRefreshHint] = useState(false);
+  const [storeEarningsActionMsg, setStoreEarningsActionMsg] = useState(null);
+  const [storeEarningsData, setStoreEarningsData] = useState(null);
+  const [storeEarningsLoading, setStoreEarningsLoading] = useState(false);
+  const [storeEarningsError, setStoreEarningsError] = useState(null);
+  const loadStoreServiceSettings = () => {
+    const defaults = {
+      afaEnabled: true,
+      afaPrice: '15',
+      afaDescription: 'Register for MTN AFA to enjoy bundle benefits',
+      vouchersEnabled: false,
+    };
+    if (typeof window === 'undefined') return defaults;
+    try {
+      const raw = localStorage.getItem('dataplus_store_services_v1');
+      if (!raw) return defaults;
+      const p = JSON.parse(raw);
+      if (p && typeof p === 'object' && !Array.isArray(p)) {
+        return {
+          afaEnabled: typeof p.afaEnabled === 'boolean' ? p.afaEnabled : defaults.afaEnabled,
+          afaPrice: typeof p.afaPrice === 'string' ? p.afaPrice : String(p.afaPrice ?? defaults.afaPrice),
+          afaDescription: typeof p.afaDescription === 'string' ? p.afaDescription : defaults.afaDescription,
+          vouchersEnabled: typeof p.vouchersEnabled === 'boolean' ? p.vouchersEnabled : defaults.vouchersEnabled,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return defaults;
+  };
+  const [storeServiceSettings, setStoreServiceSettings] = useState(() => loadStoreServiceSettings());
+  const [storeServicesPanelMessage, setStoreServicesPanelMessage] = useState(null);
+  const AFA_REG_BASE_GHS = 12;
+  const loadStoreDisplaySettings = () => {
+    const defaults = {
+      logoDataUrl: null,
+      theme: 'default',
+      storeName: '',
+      storeDescription: '',
+      whatsapp: '',
+      whatsappGroup: '',
+      paystackEnabled: true,
+      feeAbsorption: 0,
+    };
+    if (typeof window === 'undefined') return defaults;
+    try {
+      const raw = localStorage.getItem('dataplus_store_display_v1');
+      if (!raw) return defaults;
+      const p = JSON.parse(raw);
+      if (p && typeof p === 'object' && !Array.isArray(p)) {
+        return {
+          logoDataUrl: typeof p.logoDataUrl === 'string' && p.logoDataUrl ? p.logoDataUrl : null,
+          theme: typeof p.theme === 'string' && STORE_THEME_OPTIONS.some((t) => t.id === p.theme) ? p.theme : 'default',
+          storeName: typeof p.storeName === 'string' ? p.storeName.slice(0, 100) : defaults.storeName,
+          storeDescription: typeof p.storeDescription === 'string' ? p.storeDescription.slice(0, 500) : defaults.storeDescription,
+          whatsapp: typeof p.whatsapp === 'string' ? p.whatsapp : defaults.whatsapp,
+          whatsappGroup: typeof p.whatsappGroup === 'string' ? p.whatsappGroup : defaults.whatsappGroup,
+          paystackEnabled: typeof p.paystackEnabled === 'boolean' ? p.paystackEnabled : defaults.paystackEnabled,
+          feeAbsorption: typeof p.feeAbsorption === 'number' && p.feeAbsorption >= 0 && p.feeAbsorption <= 100 ? p.feeAbsorption : 0,
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return defaults;
+  };
+  const [storeDisplaySettings, setStoreDisplaySettings] = useState(() => loadStoreDisplaySettings());
+  const [storeSettingsMessage, setStoreSettingsMessage] = useState(null);
+  const [storeLogoError, setStoreLogoError] = useState(null);
+  const storeLogoInputRef = useRef(null);
+  const storeApiSyncTimerRef = useRef(null);
+  const storePricingLocalPersistTimerRef = useRef(null);
+  const vendorStoreSyncedForUserRef = useRef(null);
+  const [storeLinkEditOpen, setStoreLinkEditOpen] = useState(false);
+  const [storePathSlugDraft, setStorePathSlugDraft] = useState('');
+  const [storeLinkSettingsMessage, setStoreLinkSettingsMessage] = useState(null);
+  /** Server snapshot for `/store/:slug` when the viewer is not the owner (GET /api/public/store/:slug). */
+  const [publicStoreFromApi, setPublicStoreFromApi] = useState(null);
   const [orders, setOrders] = useState([]);
   const orderCreatedAtByIdRef = useRef(new Map());
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -2198,7 +2380,47 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const dashboardTodayOrders = isPinOnlyAdminSession ? 0 : userTodayStats.orders;
   const dashboardTodayAmount = isPinOnlyAdminSession ? 0 : userTodayStats.amount;
   const dashboardTodayBundles = isPinOnlyAdminSession ? 0 : userTodayStats.bundles;
+
+  const loadStoreEarnings = useCallback(async () => {
+    if (!isSignedIn || !api.getToken()) {
+      setStoreEarningsData(null);
+      setStoreEarningsLoading(false);
+      return;
+    }
+    setStoreEarningsLoading(true);
+    setStoreEarningsError(null);
+    try {
+      const d = await api.getStoreEarnings(storeEarningsPeriod);
+      if (d && typeof d === 'object') {
+        setStoreEarningsData(d);
+        if (Number.isFinite(Number(d.balanceGhs)) && !isPinOnlyAdminSession) {
+          setWalletBalance(Number(d.balanceGhs));
+        }
+      } else {
+        setStoreEarningsData(null);
+        setStoreEarningsError('Could not load earnings from the API. Deploy the latest server or check your connection.');
+      }
+    } catch (e) {
+      setStoreEarningsData(null);
+      setStoreEarningsError(e?.message || 'Failed to load earnings');
+    } finally {
+      setStoreEarningsLoading(false);
+    }
+  }, [isSignedIn, storeEarningsPeriod, isPinOnlyAdminSession]);
+
+  useEffect(() => {
+    if (currentPage !== 'store-dashboard' || storeDashTab !== 'earnings' || !isSignedIn) return undefined;
+    loadStoreEarnings();
+    return undefined;
+  }, [currentPage, storeDashTab, isSignedIn, storeEarningsPeriod, loadStoreEarnings]);
+
   const networkBg = (n) => n === 'telecel' ? 'url(https://files.catbox.moe/yzcokj.jpg)' : (n === 'bigtime' || n === 'ishare') ? 'url(https://files.catbox.moe/riugtj.png)' : 'url(https://files.catbox.moe/r1m0uh.png)';
+  const networkBrandLogoUrl = (n) =>
+    n === 'telecel'
+      ? 'https://files.catbox.moe/yzcokj.jpg'
+      : n === 'bigtime' || n === 'ishare'
+        ? 'https://files.catbox.moe/riugtj.png'
+        : 'https://files.catbox.moe/r1m0uh.png';
 
   const RECIPIENT_PHONE_LEN = 10;
   const normalizeRecipientDigits = (s) => String(s || '').replace(/\D/g, '');
@@ -2677,7 +2899,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
       const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'];
-      const mainAppPages = ['dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
+      const mainAppPages = ['dashboard', 'store-dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
       if (adminSubPages.includes(currentPage)) return;
       if (mainAppPages.includes(currentPage)) return;
       setCurrentPage('admin-analytics');
@@ -2718,6 +2940,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setProfileOpen(false);
     } else if (menu === 'dashboard') {
       setCurrentPage('dashboard');
+      setProfileOpen(false);
+    } else if (menu === 'store-dashboard') {
+      setCurrentPage('store-dashboard');
       setProfileOpen(false);
     } else if (menu === 'wallet' || menu === 'topup') {
       setCurrentPage('topup');
@@ -2786,6 +3011,33 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const triggerFileInput = () => fileInputRef.current?.click();
 
   const isDark = theme === 'dark';
+  const defaultStorePathSlug = useMemo(
+    () => defaultStorePathSlugFromUser(user),
+    [user?.id, user?.email]
+  );
+  const effectiveStorePathSlug = storePathSlugOverride || defaultStorePathSlug;
+  const fullStoreLinkUrl = useMemo(() => {
+    const base = getPublicSiteOrigin();
+    if (!base) return '';
+    return `${String(base).replace(/\/$/, '')}/store/${effectiveStorePathSlug}`;
+  }, [effectiveStorePathSlug]);
+  const storePathInputPrefix = useMemo(() => {
+    const o = getPublicSiteOrigin();
+    return o ? `${String(o).replace(/\/$/, '')}/store/` : '…/store/';
+  }, []);
+  const hasCustomStorePath = Boolean((storePathSlugOverride || '').trim().length);
+  const publicStorePathSegment = useMemo(() => {
+    const p = (location?.pathname || '').replace(/\/+$/g, '') || '/';
+    const m = p.match(/^\/store\/([a-z0-9-]+)$/i);
+    return m ? sanitizeStorePathSegment(m[1]) : null;
+  }, [location?.pathname]);
+  const isPublicUrlMine = useMemo(
+    () =>
+      Boolean(
+        isSignedIn && publicStorePathSegment && effectiveStorePathSlug && effectiveStorePathSlug === publicStorePathSegment
+      ),
+    [isSignedIn, publicStorePathSegment, effectiveStorePathSlug]
+  );
   const profileUserId = (() => {
     const n = Number(user?.id);
     if (Number.isFinite(n) && n > 0) return `USR-${String(Math.trunc(n)).padStart(6, '0')}`;
@@ -2831,6 +3083,376 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const isTelecel = activeTab === 'telecel';
   const isBigTime = activeTab === 'bigtime';
   const isIshare = activeTab === 'ishare';
+  const storePricingBundleKey = (netId, size) => `${netId}|${size}`;
+  const getPricingBundles = (id) => {
+    if (id === 'mtn') return bundlesByNetwork.mtn || defaultBundles.mtn;
+    if (id === 'telecel') return bundlesByNetwork.telecel || defaultBundles.telecel;
+    if (id === 'bigtime') return bundlesByNetwork.bigtime || defaultBundles.bigtime;
+    if (id === 'ishare') return bundlesByNetwork.ishare || defaultBundles.ishare;
+    return [];
+  };
+  const storePricingNetworkRows = useMemo(
+    () => [
+      { id: 'mtn', name: 'MTN', count: (bundlesByNetwork.mtn || defaultBundles.mtn).length },
+      { id: 'telecel', name: 'Telecel', count: (bundlesByNetwork.telecel || defaultBundles.telecel).length },
+      { id: 'bigtime', name: 'Big Time', count: (bundlesByNetwork.bigtime || defaultBundles.bigtime).length },
+      { id: 'ishare', name: 'Ishare', count: (bundlesByNetwork.ishare || defaultBundles.ishare).length },
+    ],
+    [bundlesByNetwork]
+  );
+
+  const persistPublicStoreSnapshot = useCallback(() => {
+    if (typeof window === 'undefined' || !effectiveStorePathSlug) return;
+    try {
+      const ownerName =
+        (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
+        (user?.full_name && String(user.full_name).trim()) ||
+        (user?.name && String(user.name).trim()) ||
+        (user?.email && String(user.email).split('@')[0]) ||
+        'Store';
+      const snap = {
+        v: 1,
+        slug: effectiveStorePathSlug,
+        updatedAt: Date.now(),
+        display: { ...storeDisplaySettings },
+        service: { ...storeServiceSettings },
+        availability: storeAvailabilityOn,
+        customBundlePrices: { ...storeCustomBundlePrices },
+        customBundleActive: { ...storeCustomBundleActive },
+        bundles: {
+          mtn: [...(bundlesByNetwork.mtn || defaultBundles.mtn)],
+          telecel: [...(bundlesByNetwork.telecel || defaultBundles.telecel)],
+          bigtime: [...(bundlesByNetwork.bigtime || defaultBundles.bigtime)],
+          ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
+        },
+        ownerName,
+      };
+      localStorage.setItem('dataplus_store_public_v1', JSON.stringify(snap));
+    } catch {
+      // ignore quota
+    }
+  }, [
+    effectiveStorePathSlug,
+    storeDisplaySettings,
+    storeServiceSettings,
+    storeAvailabilityOn,
+    storeCustomBundlePrices,
+    storeCustomBundleActive,
+    bundlesByNetwork,
+    user,
+  ]);
+
+  const applyStorePathOverride = (raw) => {
+    const s = sanitizeStorePathSegment(raw);
+    setStorePathSlugOverride(s);
+    try {
+      if (s) localStorage.setItem('dataplus_store_slug_override', s);
+      else localStorage.removeItem('dataplus_store_slug_override');
+    } catch {
+      // ignore
+    }
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => persistPublicStoreSnapshot(), 0);
+    }
+  };
+
+  const publicStorefrontData = useMemo(() => {
+    if (!publicStorePathSegment) return null;
+    if (isPublicUrlMine) {
+      return {
+        slug: effectiveStorePathSlug,
+        display: { ...storeDisplaySettings },
+        service: { ...storeServiceSettings },
+        availability: storeAvailabilityOn,
+        customBundlePrices: { ...storeCustomBundlePrices },
+        customBundleActive: { ...storeCustomBundleActive },
+        bundles: {
+          mtn: [...(bundlesByNetwork.mtn || defaultBundles.mtn)],
+          telecel: [...(bundlesByNetwork.telecel || defaultBundles.telecel)],
+          bigtime: [...(bundlesByNetwork.bigtime || defaultBundles.bigtime)],
+          ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
+        },
+        ownerName:
+          (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
+          (user?.full_name && String(user.full_name).trim()) ||
+          (user?.name && String(user.name).trim()) ||
+          (user?.email && String(user.email).split('@')[0]) ||
+          'Store',
+      };
+    }
+    if (
+      publicStoreFromApi &&
+      String(publicStoreFromApi.slug || '') === publicStorePathSegment
+    ) {
+      return {
+        ...publicStoreFromApi,
+        availability: publicStoreFromApi.availability !== false,
+        customBundlePrices:
+          publicStoreFromApi.customBundlePrices && typeof publicStoreFromApi.customBundlePrices === 'object'
+            ? { ...publicStoreFromApi.customBundlePrices }
+            : {},
+        customBundleActive:
+          publicStoreFromApi.customBundleActive && typeof publicStoreFromApi.customBundleActive === 'object'
+            ? { ...publicStoreFromApi.customBundleActive }
+            : {},
+        bundles: publicStoreFromApi.bundles && typeof publicStoreFromApi.bundles === 'object' ? { ...publicStoreFromApi.bundles } : {},
+      };
+    }
+    return readPublicStoreSnapshot(publicStorePathSegment);
+  }, [
+    publicStorePathSegment,
+    isPublicUrlMine,
+    publicStoreFromApi,
+    effectiveStorePathSlug,
+    storeDisplaySettings,
+    storeServiceSettings,
+    storeAvailabilityOn,
+    storeCustomBundlePrices,
+    storeCustomBundleActive,
+    bundlesByNetwork,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!publicStorePathSegment || isPublicUrlMine) {
+      if (isPublicUrlMine) setPublicStoreFromApi(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const s = await api.getPublicStoreBySlug(publicStorePathSegment);
+      if (cancelled) return;
+      setPublicStoreFromApi(s);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicStorePathSegment, isPublicUrlMine]);
+
+  useEffect(() => {
+    if (!isSignedIn || !user?.id) {
+      vendorStoreSyncedForUserRef.current = null;
+      return;
+    }
+    if (!api.getToken()) return;
+    if (vendorStoreSyncedForUserRef.current === user.id) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { store } = await api.getMyStore();
+        if (cancelled) return;
+        if (!store) {
+          vendorStoreSyncedForUserRef.current = user.id;
+          return;
+        }
+        const dSlug = defaultStorePathSlugFromUser(user);
+        if (store.pathSlug && String(store.pathSlug) !== dSlug) {
+          const s = sanitizeStorePathSegment(String(store.pathSlug));
+          if (s) {
+            setStorePathSlugOverride(s);
+            try {
+              localStorage.setItem('dataplus_store_slug_override', s);
+            } catch {
+              // ignore
+            }
+          }
+        } else {
+          setStorePathSlugOverride('');
+          try {
+            localStorage.removeItem('dataplus_store_slug_override');
+          } catch {
+            // ignore
+          }
+        }
+        if (store.display && typeof store.display === 'object') {
+          const d = store.display;
+          setStoreDisplaySettings((prev) => {
+            const next = {
+              ...prev,
+              logoDataUrl: typeof d.logoDataUrl === 'string' && d.logoDataUrl ? d.logoDataUrl : null,
+              theme:
+                typeof d.theme === 'string' && STORE_THEME_OPTIONS.some((o) => o.id === d.theme) ? d.theme : prev.theme,
+              storeName: typeof d.storeName === 'string' ? d.storeName.slice(0, 100) : prev.storeName,
+              storeDescription:
+                typeof d.storeDescription === 'string' ? d.storeDescription.slice(0, 500) : prev.storeDescription,
+              whatsapp: typeof d.whatsapp === 'string' ? d.whatsapp : prev.whatsapp,
+              whatsappGroup: typeof d.whatsappGroup === 'string' ? d.whatsappGroup : prev.whatsappGroup,
+              paystackEnabled: typeof d.paystackEnabled === 'boolean' ? d.paystackEnabled : prev.paystackEnabled,
+              feeAbsorption:
+                typeof d.feeAbsorption === 'number' && d.feeAbsorption >= 0 && d.feeAbsorption <= 100
+                  ? d.feeAbsorption
+                  : prev.feeAbsorption,
+            };
+            try {
+              localStorage.setItem('dataplus_store_display_v1', JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }
+        if (store.service && typeof store.service === 'object') {
+          const sv = store.service;
+          setStoreServiceSettings((prev) => {
+            const next = {
+              afaEnabled: typeof sv.afaEnabled === 'boolean' ? sv.afaEnabled : prev.afaEnabled,
+              afaPrice: typeof sv.afaPrice === 'string' ? sv.afaPrice : String(sv.afaPrice ?? prev.afaPrice),
+              afaDescription:
+                typeof sv.afaDescription === 'string' ? sv.afaDescription : prev.afaDescription,
+              vouchersEnabled: typeof sv.vouchersEnabled === 'boolean' ? sv.vouchersEnabled : prev.vouchersEnabled,
+            };
+            try {
+              localStorage.setItem('dataplus_store_services_v1', JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }
+        if (store.customBundlePrices && typeof store.customBundlePrices === 'object' && !Array.isArray(store.customBundlePrices)) {
+          setStoreCustomBundlePrices((prev) => {
+            const next = { ...prev, ...store.customBundlePrices };
+            try {
+              localStorage.setItem('dataplus_store_custom_bundle_prices', JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }
+        if (store.customBundleActive && typeof store.customBundleActive === 'object' && !Array.isArray(store.customBundleActive)) {
+          setStoreCustomBundleActive((prev) => {
+            const next = { ...prev, ...store.customBundleActive };
+            try {
+              localStorage.setItem('dataplus_store_custom_bundle_active', JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }
+        if (store.availability !== undefined) {
+          setStoreAvailabilityOn(!!store.availability);
+        }
+        window.setTimeout(() => {
+          if (!cancelled) {
+            try {
+              persistPublicStoreSnapshot();
+            } catch {
+              // ignore
+            }
+          }
+        }, 0);
+        vendorStoreSyncedForUserRef.current = user.id;
+      } catch {
+        // offline or older API: keep local cache
+        vendorStoreSyncedForUserRef.current = user.id;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn, user?.id, user?.email, persistPublicStoreSnapshot]);
+
+  useEffect(() => {
+    if (!isSignedIn || !api.getToken() || !effectiveStorePathSlug) {
+      if (storeApiSyncTimerRef.current) {
+        clearTimeout(storeApiSyncTimerRef.current);
+        storeApiSyncTimerRef.current = null;
+      }
+      return undefined;
+    }
+    if (storeApiSyncTimerRef.current) clearTimeout(storeApiSyncTimerRef.current);
+    storeApiSyncTimerRef.current = setTimeout(() => {
+      storeApiSyncTimerRef.current = null;
+      const ownerName =
+        (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
+        (user?.full_name && String(user.full_name).trim()) ||
+        (user?.name && String(user.name).trim()) ||
+        (user?.email && String(user.email).split('@')[0]) ||
+        'Store';
+      const body = {
+        pathSlug: effectiveStorePathSlug,
+        pathSlugOverride: hasCustomStorePath
+          ? sanitizeStorePathSegment(storePathSlugOverride) || null
+          : null,
+        display: { ...storeDisplaySettings },
+        service: { ...storeServiceSettings },
+        availability: storeAvailabilityOn,
+        customBundlePrices: { ...storeCustomBundlePrices },
+        customBundleActive: { ...storeCustomBundleActive },
+        bundles: {
+          mtn: [...(bundlesByNetwork.mtn || defaultBundles.mtn)],
+          telecel: [...(bundlesByNetwork.telecel || defaultBundles.telecel)],
+          bigtime: [...(bundlesByNetwork.bigtime || defaultBundles.bigtime)],
+          ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
+        },
+        ownerName,
+      };
+      api.putMyStore(body).catch(() => {});
+    }, 2500);
+    return () => {
+      if (storeApiSyncTimerRef.current) {
+        clearTimeout(storeApiSyncTimerRef.current);
+        storeApiSyncTimerRef.current = null;
+      }
+    };
+  }, [
+    isSignedIn,
+    effectiveStorePathSlug,
+    hasCustomStorePath,
+    storePathSlugOverride,
+    storeDisplaySettings,
+    storeServiceSettings,
+    storeAvailabilityOn,
+    storeCustomBundlePrices,
+    storeCustomBundleActive,
+    bundlesByNetwork,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !effectiveStorePathSlug) return;
+    try {
+      localStorage.setItem('dataplus_store_availability', storeAvailabilityOn ? '1' : '0');
+    } catch {
+      // ignore
+    }
+    persistPublicStoreSnapshot();
+    // Only availability + slug: avoids rewriting snapshot on every change to persist’s other deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeAvailabilityOn, effectiveStorePathSlug]);
+
+  /** Keep local public snapshot + pricing keys in sync when Custom Pricing changes (no need to press Save only). */
+  useEffect(() => {
+    if (typeof window === 'undefined' || !effectiveStorePathSlug) return undefined;
+    if (storePricingLocalPersistTimerRef.current) {
+      clearTimeout(storePricingLocalPersistTimerRef.current);
+    }
+    storePricingLocalPersistTimerRef.current = setTimeout(() => {
+      storePricingLocalPersistTimerRef.current = null;
+      try {
+        localStorage.setItem('dataplus_store_custom_bundle_prices', JSON.stringify(storeCustomBundlePrices));
+        localStorage.setItem('dataplus_store_custom_bundle_active', JSON.stringify(storeCustomBundleActive));
+      } catch {
+        // ignore
+      }
+      persistPublicStoreSnapshot();
+    }, 400);
+    return () => {
+      if (storePricingLocalPersistTimerRef.current) {
+        clearTimeout(storePricingLocalPersistTimerRef.current);
+        storePricingLocalPersistTimerRef.current = null;
+      }
+    };
+  }, [
+    storeCustomBundlePrices,
+    storeCustomBundleActive,
+    effectiveStorePathSlug,
+    persistPublicStoreSnapshot,
+  ]);
 
   const MenuItem = ({ id, icon, label, hasSubmenu = false, badge }) => {
     const isSelected = selectedMenu === id;
@@ -3304,6 +3926,24 @@ export default function App({ adminRoute: adminRouteProp = false }) {
             appSettings={appSettings}
           />
         </div>
+      ) : publicStorePathSegment ? (
+        <div
+          className={`flex-1 h-0 min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain ${isDark ? 'bg-zinc-950' : 'bg-slate-100'}`}
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <PublicStorefront
+            isDark={isDark}
+            onToggleTheme={toggleTheme}
+            slug={publicStorePathSegment}
+            data={publicStorefrontData}
+            onOpenSignIn={() => {
+              navigate('/');
+            }}
+            onBrowseOther={() => {
+              navigate('/');
+            }}
+          />
+        </div>
       ) : !isSignedIn && !adminPinVerified ? (
         <div className="flex-1 flex flex-col w-full min-h-full">
           <SignInPage
@@ -3426,6 +4066,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
           <nav className="space-y-1.5">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
+            {!showAdminNav && <MenuItem id="store-dashboard" icon={<Svg.Cart stroke={stroke} />} label="Store Dashboard" />}
             {!showAdminNav && <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />}
             {!showAdminNav && <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />}
             {!showAdminNav && (
@@ -4060,6 +4701,1992 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             );
           })()
+        ) : currentPage === 'store-dashboard' ? (
+          <>
+            <div className="pt-14 sm:pt-20 pb-3 flex items-center justify-end gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPage('dashboard');
+                  setSelectedMenu('dashboard');
+                }}
+                className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 transition-colors ${
+                  isDark ? 'text-white/80 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200'
+                }`}
+                aria-label="Back to dashboard"
+              >
+                <Svg.ArrowLeft width={24} height={24} aria-hidden className="shrink-0" />
+              </button>
+            </div>
+            <div
+              className={`w-full max-w-full min-w-0 space-y-6 pb-[max(6rem,env(safe-area-inset-bottom,0.5rem))] ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}
+            >
+              <div>
+                <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Store
+                </h1>
+                <p className={`text-sm sm:text-base mt-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Manage your store settings, pricing, and customer communications
+                </p>
+              </div>
+              <div
+                className="flex gap-3 sm:gap-3.5 overflow-x-auto py-1.5 pb-2.5 -mx-1 px-2 snap-x snap-mandatory scrollbar-thin"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+                role="tablist"
+                aria-label="Store sections"
+              >
+                {['overview', 'pricing', 'earnings', 'services', 'settings'].map((id) => {
+                  const label =
+                    id === 'overview'
+                      ? 'Overview'
+                      : id === 'pricing'
+                        ? 'Pricing'
+                        : id === 'earnings'
+                          ? 'Earnings'
+                          : id === 'services'
+                            ? 'Services'
+                            : 'Settings';
+                  const active = storeDashTab === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setStoreDashTab(id)}
+                      className={`shrink-0 snap-start rounded-full px-5 py-2.5 text-sm font-medium transition-colors ${
+                        active
+                          ? isDark
+                            ? 'bg-white/15 text-white border border-white/20'
+                            : 'bg-slate-200/90 text-slate-900 border border-slate-200/80'
+                          : isDark
+                            ? 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10'
+                            : 'bg-slate-100/80 text-slate-600 border border-transparent hover:bg-slate-200/80'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {storeDashTab === 'overview' ? (
+                <div className="space-y-4 w-full min-w-0">
+                  <div
+                    className={`rounded-2xl p-4 sm:p-5 shadow-sm border text-left ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          isDark ? 'bg-white/10 text-sky-400' : 'bg-sky-50 text-sky-600'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7" />
+                          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+                          <path d="M10 12h4" />
+                          <path d="M12 12v9" />
+                        </svg>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          Store Status
+                        </h2>
+                        <p
+                          className={`text-sm mt-2 flex flex-wrap items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
+                        >
+                          <span>Your store is currently</span>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold text-white ${
+                              storeAvailabilityOn ? 'bg-sky-500' : isDark ? 'bg-slate-500' : 'bg-slate-500'
+                            }`}
+                          >
+                            {storeAvailabilityOn ? 'Online' : 'Hidden'}
+                          </span>
+                        </p>
+                        <div className={`h-px my-4 ${isDark ? 'bg-white/10' : 'bg-slate-200'}`} />
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                              Store Availability
+                            </p>
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                              Toggle to make your store visible to customers
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={storeAvailabilityOn}
+                            onClick={() => setStoreAvailabilityOn((v) => !v)}
+                            className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors ${
+                              storeAvailabilityOn
+                                ? 'bg-sky-500'
+                                : isDark
+                                  ? 'bg-slate-600'
+                                  : 'bg-slate-300'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                                storeAvailabilityOn ? 'translate-x-6' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-2xl p-4 sm:p-5 shadow-sm border text-left ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          isDark ? 'bg-white/10 text-violet-400' : 'bg-violet-50 text-violet-600'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                          <path d="m3.3 7.8 7.7 3.2a2 2 0 0 0 1.4 0l7.3-2.1" />
+                          <path d="M12 22V12" />
+                        </svg>
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          Active Packages
+                        </h2>
+                        <p className={`text-xs sm:text-sm mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Packages available in your store
+                        </p>
+                        <p
+                          className={`text-4xl sm:text-5xl font-bold tabular-nums mt-3 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                        >
+                          {storeActivePackageCount}
+                        </p>
+                        <p className={`text-sm mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          of {storeTotalPackageCount} total packages
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+              <div
+                className={`rounded-2xl p-4 sm:p-5 shadow-sm border text-left ${
+                  isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                }`}
+              >
+                <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Your Store Link
+                </h2>
+                <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Share this unique link with customers to access your store
+                </p>
+                  <div
+                    className={`mt-4 flex items-stretch gap-0 rounded-xl border overflow-hidden ${
+                      isDark ? 'bg-black/30 border-white/10' : 'bg-slate-100 border-slate-200'
+                    }`}
+                  >
+                    <p
+                      className={`flex-1 min-w-0 px-3 py-2.5 text-xs sm:text-sm break-all ${
+                        isDark ? 'text-slate-200' : 'text-slate-800'
+                      }`}
+                    >
+                      {fullStoreLinkUrl || '—'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!fullStoreLinkUrl) return;
+                        try {
+                          await navigator.clipboard.writeText(fullStoreLinkUrl);
+                        } catch {
+                          try {
+                            const ta = document.createElement('textarea');
+                            ta.value = fullStoreLinkUrl;
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                          } catch {
+                            /* ignore */
+                          }
+                        }
+                      }}
+                      className={`shrink-0 px-3 flex items-center justify-center border-l ${
+                        isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-sky-400' : 'border-slate-200 bg-white hover:bg-slate-50 text-sky-600'
+                      }`}
+                      title="Copy link"
+                      aria-label="Copy store link"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                        <rect x="9" y="9" width="13" height="13" rx="2" />
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                      </svg>
+                    </button>
+                  </div>
+                  {hasCustomStorePath && storePathSlugOverride ? (
+                    <div
+                      className={`mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                        isDark ? 'border-emerald-500/30 bg-emerald-950/40' : 'border-emerald-200 bg-emerald-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 text-sm">
+                        <svg
+                          className={`shrink-0 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          aria-hidden
+                        >
+                          <path d="M20 6L9 17l-5-5" />
+                        </svg>
+                        <span className={isDark ? 'text-emerald-200' : 'text-emerald-900'}>
+                          Using custom URL: <span className="font-medium">/{storePathSlugOverride}</span>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          applyStorePathOverride('');
+                          setStoreLinkEditOpen(false);
+                        }}
+                        className={`shrink-0 self-start sm:self-center text-sm font-medium rounded-lg border px-3 py-1.5 transition-colors ${
+                          isDark
+                            ? 'border-amber-500/50 text-amber-300 hover:bg-amber-500/10'
+                            : 'border-amber-200 text-amber-700 bg-white hover:bg-amber-50'
+                        }`}
+                      >
+                        Reset to Default
+                      </button>
+                    </div>
+                  ) : null}
+                  <div className="mt-5 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Custom Store URL
+                      </h3>
+                      <p className={`text-xs mt-0.5 max-w-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        Create a memorable custom URL for your store
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (storeLinkEditOpen) {
+                          setStorePathSlugDraft(effectiveStorePathSlug);
+                          setStoreLinkEditOpen(false);
+                        } else {
+                          setStorePathSlugDraft(effectiveStorePathSlug);
+                          setStoreLinkEditOpen(true);
+                        }
+                      }}
+                      className={`shrink-0 text-sm font-medium rounded-lg border px-3 py-1.5 transition-colors ${
+                        isDark
+                          ? 'border-white/20 text-slate-200 hover:bg-white/10'
+                          : 'border-slate-200 text-slate-700 bg-white hover:bg-slate-50'
+                      }`}
+                    >
+                      {storeLinkEditOpen ? 'Done' : 'Edit'}
+                    </button>
+                  </div>
+                  {storeLinkEditOpen ? (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <label
+                          className={`block text-xs mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}
+                          htmlFor="store-path-slug"
+                        >
+                          Path (letters, numbers, hyphens)
+                        </label>
+                        <div className="flex items-center gap-1 sm:gap-2 flex-wrap sm:flex-nowrap">
+                          <span
+                            className={`text-xs sm:text-sm shrink-0 max-w-[min(100%,12rem)] truncate ${
+                              isDark ? 'text-slate-500' : 'text-slate-400'
+                            }`}
+                          >
+                            {storePathInputPrefix}
+                          </span>
+                          <input
+                            id="store-path-slug"
+                            type="text"
+                            value={storePathSlugDraft}
+                            onChange={(e) => setStorePathSlugDraft(e.target.value)}
+                            className={`flex-1 min-w-0 rounded-lg border px-3 py-2 text-sm ${
+                              isDark
+                                ? 'bg-black/30 border-white/15 text-white placeholder:text-slate-600'
+                                : 'bg-white border-slate-200 text-slate-900'
+                            }`}
+                            placeholder="your-store-name"
+                            autoComplete="off"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStorePathSlugDraft(effectiveStorePathSlug);
+                            setStoreLinkEditOpen(false);
+                          }}
+                          className={`text-sm font-medium rounded-lg border px-4 py-2 ${
+                            isDark
+                              ? 'border-white/15 text-slate-300 hover:bg-white/5'
+                              : 'border-slate-200 text-slate-700 bg-white'
+                          }`}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            applyStorePathOverride(storePathSlugDraft);
+                            setStoreLinkEditOpen(false);
+                          }}
+                          className="text-sm font-medium rounded-lg px-4 py-2 bg-sky-500 text-white hover:bg-sky-600"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div
+                    className={`mt-6 border-t pt-4 space-y-3 ${
+                      isDark ? 'border-white/10' : 'border-slate-200'
+                    }`}
+                  >
+                    {storeLinkSettingsMessage ? (
+                      <p
+                        className={`text-sm text-center ${
+                          isDark ? 'text-emerald-400' : 'text-emerald-600'
+                        }`}
+                        role="status"
+                      >
+                        {storeLinkSettingsMessage}
+                      </p>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end sm:gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStorePathSlugDraft(effectiveStorePathSlug);
+                          setStoreLinkEditOpen(false);
+                        }}
+                        className={`w-full sm:w-auto rounded-xl border py-2.5 px-4 text-sm font-medium ${
+                          isDark
+                            ? 'border-white/20 text-slate-200 bg-white/5 hover:bg-white/10'
+                            : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (storeLinkEditOpen) {
+                            applyStorePathOverride(storePathSlugDraft);
+                            setStoreLinkEditOpen(false);
+                          }
+                          setStoreLinkSettingsMessage('Profile settings saved');
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreLinkSettingsMessage(null), 2800);
+                          }
+                          persistPublicStoreSnapshot();
+                        }}
+                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                      >
+                        Save profile settings
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                </div>
+              ) : storeDashTab === 'pricing' ? (
+                <div className="w-full min-w-0 text-left space-y-4">
+                  <div
+                    className={`rounded-2xl p-4 sm:p-5 shadow-sm border ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden shrink-0 ${
+                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                        } ${storeDisplaySettings?.logoDataUrl ? 'ring-1 ' + (isDark ? 'ring-white/20' : 'ring-slate-200') : ''}`}
+                      >
+                        {storeDisplaySettings?.logoDataUrl ? (
+                          <img
+                            src={storeDisplaySettings.logoDataUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex items-center justify-center" aria-hidden>
+                            <svg
+                              width="22"
+                              height="22"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                      <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Custom Pricing
+                      </h2>
+                    </div>
+                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Set your own prices for data bundles. A package must have a price set and be <strong>Active</strong> to
+                      show on your public <code className="text-xs">/store</code> page; turn Active off to hide it (and its
+                      price) from the preview.
+                    </p>
+                    <div
+                      className={`mt-4 rounded-xl border p-3 sm:p-4 ${
+                        isDark ? 'border-white/10 bg-white/5' : 'border-slate-200 bg-slate-50/80'
+                      }`}
+                    >
+                      <div className="flex gap-3">
+                        <div className="shrink-0 pt-0.5" aria-hidden>
+                          <svg width="20" height="20" className={isDark ? 'text-sky-400' : 'text-sky-600'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 3v6h6M21 12V5h-6" />
+                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                            <path d="M3 12a9 9 0 0 0 15-6.7L21 16" />
+                            <path d="M3 3l6 6" />
+                            <path d="M12 3v3" />
+                            <path d="M3 3h3" />
+                          </svg>
+                        </div>
+                        <p className={`text-sm leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                          Set your price <strong className="text-sky-600 dark:text-sky-400">higher</strong> than the
+                          base price to earn profit. <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Your profit = Your price − Base price.</span>
+                        </p>
+                      </div>
+                    </div>
+                    {storePricingSaveMessage ? (
+                      <p
+                        className={`text-sm mt-3 text-center ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                        role="status"
+                      >
+                        {storePricingSaveMessage}
+                      </p>
+                    ) : null}
+                    <ul className="mt-4 space-y-0 rounded-xl border overflow-hidden divide-y list-none p-0 m-0" role="list">
+                      {storePricingNetworkRows.map((row) => {
+                        const open = storePricingOpenId === row.id;
+                        const list = getPricingBundles(row.id);
+                        return (
+                          <li
+                            key={row.id}
+                            className={isDark ? 'divide-slate-700/60 border-slate-700/60' : 'divide-slate-200 border-slate-200'}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setStorePricingOpenId(open ? null : row.id)}
+                              className={`w-full flex items-center gap-3 px-3 py-3.5 sm:px-4 text-left transition-colors ${
+                                isDark
+                                  ? 'bg-zinc-900/40 hover:bg-white/5'
+                                  : 'bg-white hover:bg-slate-50/90'
+                              }`}
+                              aria-expanded={open}
+                            >
+                              <span
+                                className={`shrink-0 w-9 h-7 rounded-md overflow-hidden border flex items-center justify-center p-0.5 ${
+                                  isDark ? 'border-white/10 bg-zinc-900' : 'border-slate-200/90 bg-white'
+                                }`}
+                              >
+                                <img
+                                  src={networkBrandLogoUrl(row.id)}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              </span>
+                              <span className={`flex-1 min-w-0 text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {row.name}
+                              </span>
+                              <span className={`text-sm shrink-0 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {row.count} offer{row.count === 1 ? '' : 's'}
+                              </span>
+                              <span className="shrink-0 text-slate-400" aria-hidden>
+                                <svg
+                                  width="18"
+                                  height="18"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  className={open ? 'rotate-180 transition-transform' : 'transition-transform'}
+                                >
+                                  <path d="M6 9l6 6 6-6" />
+                                </svg>
+                              </span>
+                            </button>
+                            {open && list.length > 0 ? (
+                              <div
+                                className={`px-2 sm:px-4 pb-4 -mt-0.5 ${
+                                  isDark ? 'bg-zinc-950/50' : 'bg-slate-50/90'
+                                }`}
+                              >
+                                <div
+                                  className={`hidden sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_auto] gap-2 sm:items-end px-1 sm:px-0 pt-3 pb-1 border-b ${
+                                    isDark ? 'border-white/10' : 'border-slate-200/90'
+                                  }`}
+                                >
+                                  <span
+                                    className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                  >
+                                    Size
+                                  </span>
+                                  <span
+                                    className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                  >
+                                    Base price
+                                  </span>
+                                  <span
+                                    className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                  >
+                                    Your price
+                                  </span>
+                                  <span
+                                    className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide sm:text-left ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                  >
+                                    Profit
+                                  </span>
+                                  <span
+                                    className={`text-[10px] sm:text-xs font-medium uppercase tracking-wide text-right pr-0.5 min-w-[3.5rem] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                  >
+                                    Active
+                                  </span>
+                                </div>
+                                {list.map((b, bidx) => {
+                                  const k = storePricingBundleKey(row.id, b.size);
+                                  const base = Number(b.price);
+                                  const yourStr = storeCustomBundlePrices[k];
+                                  const yourNum = yourStr != null && yourStr !== '' ? Number.parseFloat(String(yourStr), 10) : NaN;
+                                  const hasValidYour = Number.isFinite(yourNum) && yourNum >= 0;
+                                  const profit = hasValidYour ? yourNum - base : null;
+                                  const showProfitGhs = hasValidYour && Number.isFinite(profit);
+                                  const activeOn = storeCustomBundleActive[k] !== false;
+                                  return (
+                                    <div
+                                      key={`${row.id}-${bidx}-${b.size}`}
+                                      className={`grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_auto] gap-3 sm:gap-2 items-start sm:items-center py-3 sm:py-2.5 border-b last:border-0 ${
+                                        isDark ? 'border-white/10' : 'border-slate-200/90'
+                                      }`}
+                                    >
+                                      <div>
+                                        <p
+                                          className={`sm:hidden text-[10px] font-medium uppercase tracking-wide mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                        >
+                                          Size
+                                        </p>
+                                        <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                          {b.size}
+                                        </p>
+                                      </div>
+                                      <div>
+                                        <p
+                                          className={`sm:hidden text-[10px] font-medium uppercase tracking-wide mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                        >
+                                          Base price
+                                        </p>
+                                        <p className={`text-sm font-medium tabular-nums ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                                          ¢{base.toFixed(2)}
+                                        </p>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p
+                                          className={`sm:hidden text-[10px] font-medium uppercase tracking-wide mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                        >
+                                          Your price
+                                        </p>
+                                        <input
+                                          id={`pr-${k}`}
+                                          type="number"
+                                          inputMode="decimal"
+                                          min="0"
+                                          step="0.01"
+                                          placeholder="Set price"
+                                          value={storeCustomBundlePrices[k] ?? ''}
+                                          onChange={(e) => {
+                                            const v = e.target.value;
+                                            setStoreCustomBundlePrices((prev) => ({ ...prev, [k]: v }));
+                                          }}
+                                          className={`w-full min-w-0 rounded-lg border px-2.5 py-2 text-sm ${
+                                            isDark
+                                              ? 'bg-black/30 border-white/15 text-white placeholder:text-slate-500'
+                                              : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                                          }`}
+                                        />
+                                      </div>
+                                      <div className="min-w-0 sm:flex sm:items-center sm:pl-0">
+                                        <p
+                                          className={`sm:hidden text-[10px] font-medium uppercase tracking-wide mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                        >
+                                          Profit
+                                        </p>
+                                        {showProfitGhs ? (
+                                          <p
+                                            className={`text-sm font-medium tabular-nums ${
+                                              profit != null && profit >= 0
+                                                ? isDark
+                                                  ? 'text-emerald-400'
+                                                  : 'text-emerald-600'
+                                                : isDark
+                                                  ? 'text-amber-400'
+                                                  : 'text-amber-600'
+                                            }`}
+                                          >
+                                            GHS {profit != null ? profit.toFixed(2) : '—'}
+                                          </p>
+                                        ) : (
+                                          <span className={`text-sm ${isDark ? 'text-slate-500' : 'text-slate-400'}`} aria-hidden>
+                                            -
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center justify-between sm:justify-center sm:pl-0 gap-2 sm:w-[3.5rem]">
+                                        <p
+                                          className={`sm:hidden text-[10px] font-medium uppercase tracking-wide ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                                        >
+                                          Active
+                                        </p>
+                                        <button
+                                          type="button"
+                                          role="switch"
+                                          aria-checked={activeOn}
+                                          aria-label={activeOn ? 'Active in store' : 'Hidden from store'}
+                                          onClick={() =>
+                                            setStoreCustomBundleActive((prev) => {
+                                              const on = prev[k] !== false;
+                                              return { ...prev, [k]: !on };
+                                            })
+                                          }
+                                          className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center sm:ml-auto rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/60 focus:ring-offset-0 ${
+                                            activeOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                                          }`}
+                                        >
+                                          <span
+                                            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow transition ease-out ${
+                                              activeOn ? 'translate-x-[22px]' : 'translate-x-0.5'
+                                            }`}
+                                            aria-hidden
+                                          />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                <div className="pt-3 flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      try {
+                                        localStorage.setItem('dataplus_store_custom_bundle_prices', JSON.stringify(storeCustomBundlePrices));
+                                        localStorage.setItem('dataplus_store_custom_bundle_active', JSON.stringify(storeCustomBundleActive));
+                                      } catch {
+                                        // ignore
+                                      }
+                                      persistPublicStoreSnapshot();
+                                      setStorePricingSaveMessage('Custom prices and active settings saved for this device.');
+                                      if (typeof window !== 'undefined') {
+                                        window.setTimeout(() => setStorePricingSaveMessage(null), 3000);
+                                      }
+                                    }}
+                                    className="text-sm font-medium rounded-lg px-4 py-2 bg-sky-500 text-white hover:bg-sky-600"
+                                  >
+                                    Save prices
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                            {open && list.length === 0 ? (
+                              <p className={`px-3 pb-3 text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                                No offers loaded for this network.
+                              </p>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      Base price is read-only; your price and profit update the public store. Inactive packages are hidden
+                      on your /store preview. Changes save here and sync to the server when you are signed in.
+                    </p>
+                  </div>
+                </div>
+              ) : storeDashTab === 'earnings' ? (
+                <div className="w-full min-w-0 text-left space-y-4">
+                  {storeEarningsActionMsg ? (
+                    <p className={`text-sm text-center ${isDark ? 'text-sky-300' : 'text-sky-700'}`} role="status">
+                      {storeEarningsActionMsg}
+                    </p>
+                  ) : null}
+                  {storeEarningsError ? (
+                    <p className={`text-sm rounded-xl border px-3 py-2 ${isDark ? 'border-amber-800/50 bg-amber-950/30 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-900'}`} role="status">
+                      {storeEarningsError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="min-w-0">
+                      <label
+                        className={`sr-only`}
+                        htmlFor="store-earnings-period"
+                      >
+                        Earnings period
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="store-earnings-period"
+                          value={storeEarningsPeriod}
+                          onChange={(e) => setStoreEarningsPeriod(e.target.value)}
+                          className={`appearance-none w-full sm:w-56 rounded-xl border py-2.5 pl-3 pr-9 text-sm font-medium cursor-pointer ${
+                            isDark
+                              ? 'bg-zinc-900/80 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          <option value="today">Today</option>
+                          <option value="this-week">This week</option>
+                          <option value="this-month">This month</option>
+                          <option value="last-month">Last month</option>
+                        </select>
+                        <span
+                          className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}
+                          aria-hidden
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 sm:justify-end">
+                      {storeEarningsRefreshHint ? (
+                        <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Updated</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoreEarningsRefreshHint(true);
+                          fetchWallet();
+                          loadStoreEarnings();
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreEarningsRefreshHint(false), 2000);
+                          }
+                        }}
+                        className={`inline-flex items-center justify-center gap-2 rounded-xl border py-2.5 px-4 text-sm font-medium ${
+                          isDark
+                            ? 'border-white/20 text-slate-200 bg-zinc-900/80 hover:bg-zinc-800/80'
+                            : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                          <path d="M21 3v5h-5" />
+                          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                          <path d="M8 16H3v5" />
+                        </svg>
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+                  {(() => {
+                    const ghs = (n) => {
+                      const v = Number(n);
+                      return `GHS ${(Number.isFinite(v) ? v : 0).toFixed(2)}`;
+                    };
+                    const showAmt = (n) => (storeEarningsLoading && !storeEarningsData ? '—' : ghs(n));
+                    const periodLabel =
+                      storeEarningsPeriod === 'today'
+                        ? 'Today'
+                        : storeEarningsPeriod === 'this-week'
+                          ? 'Last 7 days'
+                          : storeEarningsPeriod === 'last-month'
+                            ? 'Last month'
+                            : 'This month';
+                    const d = storeEarningsData;
+                    const withdrawable = d && Number.isFinite(Number(d.withdrawableGhs)) ? Number(d.withdrawableGhs) : dashboardBalance;
+                    const revP = d && Number.isFinite(Number(d.revenueInPeriodGhs)) ? Number(d.revenueInPeriodGhs) : 0;
+                    const profP = d && Number.isFinite(Number(d.periodProfitGhs)) ? Number(d.periodProfitGhs) : 0;
+                    const pending = d && Number.isFinite(Number(d.profitPendingGhs)) ? Number(d.profitPendingGhs) : 0;
+                    const totRev = d && Number.isFinite(Number(d.totalRevenueGhs)) ? Number(d.totalRevenueGhs) : 0;
+                    const totProf = d && Number.isFinite(Number(d.totalProfitGhs)) ? Number(d.totalProfitGhs) : 0;
+                    const totWd = d && Number.isFinite(Number(d.totalWithdrawnGhs)) ? Number(d.totalWithdrawnGhs) : 0;
+                    const wds = Array.isArray(d?.withdrawals) ? d.withdrawals : [];
+                    const EarningCard = ({ icon, amount, label, sub }) => (
+                      <div
+                        className={`rounded-2xl border p-4 ${
+                          isDark
+                            ? 'bg-sky-950/20 border-sky-800/40'
+                            : 'bg-[#E3F2FD]/40 border-sky-200/60'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                              isDark ? 'bg-sky-900/50 text-sky-300' : 'bg-sky-100 text-sky-700'
+                            }`}
+                            aria-hidden
+                          >
+                            {icon}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`text-lg sm:text-xl font-bold tabular-nums ${
+                                isDark ? 'text-white' : 'text-slate-900'
+                              }`}
+                            >
+                              {amount}
+                            </p>
+                            <p
+                              className={`text-sm mt-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}
+                            >
+                              {label}
+                            </p>
+                            {sub ? (
+                              <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{sub}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-3">
+                        {storeEarningsLoading && !storeEarningsData ? (
+                          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Loading earnings from the server…</p>
+                        ) : null}
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 12V7H5a2 2 0 0 1 0-4h14" />
+                              <path d="M3 5v14a2 2 0 0 0 2 2h16" />
+                              <path d="M3 5l5 2v10" />
+                            </svg>
+                          }
+                          amount={showAmt(dashboardBalance)}
+                          label="Available balance"
+                          sub="From your wallet on the API"
+                        />
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M12 6v6l3 2" />
+                            </svg>
+                          }
+                          amount={showAmt(withdrawable)}
+                          label="Withdrawable now"
+                          sub="Same as available until payout rules apply"
+                        />
+                        <div
+                          className={`rounded-2xl border p-4 ${
+                            isDark
+                              ? 'bg-sky-950/20 border-sky-800/40'
+                              : 'bg-[#E3F2FD]/40 border-sky-200/60'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                isDark ? 'bg-sky-900/50 text-sky-300' : 'bg-sky-100 text-sky-700'
+                              }`}
+                              aria-hidden
+                            >
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M3 3v6h6" />
+                                <path d="M21 12V9a3 3 0 0 0-3-3h-1" />
+                                <path d="M7 18l4-4" />
+                                <path d="M3 12a9 9 0 0 0 9 9" />
+                              </svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-sm font-medium ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                                {'Period sales & profit'}
+                              </p>
+                              <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{periodLabel}</p>
+                              <div className="mt-2 grid grid-cols-2 gap-3">
+                                <div>
+                                  <p
+                                    className={`text-lg sm:text-xl font-bold tabular-nums ${
+                                      isDark ? 'text-white' : 'text-slate-900'
+                                    }`}
+                                  >
+                                    {showAmt(revP)}
+                                  </p>
+                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Customer spend (completed)</p>
+                                </div>
+                                <div>
+                                  <p
+                                    className={`text-lg sm:text-xl font-bold tabular-nums ${
+                                      isDark ? 'text-white' : 'text-slate-900'
+                                    }`}
+                                  >
+                                    {showAmt(profP)}
+                                  </p>
+                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Your profit (completed)</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="2" y="6" width="20" height="12" rx="2" />
+                              <path d="M2 10h20" />
+                              <path d="M6 14h.01" />
+                            </svg>
+                          }
+                          amount={showAmt(pending)}
+                          label="Pending profit"
+                          sub="Store orders not completed or cancelled yet"
+                        />
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M3 3v6h6" />
+                              <path d="M3 12a9 9 0 0 0 9 9" />
+                            </svg>
+                          }
+                          amount={showAmt(totRev)}
+                          label="Total store revenue (all time)"
+                        />
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="2" y="6" width="20" height="12" rx="2" />
+                              <path d="M2 10h20" />
+                            </svg>
+                          }
+                          amount={showAmt(totProf)}
+                          label="Total store profit (all time)"
+                        />
+                        <EarningCard
+                          icon={
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M22 2L11 13" />
+                              <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                            </svg>
+                          }
+                          amount={showAmt(totWd)}
+                          label="Total withdrawn"
+                          sub="Payout and withdrawal transactions on the API"
+                        />
+                        {totRev === 0 && !storeEarningsLoading && d ? (
+                          <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                            No store sales in your server ledger yet. When public checkout records orders for your store, sales
+                            and profit will appear here.
+                          </p>
+                        ) : null}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStoreEarningsActionMsg('Transfer from store earnings to wallet will be available when payouts are enabled on the API.');
+                              if (typeof window !== 'undefined') {
+                                window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
+                              }
+                            }}
+                            className={`inline-flex items-center justify-center gap-2 rounded-xl border py-3 px-4 text-sm font-medium ${
+                              isDark
+                                ? 'border-white/15 text-slate-200 bg-zinc-900/60 hover:bg-zinc-800/80'
+                                : 'border-slate-200 text-slate-800 bg-slate-100/90 hover:bg-slate-200/80'
+                            }`}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                              <path d="M7 7h10l-4 4" />
+                              <path d="M7 17h10" />
+                            </svg>
+                            Transfer to wallet
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStoreEarningsActionMsg('Withdrawal requests will be available when store payouts are enabled on the API.');
+                              if (typeof window !== 'undefined') {
+                                window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
+                              }
+                            }}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <path d="M22 2L11 13" />
+                              <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                            </svg>
+                            Request withdrawal
+                          </button>
+                        </div>
+                        <div
+                          className={`rounded-2xl border p-4 ${
+                            isDark ? 'bg-zinc-900/50 border-white/10' : 'bg-white border-slate-200/90'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                isDark ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'
+                              }`}
+                              aria-hidden
+                            >
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <path d="M12 8v4" />
+                                <path d="M12 16h.01" />
+                              </svg>
+                            </div>
+                            <div className="min-w-0">
+                              <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                Withdrawal policy
+                              </p>
+                              <p
+                                className={`text-sm mt-2 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
+                              >
+                                Earnings and balances are loaded from the same API as your wallet. Store revenue and profit
+                                rows are recorded when a customer purchase is attributed to your store on the server. Profits
+                                stay pending while those orders are not completed; cancelled or failed orders do not add to
+                                settled profit.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className={`rounded-2xl border p-4 ${
+                            isDark ? 'bg-zinc-900/50 border-white/10' : 'bg-white border-slate-200/90'
+                          }`}
+                        >
+                          <h3 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            Withdrawal history
+                          </h3>
+                          <p
+                            className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                          >
+                            Payout and withdrawal entries from the API
+                          </p>
+                          {wds.length === 0 ? (
+                            <p
+                              className={`text-sm text-center py-10 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}
+                            >
+                              No withdrawal or payout entries yet
+                            </p>
+                          ) : (
+                            <ul className="mt-3 space-y-2 list-none p-0 m-0" role="list">
+                              {wds.map((w) => {
+                                const when = w.created_at
+                                  ? new Date(String(w.created_at).replace(' ', 'T'))
+                                  : null;
+                                const whenStr =
+                                  when && !Number.isNaN(when.getTime())
+                                    ? when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                                    : '—';
+                                const abs = Math.abs(Number(w.amount) || 0);
+                                return (
+                                  <li
+                                    key={w.id}
+                                    className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 rounded-lg border px-3 py-2 text-sm ${
+                                      isDark ? 'border-white/10 bg-zinc-950/40' : 'border-slate-200/90 bg-slate-50/80'
+                                    }`}
+                                  >
+                                    <div className="min-w-0">
+                                      <p className={isDark ? 'text-slate-200' : 'text-slate-800'}>
+                                        {w.description || w.type || 'Payout'}
+                                      </p>
+                                      <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{whenStr}</p>
+                                    </div>
+                                    <p className={`font-semibold tabular-nums shrink-0 ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
+                                      {ghs(abs)}
+                                    </p>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : storeDashTab === 'services' ? (
+                <div className="w-full min-w-0 text-left space-y-4">
+                  {storeServicesPanelMessage ? (
+                    <p
+                      className={`text-sm text-center ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                      role="status"
+                    >
+                      {storeServicesPanelMessage}
+                    </p>
+                  ) : null}
+                  {(() => {
+                    const afaP = Number.parseFloat(String(storeServiceSettings.afaPrice), 10);
+                    const afaProfit = Number.isFinite(afaP) ? afaP - AFA_REG_BASE_GHS : null;
+                    const afaOn = storeServiceSettings.afaEnabled;
+                    const vouchOn = storeServiceSettings.vouchersEnabled;
+                    return (
+                      <div className="space-y-4">
+                        <div
+                          className={`rounded-2xl border p-4 sm:p-5 ${
+                            isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                  isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                                }`}
+                                aria-hidden
+                              >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M16 18a4 4 0 0 0-8 0" />
+                                  <circle cx="12" cy="8" r="3" />
+                                  <line x1="20" y1="8" x2="20" y2="14" />
+                                  <line x1="17" y1="11" x2="23" y2="11" />
+                                </svg>
+                              </div>
+                              <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                AFA registration
+                              </h3>
+                            </div>
+                            <span
+                              className={`inline-flex items-center gap-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-semibold ${
+                                isDark ? 'bg-emerald-900/45 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                              Available
+                            </span>
+                          </div>
+                          <p
+                            className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
+                          >
+                            Allow customers to register for the MTN AFA bundle plan through your store
+                          </p>
+                          <div
+                            className={`mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-2 border-b ${
+                              isDark ? 'border-white/10' : 'border-slate-200/90'
+                            }`}
+                          >
+                            <div>
+                              <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                Enable AFA registration
+                              </p>
+                              <p
+                                className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                              >
+                                Show AFA registration on your storefront
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={afaOn}
+                              onClick={() =>
+                                setStoreServiceSettings((s) => ({ ...s, afaEnabled: !s.afaEnabled }))
+                              }
+                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/50 ${
+                                afaOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow transition ${
+                                  afaOn ? 'translate-x-[22px]' : 'translate-x-0.5'
+                                }`}
+                                aria-hidden
+                              />
+                            </button>
+                          </div>
+                          <div className="mt-4">
+                            <p className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-sm">
+                              <span
+                                className={`font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                              >
+                                Custom price (GHS)
+                              </span>
+                              <span className={isDark ? 'text-slate-500' : 'text-slate-500'}>
+                                — Base: GHS {AFA_REG_BASE_GHS.toFixed(2)}
+                              </span>
+                            </p>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={storeServiceSettings.afaPrice}
+                              onChange={(e) =>
+                                setStoreServiceSettings((s) => ({ ...s, afaPrice: e.target.value }))
+                              }
+                              className={`mt-2 w-full max-w-md rounded-lg border px-2.5 py-2 text-sm ${
+                                isDark
+                                  ? 'bg-black/30 border-white/15 text-white'
+                                  : 'bg-white border-slate-200 text-slate-900'
+                              }`}
+                            />
+                            {afaProfit != null && Number.isFinite(afaProfit) ? (
+                              <p
+                                className={`text-sm mt-2 font-medium ${
+                                  afaProfit >= 0
+                                    ? isDark
+                                      ? 'text-emerald-400'
+                                      : 'text-emerald-600'
+                                    : isDark
+                                      ? 'text-amber-400'
+                                      : 'text-amber-600'
+                                }`}
+                              >
+                                Your profit per registration: GHS {afaProfit.toFixed(2)}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="mt-4">
+                            <label
+                              className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                              htmlFor="store-afa-desc"
+                            >
+                              Description (optional)
+                            </label>
+                            <textarea
+                              id="store-afa-desc"
+                              value={storeServiceSettings.afaDescription}
+                              onChange={(e) =>
+                                setStoreServiceSettings((s) => ({
+                                  ...s,
+                                  afaDescription: e.target.value.slice(0, 255),
+                                }))
+                              }
+                              maxLength={255}
+                              rows={3}
+                              className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm resize-y min-h-[4.5rem] ${
+                                isDark
+                                  ? 'bg-black/30 border-white/15 text-white placeholder:text-slate-500'
+                                  : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
+                              }`}
+                              placeholder="Describe this service to customers"
+                            />
+                            <p
+                              className={`text-xs mt-1.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                            >
+                              Shown on your storefront. Max 255 characters.
+                            </p>
+                          </div>
+                        </div>
+                        <div
+                          className={`rounded-2xl border p-4 sm:p-5 ${
+                            isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                                  isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                                }`}
+                                aria-hidden
+                              >
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v.5a1 1 0 0 0 0 2v1a1 1 0 0 0 0 2V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.5a1 1 0 0 0 0-2V10a1 1 0 0 0 0-2V7Z" />
+                                </svg>
+                              </div>
+                              <h3 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                Vouchers
+                              </h3>
+                            </div>
+                            <span
+                              className={`inline-flex items-center gap-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-semibold ${
+                                isDark ? 'bg-emerald-900/45 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                              2 type(s) available
+                            </span>
+                          </div>
+                          <p
+                            className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
+                          >
+                            Allow customers to purchase exam vouchers, e-pins, and other voucher types through your store
+                          </p>
+                          <div
+                            className={`mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-0`}
+                          >
+                            <div>
+                              <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                Enable voucher sales
+                              </p>
+                              <p
+                                className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                              >
+                                Show the vouchers section on your storefront
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={vouchOn}
+                              onClick={() =>
+                                setStoreServiceSettings((s) => ({ ...s, vouchersEnabled: !s.vouchersEnabled }))
+                              }
+                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/50 ${
+                                vouchOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow transition ${
+                                  vouchOn ? 'translate-x-[22px]' : 'translate-x-0.5'
+                                }`}
+                                aria-hidden
+                              />
+                            </button>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try {
+                              localStorage.setItem('dataplus_store_services_v1', JSON.stringify(storeServiceSettings));
+                            } catch {
+                              // ignore
+                            }
+                            persistPublicStoreSnapshot();
+                            setStoreServicesPanelMessage('Service settings saved for this device.');
+                            if (typeof window !== 'undefined') {
+                              window.setTimeout(() => setStoreServicesPanelMessage(null), 3200);
+                            }
+                          }}
+                          className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                        >
+                          Save services settings
+                        </button>
+                        <div
+                          className={`pt-1 border-t space-y-3 ${
+                            isDark ? 'border-white/10' : 'border-slate-200'
+                          }`}
+                        >
+                          <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end sm:gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStoreServiceSettings(loadStoreServiceSettings());
+                                setStoreServicesPanelMessage('Restored to last saved.');
+                                if (typeof window !== 'undefined') {
+                                  window.setTimeout(() => setStoreServicesPanelMessage(null), 2200);
+                                }
+                              }}
+                              className={`w-full sm:w-auto rounded-xl border py-2.5 px-4 text-sm font-medium ${
+                                isDark
+                                  ? 'border-white/20 text-slate-200 bg-white/5 hover:bg-white/10'
+                                  : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
+                              }`}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (storeLinkEditOpen) {
+                                  applyStorePathOverride(storePathSlugDraft);
+                                  setStoreLinkEditOpen(false);
+                                }
+                                setStoreLinkSettingsMessage('Profile settings saved');
+                                if (typeof window !== 'undefined') {
+                                  window.setTimeout(() => setStoreLinkSettingsMessage(null), 2800);
+                                }
+                                setStoreServicesPanelMessage('Profile link saved. Use Overview to edit your public store URL any time.');
+                                if (typeof window !== 'undefined') {
+                                  window.setTimeout(() => setStoreServicesPanelMessage(null), 3200);
+                                }
+                                persistPublicStoreSnapshot();
+                              }}
+                              className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                            >
+                              Save profile settings
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="w-full min-w-0 text-left space-y-4">
+                  {storeSettingsMessage ? (
+                    <p
+                      className={`text-sm text-center ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+                      role="status"
+                    >
+                      {storeSettingsMessage}
+                    </p>
+                  ) : null}
+                  <input
+                    ref={storeLogoInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="sr-only"
+                    onChange={(e) => {
+                      setStoreLogoError(null);
+                      const f = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!f) return;
+                      if (f.size > MAX_STORE_LOGO_BYTES) {
+                        setStoreLogoError('File must be 2MB or smaller.');
+                        return;
+                      }
+                      const ok = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                      if (!ok.includes(f.type)) {
+                        setStoreLogoError('Use JPEG, PNG, WebP, or GIF.');
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === 'string') {
+                          setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: reader.result }));
+                        }
+                      };
+                      reader.readAsDataURL(f);
+                    }}
+                    aria-label="Upload store logo"
+                  />
+                  <div
+                    className={`rounded-2xl border p-4 sm:p-5 ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M4 20h16" />
+                          <path d="M4 4v4l3.5-3" />
+                          <rect x="8" y="10" width="8" height="6" rx="0.5" />
+                        </svg>
+                      </div>
+                      <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Store logo
+                      </h2>
+                    </div>
+                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Upload a logo for your store (max 2MB, JPEG/PNG/WebP/GIF)
+                    </p>
+                    {storeLogoError ? (
+                      <p className="text-sm mt-2 text-amber-600 dark:text-amber-400" role="alert">
+                        {storeLogoError}
+                      </p>
+                    ) : null}
+                    <div
+                      className={`mt-4 rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-4 min-h-[140px] ${
+                        isDark ? 'border-white/20 bg-white/5' : 'border-slate-200 bg-slate-50/80'
+                      }`}
+                    >
+                      {storeDisplaySettings.logoDataUrl ? (
+                        <img
+                          src={storeDisplaySettings.logoDataUrl}
+                          alt="Store logo preview"
+                          className="max-h-32 max-w-full object-contain rounded-lg"
+                        />
+                      ) : (
+                        <div className="text-slate-400" aria-hidden>
+                          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z" />
+                            <path d="M9 22V12h6v10" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => storeLogoInputRef.current?.click()}
+                        className={`inline-flex items-center gap-2 rounded-xl border py-2 px-4 text-sm font-medium ${
+                          isDark
+                            ? 'border-white/20 text-slate-200 bg-white/5 hover:bg-white/10'
+                            : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                          <path d="M4 4v4l3.5-3" />
+                          <path d="M4 4h4" />
+                        </svg>
+                        Upload logo
+                      </button>
+                      {storeDisplaySettings.logoDataUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: null }));
+                            setStoreLogoError(null);
+                          }}
+                          className={`text-sm font-medium py-2 px-2 ${
+                            isDark ? 'text-rose-400 hover:text-rose-300' : 'text-rose-600 hover:text-rose-700'
+                          }`}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className={`text-xs mt-2 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      Recommended: square image, at least 200×200 pixels
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-2xl border p-4 sm:p-5 ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="6" cy="7" r="2" />
+                          <path d="M2 20l4-8M10 6l-2-2" />
+                          <path d="M8 4l-2-2" />
+                        </svg>
+                      </div>
+                      <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Store theme
+                      </h2>
+                    </div>
+                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Choose a card style for your package listings
+                    </p>
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {STORE_THEME_OPTIONS.map((opt) => {
+                        const sel = storeDisplaySettings.theme === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setStoreDisplaySettings((s) => ({ ...s, theme: opt.id }))}
+                            className={`relative rounded-xl border-2 p-3 text-left transition ${
+                              sel
+                                ? 'border-sky-500 ring-1 ring-sky-500/30'
+                                : isDark
+                                  ? 'border-white/10 hover:border-white/20'
+                                  : 'border-slate-200 hover:border-slate-300'
+                            } ${isDark ? (sel ? 'bg-sky-950/30' : 'bg-zinc-900/40') : sel ? 'bg-sky-50/50' : 'bg-white'}`}
+                          >
+                            {sel ? (
+                              <span
+                                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center"
+                                aria-hidden
+                              >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                              </span>
+                            ) : null}
+                            <p
+                              className={`text-sm font-semibold pr-6 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                            >
+                              {opt.label}
+                            </p>
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{opt.desc}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p
+                      className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                    >
+                      Network colors (MTN yellow, Telecel grey, Big Time blue, Ishare violet) are applied automatically
+                      for each package provider in your store theme.
+                    </p>
+                  </div>
+                  <div
+                    className={`rounded-2xl border p-4 sm:p-5 ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Store information
+                    </h2>
+                    <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Update your store name and description
+                    </p>
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-settings-name"
+                        >
+                          Store name
+                        </label>
+                        <input
+                          id="store-settings-name"
+                          type="text"
+                          value={storeDisplaySettings.storeName}
+                          maxLength={100}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({ ...s, storeName: e.target.value.slice(0, 100) }))
+                          }
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        />
+                        <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          {storeDisplaySettings.storeName.length}/100 characters
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-settings-desc"
+                        >
+                          Store description
+                        </label>
+                        <textarea
+                          id="store-settings-desc"
+                          value={storeDisplaySettings.storeDescription}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({
+                              ...s,
+                              storeDescription: e.target.value.slice(0, 500),
+                            }))
+                          }
+                          maxLength={500}
+                          rows={4}
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm resize-y min-h-[5rem] ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          placeholder="Brief description of your store"
+                        />
+                        <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          {storeDisplaySettings.storeDescription.length}/500 characters
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-settings-wa"
+                        >
+                          WhatsApp number (optional)
+                        </label>
+                        <input
+                          id="store-settings-wa"
+                          type="text"
+                          inputMode="numeric"
+                          value={storeDisplaySettings.whatsapp}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({ ...s, whatsapp: e.target.value }))
+                          }
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          placeholder="233…"
+                        />
+                        <p className={`text-xs mt-1.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          Customers can contact you via WhatsApp if provided. Use international format (233…).
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-settings-wa-group"
+                        >
+                          WhatsApp group link (optional)
+                        </label>
+                        <input
+                          id="store-settings-wa-group"
+                          type="url"
+                          value={storeDisplaySettings.whatsappGroup}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({ ...s, whatsappGroup: e.target.value }))
+                          }
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          placeholder="https://chat.whatsapp.com/…"
+                        />
+                        <p className={`text-xs mt-1.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          Share a group link so customers can join for updates and support.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className={`rounded-2xl border p-4 sm:p-5 ${
+                      isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                          isDark ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-800'
+                        }`}
+                        aria-hidden
+                      >
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <rect x="1" y="4" width="22" height="16" rx="2" />
+                          <path d="M1 9h22" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h2 className={`text-base sm:text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          Payment preferences
+                        </h2>
+                        <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                          Configure which payment methods are available on your store
+                        </p>
+                      </div>
+                    </div>
+                    <h3
+                      className={`text-sm font-semibold mt-5 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                    >
+                      Enabled payment methods
+                    </h3>
+                    <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      Toggle which methods customers can use on your storefront
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      <div
+                        className={`rounded-xl border-2 p-3 flex items-start justify-between gap-2 ${
+                          storeDisplaySettings.paystackEnabled
+                            ? isDark
+                              ? 'border-sky-500/50 bg-sky-950/20'
+                              : 'border-sky-500 bg-sky-50/40'
+                            : isDark
+                              ? 'border-white/10'
+                              : 'border-slate-200'
+                        }`}
+                      >
+                        <div>
+                          <p className={`text-sm font-semibold flex items-center gap-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            Paystack
+                            {storeDisplaySettings.paystackEnabled ? (
+                              <span
+                                className="inline-flex text-sky-500"
+                                aria-label="On"
+                                title="On"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                                  <path d="M20 6L9 17l-5-5" />
+                                </svg>
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                            Card &amp; bank payments
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={storeDisplaySettings.paystackEnabled}
+                          onClick={() =>
+                            setStoreDisplaySettings((s) => ({ ...s, paystackEnabled: !s.paystackEnabled }))
+                          }
+                          className={`relative shrink-0 inline-flex h-7 w-12 items-center rounded-full border-2 border-transparent transition ${
+                            storeDisplaySettings.paystackEnabled ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none block h-6 w-6 rounded-full bg-white shadow transition ${
+                              storeDisplaySettings.paystackEnabled ? 'translate-x-[22px]' : 'translate-x-0.5'
+                            }`}
+                            aria-hidden
+                          />
+                        </button>
+                      </div>
+                      <div
+                        className={`rounded-xl border p-3 flex items-start justify-between gap-2 select-none ${
+                          isDark ? 'border-white/10 opacity-60' : 'border-slate-200 bg-slate-100/30 opacity-90'
+                        }`}
+                        aria-disabled
+                      >
+                        <div>
+                          <p
+                            className={`text-sm font-semibold flex flex-wrap items-center gap-1.5 ${
+                              isDark ? 'text-slate-500' : 'text-slate-500'
+                            }`}
+                          >
+                            BulkClix
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              Disabled by admin
+                            </span>
+                          </p>
+                          <p
+                            className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                          >
+                            This payment method is currently unavailable on the platform.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled
+                          className="relative shrink-0 inline-flex h-7 w-12 items-center rounded-full bg-slate-400/80 cursor-not-allowed opacity-90"
+                        >
+                          <span className="pointer-events-none block h-6 w-6 translate-x-0.5 rounded-full bg-white" aria-hidden />
+                        </button>
+                      </div>
+                    </div>
+                    <h3
+                      className={`text-sm font-semibold mt-6 ${isDark ? 'text-white' : 'text-slate-900'}`}
+                    >
+                      Fee absorption
+                    </h3>
+                    <p
+                      className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                    >
+                      Choose how much of the payment processing fee you absorb. The rest is passed to customers.
+                    </p>
+                    <div className="mt-3">
+                      <div className="flex justify-center">
+                        <span
+                          className={`text-sm font-bold tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}
+                        >
+                          {storeDisplaySettings.feeAbsorption}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={storeDisplaySettings.feeAbsorption}
+                        onChange={(e) =>
+                          setStoreDisplaySettings((s) => ({ ...s, feeAbsorption: Number(e.target.value) }))
+                        }
+                        className="w-full h-2 mt-2 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                        aria-label="Fee absorption percentage"
+                      />
+                      <div className="flex justify-between text-[10px] sm:text-xs gap-1 mt-1.5 text-center">
+                        <span
+                          className={`shrink-0 text-left min-w-0 max-w-[45%] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                        >
+                          Customer pays all fees
+                        </span>
+                        <span
+                          className={`shrink-0 text-right min-w-0 max-w-[45%] ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                        >
+                          You absorb all fees
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try {
+                        const raw = JSON.stringify(storeDisplaySettings);
+                        localStorage.setItem('dataplus_store_display_v1', raw);
+                        persistPublicStoreSnapshot();
+                        setStoreSettingsMessage('Store settings saved for this device.');
+                        if (typeof window !== 'undefined') {
+                          window.setTimeout(() => setStoreSettingsMessage(null), 3000);
+                        }
+                      } catch {
+                        setStoreSettingsMessage(
+                          'Could not save (storage full?). Try a smaller logo or clear site data.',
+                        );
+                        if (typeof window !== 'undefined') {
+                          window.setTimeout(() => setStoreSettingsMessage(null), 5000);
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                  >
+                    Save store settings
+                  </button>
+                  <div
+                    className={`pt-1 border-t space-y-3 ${isDark ? 'border-white/10' : 'border-slate-200'}`}
+                  >
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end sm:gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStoreDisplaySettings(loadStoreDisplaySettings());
+                          setStoreLogoError(null);
+                          setStoreSettingsMessage('Restored to last saved store settings.');
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreSettingsMessage(null), 2500);
+                          }
+                        }}
+                        className={`w-full sm:w-auto rounded-xl border py-2.5 px-4 text-sm font-medium ${
+                          isDark
+                            ? 'border-white/20 text-slate-200 bg-white/5 hover:bg-white/10'
+                            : 'border-slate-200 text-slate-800 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (storeLinkEditOpen) {
+                            applyStorePathOverride(storePathSlugDraft);
+                            setStoreLinkEditOpen(false);
+                          }
+                          setStoreLinkSettingsMessage('Profile settings saved');
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreLinkSettingsMessage(null), 2800);
+                          }
+                          setStoreSettingsMessage('Public store link updated from Overview. Open Overview to change URL.');
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreSettingsMessage(null), 3200);
+                          }
+                          persistPublicStoreSnapshot();
+                        }}
+                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                      >
+                        Save profile settings
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
         ) : currentPage === 'join-us' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5 flex items-center justify-between gap-4">

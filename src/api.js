@@ -822,4 +822,92 @@ export const api = {
     if (!res.ok) throw supportFetchError(res, data, 'Failed to delete message');
     return data;
   },
+
+  /**
+   * Public vendor store (no auth). Returns null for 404, errors, or bad JSON so the SPA can
+   * fall back to the same-device localStorage snapshot without throwing.
+   */
+  async getPublicStoreBySlug(slug) {
+    const s = String(slug || '').trim();
+    if (!s) return null;
+    try {
+      const res = await fetch(
+        withNoStoreTs(`${API_URL}/api/public/store/${encodeURIComponent(s)}`),
+        { cache: 'no-store' }
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || typeof data !== 'object') return null;
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * Signed-in vendor store (GET /api/store). Never throws — on failure you keep local-only state.
+   */
+  async getMyStore() {
+    try {
+      const res = await fetch(withNoStoreTs(`${API_URL}/api/store`), { headers: headers(), cache: 'no-store' });
+      if (res.status === 401) {
+        return { store: null };
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { store: null };
+      }
+      if (!data || typeof data !== 'object' || !('store' in data)) {
+        return { store: null };
+      }
+      return data;
+    } catch {
+      return { store: null };
+    }
+  },
+
+  /**
+   * Store dashboard → Earnings (GET /api/store/earnings). Does not throw; returns null if unauthorized or API error.
+   * @param {string} [period] today | this-week | this-month | last-month
+   */
+  async getStoreEarnings(period) {
+    const p = String(period || 'this-month').trim() || 'this-month';
+    try {
+      const res = await fetch(
+        withNoStoreTs(`${API_URL}/api/store/earnings?period=${encodeURIComponent(p)}`),
+        { headers: headers(), cache: 'no-store' }
+      );
+      if (res.status === 401) return null;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      if (!data || typeof data !== 'object') return null;
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
+  /** Save vendor store to the API (PUT /api/store). */
+  async putMyStore(payload) {
+    if (!getToken()) {
+      return { ok: false, skipped: true };
+    }
+    const res = await fetch(`${API_URL}/api/store`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      return { ok: false, skipped: true };
+    }
+    if (res.status === 409) {
+      throw new Error((data && data.error) || 'This store URL is already taken');
+    }
+    if (!res.ok) {
+      throw new Error((data && data.error) || 'Failed to save store');
+    }
+    return data;
+  },
 };
