@@ -4784,8 +4784,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       className={`shrink-0 snap-start rounded-full px-5 py-2.5 text-sm font-medium transition-colors ${
                         active
                           ? isDark
-                            ? 'bg-white/15 text-white border border-white/20'
-                            : 'bg-slate-200/90 text-slate-900 border border-slate-200/80'
+                            ? 'bg-violet-500/20 text-violet-200 border border-violet-500/40'
+                            : 'bg-violet-100 text-violet-900 border border-violet-200/90'
                           : isDark
                             ? 'bg-white/5 text-slate-400 border border-transparent hover:bg-white/10'
                             : 'bg-slate-100/80 text-slate-600 border border-transparent hover:bg-slate-200/80'
@@ -4806,7 +4806,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     <div className="flex items-start gap-3">
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                          isDark ? 'bg-white/10 text-sky-400' : 'bg-sky-50 text-sky-600'
+                          isDark ? 'bg-white/10 text-violet-300' : 'bg-violet-50 text-violet-600'
                         }`}
                         aria-hidden
                       >
@@ -4836,7 +4836,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           <span>Your store is currently</span>
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold text-white ${
-                              storeAvailabilityOn ? 'bg-sky-500' : isDark ? 'bg-slate-500' : 'bg-slate-500'
+                              storeAvailabilityOn ? 'bg-violet-600' : isDark ? 'bg-slate-500' : 'bg-slate-500'
                             }`}
                           >
                             {storeAvailabilityOn ? 'Online' : 'Hidden'}
@@ -4859,7 +4859,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             onClick={() => setStoreAvailabilityOn((v) => !v)}
                             className={`relative inline-flex h-7 w-12 flex-shrink-0 items-center rounded-full transition-colors ${
                               storeAvailabilityOn
-                                ? 'bg-sky-500'
+                                ? 'bg-violet-600'
                                 : isDark
                                   ? 'bg-slate-600'
                                   : 'bg-slate-300'
@@ -4963,7 +4963,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         }
                       }}
                       className={`shrink-0 px-3 flex items-center justify-center border-l ${
-                        isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-sky-400' : 'border-slate-200 bg-white hover:bg-slate-50 text-sky-600'
+                        isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-violet-300' : 'border-slate-200 bg-white hover:bg-slate-50 text-violet-600'
                       }`}
                       title="Copy link"
                       aria-label="Copy store link"
@@ -5095,7 +5095,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             applyStorePathOverride(storePathSlugDraft);
                             setStoreLinkEditOpen(false);
                           }}
-                          className="text-sm font-medium rounded-lg px-4 py-2 bg-sky-500 text-white hover:bg-sky-600"
+                          className="text-sm font-medium rounded-lg px-4 py-2 bg-violet-600 text-white hover:bg-violet-500"
                         >
                           Save
                         </button>
@@ -5145,7 +5145,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           }
                           persistPublicStoreSnapshot();
                         }}
-                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                       >
                         Save profile settings
                       </button>
@@ -5205,7 +5205,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     >
                       <div className="flex gap-3">
                         <div className="shrink-0 pt-0.5" aria-hidden>
-                          <svg width="20" height="20" className={isDark ? 'text-sky-400' : 'text-sky-600'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <svg width="20" height="20" className={isDark ? 'text-violet-300' : 'text-violet-600'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M3 3v6h6M21 12V5h-6" />
                             <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
                             <path d="M3 12a9 9 0 0 0 15-6.7L21 16" />
@@ -5215,7 +5215,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           </svg>
                         </div>
                         <p className={`text-sm leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          Set your price <strong className="text-sky-600 dark:text-sky-400">higher</strong> than the
+                          Set your price <strong className="text-violet-600 dark:text-violet-300">higher</strong> than the
                           base price to earn profit. <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Your profit = Your price − Base price.</span>
                         </p>
                       </div>
@@ -5418,8 +5418,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                               return { ...prev, [k]: !on };
                                             })
                                           }
-                                          className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center sm:ml-auto rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/60 focus:ring-offset-0 ${
-                                            activeOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                                          className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center sm:ml-auto rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:ring-offset-0 ${
+                                            activeOn ? 'bg-violet-600' : isDark ? 'bg-slate-600' : 'bg-slate-300'
                                           }`}
                                         >
                                           <span
@@ -5449,7 +5449,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                         window.setTimeout(() => setStorePricingSaveMessage(null), 3000);
                                       }
                                     }}
-                                    className="text-sm font-medium rounded-lg px-4 py-2 bg-sky-500 text-white hover:bg-sky-600"
+                                    className="text-sm font-medium rounded-lg px-4 py-2 bg-violet-600 text-white hover:bg-violet-500"
                                   >
                                     Save prices
                                   </button>
@@ -5474,7 +5474,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               ) : storeDashTab === 'earnings' ? (
                 <div className="w-full min-w-0 text-left space-y-4">
                   {storeEarningsActionMsg ? (
-                    <p className={`text-sm text-center ${isDark ? 'text-sky-300' : 'text-sky-700'}`} role="status">
+                    <p className={`text-sm text-center ${isDark ? 'text-violet-300' : 'text-violet-700'}`} role="status">
                       {storeEarningsActionMsg}
                     </p>
                   ) : null}
@@ -5574,14 +5574,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       <div
                         className={`rounded-2xl border p-4 ${
                           isDark
-                            ? 'bg-sky-950/20 border-sky-800/40'
-                            : 'bg-[#E3F2FD]/40 border-sky-200/60'
+                            ? 'bg-violet-950/20 border-violet-800/50'
+                            : 'bg-violet-100/50 border-violet-200/70'
                         }`}
                       >
                         <div className="flex items-start gap-3">
                           <div
                             className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                              isDark ? 'bg-sky-900/50 text-sky-300' : 'bg-sky-100 text-sky-700'
+                              isDark ? 'bg-violet-900/50 text-violet-300' : 'bg-violet-100 text-violet-700'
                             }`}
                             aria-hidden
                           >
@@ -5638,14 +5638,14 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         <div
                           className={`rounded-2xl border p-4 ${
                             isDark
-                              ? 'bg-sky-950/20 border-sky-800/40'
-                              : 'bg-[#E3F2FD]/40 border-sky-200/60'
+                              ? 'bg-violet-950/20 border-violet-800/50'
+                              : 'bg-violet-100/50 border-violet-200/70'
                           }`}
                         >
                           <div className="flex items-start gap-3">
                             <div
                               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                                isDark ? 'bg-sky-900/50 text-sky-300' : 'bg-sky-100 text-sky-700'
+                                isDark ? 'bg-violet-900/50 text-violet-300' : 'bg-violet-100 text-violet-700'
                               }`}
                               aria-hidden
                             >
@@ -5764,7 +5764,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                 window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
                               }
                             }}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                            className="inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                               <path d="M22 2L11 13" />
@@ -5781,7 +5781,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           <div className="flex items-start gap-2">
                             <div
                               className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                isDark ? 'bg-sky-900/40 text-sky-300' : 'bg-sky-100 text-sky-700'
+                                isDark ? 'bg-violet-900/40 text-violet-300' : 'bg-violet-100 text-violet-700'
                               }`}
                               aria-hidden
                             >
@@ -5945,8 +5945,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               onClick={() =>
                                 setStoreServiceSettings((s) => ({ ...s, afaEnabled: !s.afaEnabled }))
                               }
-                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/50 ${
-                                afaOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
+                                afaOn ? 'bg-violet-600' : isDark ? 'bg-slate-600' : 'bg-slate-300'
                               }`}
                             >
                               <span
@@ -6088,8 +6088,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               onClick={() =>
                                 setStoreServiceSettings((s) => ({ ...s, vouchersEnabled: !s.vouchersEnabled }))
                               }
-                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/50 ${
-                                vouchOn ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                              className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
+                                vouchOn ? 'bg-violet-600' : isDark ? 'bg-slate-600' : 'bg-slate-300'
                               }`}
                             >
                               <span
@@ -6120,7 +6120,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               window.setTimeout(() => setStoreServicesPanelMessage(null), 3200);
                             }
                           }}
-                          className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                          className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                         >
                           Save services settings
                         </button>
@@ -6164,7 +6164,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                 }
                                 persistPublicStoreSnapshot();
                               }}
-                              className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                              className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                             >
                               Save profile settings
                             </button>
@@ -6337,15 +6337,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             onClick={() => setStoreDisplaySettings((s) => ({ ...s, theme: opt.id }))}
                             className={`relative rounded-xl border-2 p-3 text-left transition ${
                               sel
-                                ? 'border-sky-500 ring-1 ring-sky-500/30'
+                                ? 'border-violet-500 ring-1 ring-violet-500/30'
                                 : isDark
                                   ? 'border-white/10 hover:border-white/20'
                                   : 'border-slate-200 hover:border-slate-300'
-                            } ${isDark ? (sel ? 'bg-sky-950/30' : 'bg-zinc-900/40') : sel ? 'bg-sky-50/50' : 'bg-white'}`}
+                            } ${isDark ? (sel ? 'bg-violet-950/30' : 'bg-zinc-900/40') : sel ? 'bg-violet-50/50' : 'bg-white'}`}
                           >
                             {sel ? (
                               <span
-                                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center"
+                                className="absolute top-2 right-2 w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center"
                                 aria-hidden
                               >
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
@@ -6528,8 +6528,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         className={`rounded-xl border-2 p-3 flex items-start justify-between gap-2 ${
                           storeDisplaySettings.paystackEnabled
                             ? isDark
-                              ? 'border-sky-500/50 bg-sky-950/20'
-                              : 'border-sky-500 bg-sky-50/40'
+                              ? 'border-violet-500/50 bg-violet-950/20'
+                              : 'border-violet-500 bg-violet-50/40'
                             : isDark
                               ? 'border-white/10'
                               : 'border-slate-200'
@@ -6540,7 +6540,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             Paystack
                             {storeDisplaySettings.paystackEnabled ? (
                               <span
-                                className="inline-flex text-sky-500"
+                                className="inline-flex text-violet-600"
                                 aria-label="On"
                                 title="On"
                               >
@@ -6562,7 +6562,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             setStoreDisplaySettings((s) => ({ ...s, paystackEnabled: !s.paystackEnabled }))
                           }
                           className={`relative shrink-0 inline-flex h-7 w-12 items-center rounded-full border-2 border-transparent transition ${
-                            storeDisplaySettings.paystackEnabled ? 'bg-sky-500' : isDark ? 'bg-slate-600' : 'bg-slate-300'
+                            storeDisplaySettings.paystackEnabled ? 'bg-violet-600' : isDark ? 'bg-slate-600' : 'bg-slate-300'
                           }`}
                         >
                           <span
@@ -6635,7 +6635,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         onChange={(e) =>
                           setStoreDisplaySettings((s) => ({ ...s, feeAbsorption: Number(e.target.value) }))
                         }
-                        className="w-full h-2 mt-2 rounded-lg appearance-none cursor-pointer accent-sky-500"
+                        className="w-full h-2 mt-2 rounded-lg appearance-none cursor-pointer accent-violet-600"
                         aria-label="Fee absorption percentage"
                       />
                       <div className="flex justify-between text-[10px] sm:text-xs gap-1 mt-1.5 text-center">
@@ -6677,7 +6677,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         }
                       }
                     }}
-                    className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                    className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                   >
                     Save store settings
                   </button>
@@ -6720,7 +6720,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           }
                           persistPublicStoreSnapshot();
                         }}
-                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-sky-500 text-white hover:bg-sky-600 shadow-sm"
+                        className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                       >
                         Save profile settings
                       </button>
