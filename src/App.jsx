@@ -272,6 +272,13 @@ function defaultStorePathSlugFromUser(u) {
   return 'my-store';
 }
 
+/** Store Dashboard is in private testing — only these signed-in emails see the menu and page. */
+const STORE_DASHBOARD_ALLOWLIST = new Set(['ultraxas@gmail.com'].map((e) => e.trim().toLowerCase()));
+function isStoreDashboardAllowedForUser(u) {
+  const em = u && typeof u.email === 'string' ? u.email.trim().toLowerCase() : '';
+  return em.length > 0 && STORE_DASHBOARD_ALLOWLIST.has(em);
+}
+
 /** Card style aligned with system “team notified” messages — admin replies in support. */
 function supportAdminReplyBubbleClass(isDark) {
   return isDark
@@ -2909,6 +2916,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     // Do NOT redirect non-admin users away from /admin — they can still enter the admin PIN to get access.
   }, [adminRoute, adminPinVerified, isSignedIn, user?.role, navigate, currentPage]);
 
+  const canAccessStoreDashboard = isStoreDashboardAllowedForUser(user);
+  useEffect(() => {
+    if (currentPage !== 'store-dashboard') return;
+    if (!canAccessStoreDashboard) {
+      setCurrentPage('dashboard');
+      setSelectedMenu('dashboard');
+    }
+  }, [currentPage, canAccessStoreDashboard]);
+
   /** Leaving /admin must drop admin-only pages from state; PIN sessions are not admin UI on `/`. */
   useEffect(() => {
     if (location.pathname === '/admin') return;
@@ -2943,6 +2959,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       setCurrentPage('dashboard');
       setProfileOpen(false);
     } else if (menu === 'store-dashboard') {
+      if (!isStoreDashboardAllowedForUser(user)) return;
       setCurrentPage('store-dashboard');
       setProfileOpen(false);
     } else if (menu === 'wallet' || menu === 'topup') {
@@ -4091,7 +4108,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           <p className={`text-xs uppercase tracking-wider mb-2 font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Menu</p>
           <nav className="space-y-1.5">
             <MenuItem id="dashboard" icon={<Svg.Grid stroke={stroke} />} label="Dashboard" />
-            {!showAdminNav && <MenuItem id="store-dashboard" icon={<Svg.Cart stroke={stroke} />} label="Store Dashboard" />}
+            {!showAdminNav && canAccessStoreDashboard && (
+              <MenuItem id="store-dashboard" icon={<Svg.Cart stroke={stroke} />} label="Store Dashboard" />
+            )}
             {!showAdminNav && <MenuItem id="bulk-orders" icon={<Svg.Phone stroke={stroke} />} label="Bulk Orders (MTN)" />}
             {!showAdminNav && <MenuItem id="afa-registration" icon={<Svg.Phone stroke={stroke} />} label="AFA Registration" />}
             {!showAdminNav && (
