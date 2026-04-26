@@ -1103,6 +1103,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const storeLogoInputRef = useRef(null);
   const storeApiSyncTimerRef = useRef(null);
   const storePricingLocalPersistTimerRef = useRef(null);
+  const buildMyStoreRequestBodyRef = useRef(null);
   const vendorStoreSyncedForUserRef = useRef(null);
   const [storeLinkEditOpen, setStoreLinkEditOpen] = useState(false);
   const [storePathSlugDraft, setStorePathSlugDraft] = useState('');
@@ -3142,6 +3143,53 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     user,
   ]);
 
+  buildMyStoreRequestBodyRef.current = () => {
+    const ownerName =
+      (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
+      (user?.full_name && String(user.full_name).trim()) ||
+      (user?.name && String(user.name).trim()) ||
+      (user?.email && String(user.email).split('@')[0]) ||
+      'Store';
+    return {
+      pathSlug: effectiveStorePathSlug,
+      pathSlugOverride: hasCustomStorePath
+        ? sanitizeStorePathSegment(storePathSlugOverride) || null
+        : null,
+      display: { ...storeDisplaySettings },
+      service: { ...storeServiceSettings },
+      availability: storeAvailabilityOn,
+      customBundlePrices: { ...storeCustomBundlePrices },
+      customBundleActive: { ...storeCustomBundleActive },
+      bundles: {
+        mtn: [...(bundlesByNetwork.mtn || defaultBundles.mtn)],
+        telecel: [...(bundlesByNetwork.telecel || defaultBundles.telecel)],
+        bigtime: [...(bundlesByNetwork.bigtime || defaultBundles.bigtime)],
+        ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
+      },
+      ownerName,
+    };
+  };
+
+  const flushStoreToApi = useCallback(() => {
+    if (typeof window === 'undefined' || !isSignedIn || !api.getToken() || !effectiveStorePathSlug) return;
+    if (storeApiSyncTimerRef.current) {
+      clearTimeout(storeApiSyncTimerRef.current);
+      storeApiSyncTimerRef.current = null;
+    }
+    const body = buildMyStoreRequestBodyRef.current ? buildMyStoreRequestBodyRef.current() : null;
+    if (!body) return;
+    api
+      .putMyStore(body)
+      .then(() => {
+        try {
+          persistPublicStoreSnapshot();
+        } catch {
+          // ignore
+        }
+      })
+      .catch(() => {});
+  }, [isSignedIn, effectiveStorePathSlug, persistPublicStoreSnapshot]);
+
   const applyStorePathOverride = (raw) => {
     const s = sanitizeStorePathSegment(raw);
     setStorePathSlugOverride(s);
@@ -3367,31 +3415,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (storeApiSyncTimerRef.current) clearTimeout(storeApiSyncTimerRef.current);
     storeApiSyncTimerRef.current = setTimeout(() => {
       storeApiSyncTimerRef.current = null;
-      const ownerName =
-        (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) ||
-        (user?.full_name && String(user.full_name).trim()) ||
-        (user?.name && String(user.name).trim()) ||
-        (user?.email && String(user.email).split('@')[0]) ||
-        'Store';
-      const body = {
-        pathSlug: effectiveStorePathSlug,
-        pathSlugOverride: hasCustomStorePath
-          ? sanitizeStorePathSegment(storePathSlugOverride) || null
-          : null,
-        display: { ...storeDisplaySettings },
-        service: { ...storeServiceSettings },
-        availability: storeAvailabilityOn,
-        customBundlePrices: { ...storeCustomBundlePrices },
-        customBundleActive: { ...storeCustomBundleActive },
-        bundles: {
-          mtn: [...(bundlesByNetwork.mtn || defaultBundles.mtn)],
-          telecel: [...(bundlesByNetwork.telecel || defaultBundles.telecel)],
-          bigtime: [...(bundlesByNetwork.bigtime || defaultBundles.bigtime)],
-          ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
-        },
-        ownerName,
-      };
-      api.putMyStore(body).catch(() => {});
+      const body = buildMyStoreRequestBodyRef.current ? buildMyStoreRequestBodyRef.current() : null;
+      if (body) api.putMyStore(body).catch(() => {});
     }, 2500);
     return () => {
       if (storeApiSyncTimerRef.current) {
@@ -5847,6 +5872,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       {storeServicesPanelMessage}
                     </p>
                   ) : null}
+                  <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                    When you are signed in, service options sync to the server (automatically after you stop editing, or
+                    immediately when you save).
+                  </p>
                   {(() => {
                     const afaP = Number.parseFloat(String(storeServiceSettings.afaPrice), 10);
                     const afaProfit = Number.isFinite(afaP) ? afaP - AFA_REG_BASE_GHS : null;
@@ -6081,7 +6110,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               // ignore
                             }
                             persistPublicStoreSnapshot();
-                            setStoreServicesPanelMessage('Service settings saved for this device.');
+                            if (isSignedIn && api.getToken()) {
+                              flushStoreToApi();
+                              setStoreServicesPanelMessage('Service settings saved and synced to the server.');
+                            } else {
+                              setStoreServicesPanelMessage('Service settings saved on this device. Sign in to sync to the server.');
+                            }
                             if (typeof window !== 'undefined') {
                               window.setTimeout(() => setStoreServicesPanelMessage(null), 3200);
                             }
@@ -6150,6 +6184,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       {storeSettingsMessage}
                     </p>
                   ) : null}
+                  <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                    When you are signed in, storefront and payment options sync to the server (automatically after you
+                    stop editing, or immediately when you save).
+                  </p>
                   <input
                     ref={storeLogoInputRef}
                     type="file"
@@ -6621,7 +6659,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         const raw = JSON.stringify(storeDisplaySettings);
                         localStorage.setItem('dataplus_store_display_v1', raw);
                         persistPublicStoreSnapshot();
-                        setStoreSettingsMessage('Store settings saved for this device.');
+                        if (isSignedIn && api.getToken()) {
+                          flushStoreToApi();
+                          setStoreSettingsMessage('Store settings saved and synced to the server.');
+                        } else {
+                          setStoreSettingsMessage('Store settings saved on this device. Sign in to sync to the server.');
+                        }
                         if (typeof window !== 'undefined') {
                           window.setTimeout(() => setStoreSettingsMessage(null), 3000);
                         }
