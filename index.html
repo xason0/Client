@@ -2,11 +2,55 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- So browsers & proxies don’t serve a stale index.html (which would point at old /assets/* hashes). -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <script>
+      (function () {
+        if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+        try {
+          navigator.serviceWorker
+            .getRegistrations()
+            .then(function (regs) {
+              regs.forEach(function (r) {
+                r.unregister();
+              });
+            })
+            .catch(function () {});
+        } catch (e) {}
+      })();
+    </script>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, shrink-to-fit=no, viewport-fit=cover"
+    />
     <script>
       (function() {
-        var path = (typeof location !== 'undefined' && location.pathname) || '';
-        var isAdmin = path === '/admin';
+        try {
+          var z = function (e) { e.preventDefault(); };
+          document.addEventListener('gesturestart', z, { passive: false, capture: true });
+          document.addEventListener('gesturechange', z, { passive: false, capture: true });
+          document.addEventListener('gestureend', z, { passive: false, capture: true });
+        } catch (x) {}
+        try {
+          var wz = function (e) { if (e && e.ctrlKey) e.preventDefault(); };
+          window.addEventListener('wheel', wz, { passive: false, capture: true });
+        } catch (x) {}
+      })();
+    </script>
+    <script>
+      (function() {
+        var path = (typeof location !== 'undefined' && location.pathname) || '/';
+        var norm = String(path).replace(/\/+$/g, '') || '/';
+        var isPublicStore = /^\/store\/[a-z0-9-]+$/i.test(norm);
+        if (isPublicStore) {
+          var ts;
+          try { ts = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; } catch (e) { ts = 'light'; }
+          document.documentElement.setAttribute('data-theme', ts);
+          window.__INITIAL_THEME__ = ts;
+          return;
+        }
+        var isAdmin = norm === '/admin';
         var key = isAdmin ? 'dataplus_theme_admin' : 'dataplus_theme_customer';
         var stored = localStorage.getItem(key);
         if (!isAdmin && (stored !== 'dark' && stored !== 'light')) {

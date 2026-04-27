@@ -80,6 +80,33 @@ try {
 try {
   db.exec('ALTER TABLE orders ADD COLUMN store_profit_ghs REAL');
 } catch (_) {}
+try {
+  db.exec('ALTER TABLE orders ADD COLUMN paystack_reference TEXT');
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_orders_paystack_ref ON orders(paystack_reference)');
+} catch (_) {}
+
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS store_withdrawal_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    full_name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    amount_ghs REAL NOT NULL,
+    fee_ghs REAL NOT NULL,
+    net_after_fee_ghs REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`);
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_store_wd_req_user ON store_withdrawal_requests(user_id)');
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_store_wd_req_created ON store_withdrawal_requests(created_at)');
+} catch (_) {}
 
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS afa_applications (
@@ -97,6 +124,25 @@ try {
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   )`);
 } catch (_) {}
+try {
+  db.exec('ALTER TABLE afa_applications ADD COLUMN is_public_checkout INTEGER NOT NULL DEFAULT 0');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE afa_applications ADD COLUMN public_store_slug TEXT');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE afa_applications ADD COLUMN paystack_reference TEXT');
+} catch (_) {}
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_afa_applications_paystack_ref ON afa_applications(paystack_reference) WHERE paystack_reference IS NOT NULL');
+} catch (_) {}
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS afa_public_paystack_pending (
+    reference TEXT PRIMARY KEY,
+    data_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+} catch (_) {}
 
 // Per-user public storefront: slug, pricing overrides, AFA, etc. (syncs with client Store Dashboard)
 try {
@@ -109,7 +155,49 @@ try {
   )`);
 } catch (_) {}
 try {
+  db.exec(`CREATE TABLE IF NOT EXISTS user_stores_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    path_slug TEXT NOT NULL UNIQUE,
+    data_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT DEFAULT (datetime('now')),
+    moderation_status TEXT NOT NULL DEFAULT 'approved',
+    moderation_note TEXT,
+    reviewed_at TEXT,
+    reviewed_by TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )`);
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_stores_v2_user_id ON user_stores_v2(user_id)');
+} catch (_) {}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_user_stores_v2_path_slug ON user_stores_v2(path_slug)');
+} catch (_) {}
+try {
+  db.exec(`INSERT INTO user_stores_v2 (user_id, path_slug, data_json, updated_at, moderation_status, moderation_note, reviewed_at, reviewed_by)
+    SELECT us.user_id, us.path_slug, us.data_json, us.updated_at,
+           COALESCE(us.moderation_status, 'approved'),
+           COALESCE(us.moderation_note, ''),
+           us.reviewed_at, us.reviewed_by
+    FROM user_stores us
+    LEFT JOIN user_stores_v2 v2 ON v2.path_slug = us.path_slug
+    WHERE v2.id IS NULL`);
+} catch (_) {}
+try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_user_stores_path_slug ON user_stores(path_slug)');
+} catch (_) {}
+try {
+  db.exec("ALTER TABLE user_stores ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'approved'");
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE user_stores ADD COLUMN moderation_note TEXT');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE user_stores ADD COLUMN reviewed_at TEXT');
+} catch (_) {}
+try {
+  db.exec('ALTER TABLE user_stores ADD COLUMN reviewed_by TEXT');
 } catch (_) {}
 
 // Default bundle definitions (admin can change via API)
@@ -263,6 +351,22 @@ function adminAuthMiddleware(req, res, next) {
     return res.status(403).json({ error: 'Admin access required' });
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function hasAdminAccessFromAuthHeader(req) {
+  try {
+    const auth = req.headers.authorization;
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return false;
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.adminPin === true) return true;
+    const adminUid = payload.userId ?? payload.sub;
+    if (adminUid == null || adminUid === '') return false;
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(adminUid);
+    return !!(user && user.role === 'admin');
+  } catch {
+    return false;
   }
 }
 
@@ -465,6 +569,109 @@ function ghsFromPaystackAmount(amountPesewas) {
   const n = Number(amountPesewas);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n) / 100;
+}
+
+/**
+ * Paystack `metadata` may be a string, an object, or (rarely) empty. Dashboard "custom fields"
+ * come back as `custom_fields: [{ variable_name, value }]`; merge so `kind` / `amount_ghs` resolve.
+ */
+function normalizePaystackMetadata(raw) {
+  if (raw == null || raw === '') return {};
+  let m = raw;
+  if (typeof m === 'string') {
+    try {
+      m = JSON.parse(m);
+    } catch {
+      return {};
+    }
+  }
+  if (!m || typeof m !== 'object') return {};
+  const out = { ...m };
+  if (Array.isArray(out.custom_fields)) {
+    for (const f of out.custom_fields) {
+      if (f == null || typeof f !== 'object' || f.variable_name == null || f.variable_name === '') continue;
+      const k = String(f.variable_name);
+      if (out[k] == null || out[k] === '') {
+        out[k] = f.value;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * For one numeric API field, build possible GHS subunit (pesewa) interpretations.
+ * GHS: Paystack `amount` / `requested_amount` are usually in pesewas, but `amount` is sometimes
+ * a major GHS value when under 100. `requested_amount` often matches the initialized subtotal.
+ * @param {number} raw
+ * @param {Set<number>} into
+ */
+function addGhsPesewaInterpretationsForRaw(raw, into) {
+  if (!Number.isFinite(raw) || raw <= 0) return;
+  if (raw >= 100) {
+    into.add(Math.round(raw));
+    return;
+  }
+  into.add(Math.round(raw));
+  into.add(Math.round(raw * 100));
+}
+
+/**
+ * @param {import('bun'|'node').any} verified - Paystack transaction verify `data` object
+ * @returns {number[]} distinct possible pesewa values
+ */
+function listPaystackGhsPesewaCandidates(verified) {
+  if (!verified || typeof verified !== 'object') return [];
+  const s = new Set();
+  for (const key of ['amount', 'requested_amount']) {
+    addGhsPesewaInterpretationsForRaw(Number(verified[key]), s);
+  }
+  return Array.from(s);
+}
+
+function getMetaAmountGhsFromPaystack(/** @type {any} */ meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  const a =
+    meta.amount_ghs ??
+    meta.amountGhs ??
+    meta['amount-ghs'] ??
+    (meta.custom_fields && typeof meta.custom_fields === 'object' ? meta.custom_fields.amount_ghs : null);
+  const p = Number.parseFloat(String(a != null && a !== '' ? a : ''));
+  return Number.isFinite(p) && p >= 0.01 ? p : null;
+}
+
+/**
+ * Match Paystack's ambiguous / split fields against store + init. Prefer init when store moved.
+ * Allows a modest overpay (e.g. MoMo / channel line items) above quoted price.
+ */
+function pickPaystackPaidPesewasForGhs(verified, { storePesewas, initPesewas = null } = {}) {
+  const cands = listPaystackGhsPesewaCandidates(verified);
+  if (!cands.length) return null;
+  const TOL = 5;
+  const MAX_CUST_FEE = 5000; // 50.00 GHS in pesewas; keeps accidental huge mismatches rejected
+  const tryOne = (target) => {
+    for (const p of cands) {
+      if (Number.isFinite(target) && Math.abs(p - target) <= TOL) return p;
+    }
+    return null;
+  };
+  if (initPesewas != null && Number.isFinite(initPesewas)) {
+    const m = tryOne(initPesewas);
+    if (m != null) return m;
+  }
+  if (Number.isFinite(storePesewas)) {
+    const m = tryOne(storePesewas);
+    if (m != null) return m;
+    for (const c of cands) {
+      if (c < storePesewas - 1) continue;
+      if (c > storePesewas + MAX_CUST_FEE) continue;
+      if (initPesewas != null && Number.isFinite(initPesewas)) {
+        if (c < initPesewas - 1 || c > initPesewas + MAX_CUST_FEE) continue;
+      }
+      return c;
+    }
+  }
+  return null;
 }
 
 function applyWalletTopUpFromPaystack(userId, reference, amountGhs) {
@@ -679,6 +886,178 @@ app.get('/api/admin/users', adminAuthMiddleware, (req, res) => {
   return res.json(rows);
 });
 
+/** Same per-order profit as store earnings (`/api/store/earnings`). */
+function orderProfitExpression(alias = 'o') {
+  return `COALESCE(${alias}.store_profit_ghs, CASE
+    WHEN ${alias}.store_base_ghs IS NOT NULL AND ${alias}.bundle_price IS NOT NULL
+    THEN ${alias}.bundle_price - ${alias}.store_base_ghs
+    ELSE 0
+  END)`;
+}
+
+/**
+ * Public checkout orders start as `processing`; they must count toward revenue/profit immediately.
+ * Only `failed` / `cancelled` (and `refunded` if used) are excluded.
+ */
+function storeOrderCountsTowardEarnings(alias = 'o') {
+  return `LOWER(COALESCE(${alias}.status,'')) NOT IN ('failed','cancelled','refunded')`;
+}
+
+/** Orders still in the fulfillment queue (not yet marked completed by ops). */
+function storeOrderIsProcessing(alias = 'o') {
+  return `LOWER(COALESCE(${alias}.status,'')) = 'processing'`;
+}
+
+function listAdminStores() {
+  const profitX = orderProfitExpression('o');
+  const rows = db
+    .prepare(
+      `SELECT
+          us.id AS store_id,
+          us.user_id,
+          us.path_slug,
+          us.data_json,
+          us.updated_at,
+          us.moderation_status,
+          us.moderation_note,
+          us.reviewed_at,
+          us.reviewed_by,
+          u.email AS user_email,
+          COALESCE(u.full_name, '') AS user_full_name,
+          COALESCE(u.phone, '') AS user_phone,
+          COUNT(o.id) AS total_orders,
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(o.status,'')) = 'completed' THEN 1 ELSE 0 END), 0) AS completed_orders,
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(o.status,'')) NOT IN ('failed','cancelled','refunded') THEN COALESCE(o.bundle_price, 0) ELSE 0 END), 0) AS completed_revenue_ghs,
+          COALESCE(SUM(CASE WHEN LOWER(COALESCE(o.status,'')) NOT IN ('failed','cancelled','refunded') THEN ${profitX} ELSE 0 END), 0) AS completed_profit_ghs,
+          MAX(o.created_at) AS last_order_at
+       FROM user_stores_v2 us
+       JOIN users u ON u.id = us.user_id
+       LEFT JOIN orders o ON o.store_owner_id = us.user_id
+       WHERE u.deleted_at IS NULL
+       GROUP BY us.id, us.user_id, us.path_slug, us.data_json, us.updated_at, us.moderation_status, us.moderation_note, us.reviewed_at, us.reviewed_by, u.email, u.full_name, u.phone
+       ORDER BY datetime(COALESCE(us.updated_at, u.created_at)) DESC
+       LIMIT 500`
+    )
+    .all();
+  return rows.map((row) => {
+    let d = {};
+    try {
+      d = JSON.parse(row.data_json || '{}');
+    } catch (_) {
+      d = {};
+    }
+    if (!d || typeof d !== 'object') d = {};
+    const display = d.display && typeof d.display === 'object' ? d.display : {};
+    const service = d.service && typeof d.service === 'object' ? d.service : {};
+    const withdrawalStatus = normalizeStoreWithdrawalStatus(service.withdrawalStatus);
+    const storeName = String(display.storeName || d.ownerName || row.user_full_name || row.user_email || 'Store').trim() || 'Store';
+    const ownerName = String(d.ownerName || row.user_full_name || '').trim();
+    return {
+      store_id: Number(row.store_id),
+      user_id: row.user_id,
+      user_email: row.user_email,
+      user_full_name: row.user_full_name,
+      user_phone: row.user_phone,
+      path_slug: row.path_slug,
+      store_name: storeName,
+      owner_name: ownerName,
+      availability: d.availability !== false,
+      moderation_status: normalizeStoreModerationStatus(row.moderation_status),
+      moderation_note: row.moderation_note ? String(row.moderation_note) : '',
+      reviewed_at: row.reviewed_at || null,
+      reviewed_by: row.reviewed_by || null,
+      theme: String(display.theme || '').trim() || 'default',
+      accent_color: String(display.accentColor || '').trim() || '#7c3aed',
+      logo_present: !!(display.logoDataUrl && String(display.logoDataUrl).trim()),
+      logo_data_url: display.logoDataUrl && String(display.logoDataUrl).trim() ? String(display.logoDataUrl) : null,
+      afa_enabled: service.afaEnabled !== false,
+      vouchers_enabled: !!service.vouchersEnabled,
+      withdrawal_status: withdrawalStatus,
+      updated_at: row.updated_at || null,
+      last_order_at: row.last_order_at || null,
+      total_orders: Number(row.total_orders || 0),
+      completed_orders: Number(row.completed_orders || 0),
+      completed_revenue_ghs: Number(row.completed_revenue_ghs || 0),
+      completed_profit_ghs: Number(row.completed_profit_ghs || 0),
+    };
+  });
+}
+
+app.get('/api/admin/stores', adminAuthMiddleware, (req, res) => {
+  try {
+    return res.json({ stores: listAdminStores() });
+  } catch (e) {
+    console.error('[admin/stores] list', e);
+    return res.status(500).json({ error: 'Failed to load stores' });
+  }
+});
+
+app.patch('/api/admin/stores/:storeId', adminAuthMiddleware, (req, res) => {
+  const storeId = parseInt(String(req.params.storeId || ''), 10);
+  if (!Number.isFinite(storeId)) {
+    return res.status(400).json({ error: 'Invalid store id' });
+  }
+  const row = db.prepare('SELECT id, user_id, data_json, moderation_status FROM user_stores_v2 WHERE id = ?').get(storeId);
+  if (!row) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  let d = {};
+  try {
+    d = JSON.parse(row.data_json || '{}');
+  } catch (_) {
+    d = {};
+  }
+  if (!d || typeof d !== 'object') d = {};
+  const hasAvailability = Object.prototype.hasOwnProperty.call(req.body || {}, 'availability');
+  const hasOwnerName = typeof req.body?.ownerName === 'string';
+  const hasModerationStatus = typeof req.body?.moderationStatus === 'string';
+  const hasModerationNote = typeof req.body?.moderationNote === 'string';
+  const hasWithdrawalStatus = typeof req.body?.withdrawalStatus === 'string';
+  if (!hasAvailability && !hasOwnerName && !hasModerationStatus && !hasModerationNote && !hasWithdrawalStatus) {
+    return res.status(400).json({ error: 'No valid store fields to update' });
+  }
+  if (hasAvailability) {
+    d.availability = req.body.availability !== false && req.body.availability !== 0 && req.body.availability !== '0';
+  }
+  if (hasOwnerName) {
+    const ownerName = String(req.body.ownerName || '').trim();
+    d.ownerName = ownerName.slice(0, 200);
+  }
+  if (hasWithdrawalStatus) {
+    const nextWithdrawalStatus = normalizeStoreWithdrawalStatus(req.body.withdrawalStatus);
+    const prevService = d.service && typeof d.service === 'object' ? d.service : {};
+    d.service = { ...prevService, withdrawalStatus: nextWithdrawalStatus };
+  }
+  let moderationStatus = normalizeStoreModerationStatus(row.moderation_status);
+  let moderationNote = null;
+  if (hasModerationStatus) {
+    moderationStatus = normalizeStoreModerationStatus(req.body.moderationStatus);
+    moderationNote = hasModerationNote ? String(req.body.moderationNote || '').trim().slice(0, 500) : '';
+  } else if (hasModerationNote) {
+    moderationNote = String(req.body.moderationNote || '').trim().slice(0, 500);
+  }
+  d.updatedAt = Date.now();
+  const reviewActor =
+    req.userId != null && req.userId !== ''
+      ? `user:${String(req.userId)}`
+      : req.adminAccess
+        ? 'admin-pin'
+        : 'admin';
+  if (hasModerationStatus || hasModerationNote) {
+    db.prepare(
+      "UPDATE user_stores_v2 SET data_json = ?, updated_at = datetime('now'), moderation_status = ?, moderation_note = ?, reviewed_at = datetime('now'), reviewed_by = ? WHERE id = ?"
+    ).run(JSON.stringify(d), moderationStatus, moderationNote, reviewActor, storeId);
+  } else {
+    db.prepare("UPDATE user_stores_v2 SET data_json = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(d), storeId);
+  }
+  try {
+    const updated = listAdminStores().find((x) => Number(x.store_id) === Number(storeId));
+    return res.json({ ok: true, store: updated || null });
+  } catch {
+    return res.json({ ok: true });
+  }
+});
+
 app.patch('/api/admin/users/:userId/role', adminAuthMiddleware, (req, res) => {
   const role = String(req.body?.role || '').toLowerCase();
   if (role !== 'admin' && role !== 'user') {
@@ -860,6 +1239,61 @@ function sanitizePathSlugServer(raw) {
     .slice(0, 40);
 }
 
+function bundleKeyPublic(net, size) {
+  return `${net}|${size}`;
+}
+function normalizeStoreModerationStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'pending' || s === 'declined' || s === 'approved') return s;
+  return 'approved';
+}
+function normalizeStoreWithdrawalStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'paused' || s === 'disabled' || s === 'off' || s === 'closed') return 'paused';
+  return 'enabled';
+}
+function normalizeWithdrawalRequestStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'failed' || s === 'rejected' || s === 'declined' || s === 'cancelled' || s === 'canceled') return 'failed';
+  if (s === 'processing') return 'processing';
+  if (s === 'completed' || s === 'paid' || s === 'done' || s === 'approved') return 'completed';
+  return 'pending';
+}
+function isStorePubliclyVisible({ moderationStatus, data }) {
+  return normalizeStoreModerationStatus(moderationStatus) === 'approved' && data && data.availability !== false;
+}
+function isBundleActiveInStorePublic(activeMap, k) {
+  if (!activeMap || typeof activeMap !== 'object') return true;
+  const v = activeMap[k];
+  if (v === false) return false;
+  if (v === 0 || v === '0') return false;
+  if (v === 'false' || v === 'FALSE') return false;
+  return true;
+}
+/** Same rules as the `/store` SPA (`displayPriceGhs` in `PublicStorefront.jsx`). */
+function resolveStoreBundlePriceGhsFromData(data, network, bundleSize) {
+  if (!data || data.availability === false) return null;
+  const bundles = data.bundles || {};
+  const list = Array.isArray(bundles[network]) ? bundles[network] : [];
+  const b = list.find((x) => String(x.size) === String(bundleSize));
+  if (!b) return null;
+  const customP = data.customBundlePrices && typeof data.customBundlePrices === 'object' ? data.customBundlePrices : {};
+  const customA = data.customBundleActive && typeof data.customBundleActive === 'object' ? data.customBundleActive : {};
+  const k = bundleKeyPublic(network, bundleSize);
+  if (!isBundleActiveInStorePublic(customA, k)) return null;
+  const c = customP[k] != null && String(customP[k]).trim() !== '' ? Number.parseFloat(String(customP[k]), 10) : NaN;
+  const p = Number.isFinite(c) && c >= 0 ? c : Number(b.price);
+  if (!Number.isFinite(p) || p < 0) return null;
+  return p;
+}
+function defaultBundleBaseGhs(network, bundleSize) {
+  const bmap = getBundlesFromDb();
+  const list = bmap && Array.isArray(bmap[network]) ? bmap[network] : [];
+  const b = list.find((x) => String(x.size) === String(bundleSize));
+  if (!b || !Number.isFinite(Number(b.price))) return null;
+  return Number(b.price);
+}
+
 // ---- Public vendor store (read-only; no auth) ----
 app.get('/api/public/store/:slug', (req, res) => {
   const slug = sanitizePathSlugServer(req.params.slug);
@@ -867,7 +1301,7 @@ app.get('/api/public/store/:slug', (req, res) => {
     return res.status(404).json({ error: 'Not found' });
   }
   const row = db
-    .prepare("SELECT data_json, updated_at FROM user_stores WHERE path_slug = ?")
+    .prepare("SELECT data_json, updated_at, moderation_status FROM user_stores_v2 WHERE path_slug = ?")
     .get(slug);
   if (!row?.data_json) {
     return res.status(404).json({ error: 'Not found' });
@@ -876,6 +1310,10 @@ app.get('/api/public/store/:slug', (req, res) => {
     const data = JSON.parse(row.data_json);
     if (!data || typeof data !== 'object') {
       return res.status(500).json({ error: 'Invalid store data' });
+    }
+    const isAdminPreview = hasAdminAccessFromAuthHeader(req);
+    if (!isAdminPreview && !isStorePubliclyVisible({ moderationStatus: row.moderation_status, data })) {
+      return res.status(404).json({ error: 'Store not available' });
     }
     const at = data.updatedAt != null && Number.isFinite(Number(data.updatedAt)) ? Number(data.updatedAt) : 0;
     return res.json({
@@ -890,17 +1328,475 @@ app.get('/api/public/store/:slug', (req, res) => {
       customBundleActive: data.customBundleActive || {},
       bundles: data.bundles || { mtn: [], telecel: [], bigtime: [], ishare: [] },
       updatedAt: at || (row.updated_at ? Date.parse(String(row.updated_at)) : 0) || 0,
+      adminPreview: isAdminPreview,
     });
   } catch (e) {
     return res.status(500).json({ error: 'Invalid store data' });
   }
 });
 
+/**
+ * Public “track your order” — same orders the admin panel lists (by store + recipient phone).
+ * Only includes purchases tied to this storefront (`store_owner_id`).
+ */
+app.post('/api/public/orders/track', (req, res) => {
+  const storeSlug = sanitizePathSlugServer(req.body?.storeSlug);
+  const phoneRaw = String(req.body?.phone || req.body?.recipientPhone || '').replace(/\D/g, '');
+  if (!storeSlug) {
+    return res.status(400).json({ error: 'Store is required' });
+  }
+  if (phoneRaw.length < 8 || phoneRaw.length > 15) {
+    return res.status(400).json({ error: 'Please enter a valid phone number' });
+  }
+  const store = db.prepare('SELECT user_id FROM user_stores_v2 WHERE path_slug = ?').get(storeSlug);
+  if (!store?.user_id) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  const ownerId = store.user_id;
+  const rows = db
+    .prepare(
+      `SELECT id, bundle_size, bundle_price, network, status, created_at, recipient_number
+       FROM orders
+       WHERE store_owner_id = ?
+         AND datetime(created_at) > datetime('now', '-120 days')
+       ORDER BY datetime(created_at) DESC
+       LIMIT 300`
+    )
+    .all(ownerId);
+  const norm = (s) => String(s || '').replace(/\D/g, '');
+  const want = phoneRaw;
+  const matchPhone = (recipient) => {
+    const r = norm(recipient);
+    if (!r || !want) return false;
+    if (r === want) return true;
+    if (want.length >= 9 && r.length >= 9) {
+      if (r.slice(-10) === want.slice(-10)) return true;
+      if (r.slice(-9) === want.slice(-9) && want.length === 9) return true;
+    }
+    if (r.length > want.length && r.endsWith(want)) return true;
+    if (want.length > r.length && want.endsWith(r)) return true;
+    return false;
+  };
+  const filtered = rows.filter((o) => matchPhone(o.recipient_number)).slice(0, 30);
+  const list = filtered.map((o) => {
+    const net = networkLabel(o.network);
+    const st = String(o.status || 'processing').toLowerCase();
+    return {
+      id: o.id,
+      orderRef: `ORD-${String(o.id).padStart(6, '0')}`,
+      bundleLabel: `${net} ${o.bundle_size || ''}`.trim(),
+      bundle_size: o.bundle_size,
+      network: o.network,
+      status: st,
+      priceGhs: o.bundle_price,
+      created_at: o.created_at,
+    };
+  });
+  return res.json({ ok: true, orders: list });
+});
+
+const PUBLIC_BUNDLE_NETS = new Set(['mtn', 'telecel', 'bigtime', 'ishare']);
+
+function afaIsEnabledInStoreData(data) {
+  const s = data?.service;
+  if (!s) return false;
+  const e = s.afaEnabled;
+  if (e === true || e === 1) return true;
+  if (e === false || e === 0) return false;
+  return e != null && String(e).toLowerCase() === 'true';
+}
+
+function resolvePublicAfaFeeGhsFromStoreData(data) {
+  if (!data || typeof data !== 'object' || !afaIsEnabledInStoreData(data)) return null;
+  const p = parseFloat(String(data.service.afaPrice != null ? data.service.afaPrice : ''), 10);
+  if (Number.isFinite(p) && p >= 0.01) return p;
+  return AFA_REGISTRATION_FEE_GHS;
+}
+
+/**
+ * Paystack return for /store (bundles or public AFA). Idempotent; throws on failure.
+ */
+async function fulfillPublicPaystackReference(reference) {
+  const ref = String(reference || '').trim();
+  if (!ref) throw new Error('reference required');
+
+  const existingOrder = db.prepare('SELECT id FROM orders WHERE paystack_reference = ?').get(ref);
+  if (existingOrder?.id) {
+    return { kind: 'bundle', orderId: existingOrder.id, already: true, reference: ref };
+  }
+  const existingAfa = db.prepare('SELECT id FROM afa_applications WHERE paystack_reference = ?').get(ref);
+  if (existingAfa?.id) {
+    return { kind: 'afa', applicationId: existingAfa.id, already: true, reference: ref };
+  }
+  if (!paystackConfigured()) {
+    throw new Error('Paystack is not configured');
+  }
+  const verified = await paystackVerifyTransaction(ref);
+  if (verified.status !== 'success') {
+    throw new Error('Payment was not successful');
+  }
+  const meta = normalizePaystackMetadata(verified.metadata);
+  const kind = String(meta.kind || '');
+
+  if (kind === 'public_store_afa') {
+    const storeOwnerId = parseInt(String(meta.store_owner_id || ''), 10);
+    if (!Number.isFinite(storeOwnerId) || storeOwnerId < 1) {
+      throw new Error('Invalid payment metadata');
+    }
+    const storeSlug = sanitizePathSlugServer(meta.store_slug);
+    if (!storeSlug) throw new Error('Invalid payment metadata');
+    const pending = db.prepare('SELECT data_json FROM afa_public_paystack_pending WHERE reference = ?').get(ref);
+    if (!pending?.data_json) {
+      throw new Error('This payment session has expired. Start again from the store page.');
+    }
+    let pData;
+    try {
+      pData = JSON.parse(pending.data_json);
+    } catch {
+      throw new Error('Invalid pending data');
+    }
+    const row = db.prepare('SELECT data_json, moderation_status FROM user_stores_v2 WHERE user_id = ? AND path_slug = ?').get(storeOwnerId, storeSlug);
+    if (!row?.data_json) {
+      throw new Error('Store no longer available');
+    }
+    let data;
+    try {
+      data = JSON.parse(row.data_json);
+    } catch {
+      throw new Error('Invalid store data');
+    }
+    if (!isStorePubliclyVisible({ moderationStatus: row.moderation_status, data })) {
+      throw new Error('Store no longer available');
+    }
+    const fee = resolvePublicAfaFeeGhsFromStoreData(data);
+    if (fee == null || !Number.isFinite(fee)) {
+      throw new Error('AFA is not available for this store');
+    }
+    const initAfaGhs = getMetaAmountGhsFromPaystack(meta);
+    const initAfaPes = initAfaGhs != null ? Math.round(initAfaGhs * 100) : null;
+    const feePes = Math.round(fee * 100);
+    const paidPes = pickPaystackPaidPesewasForGhs(verified, { storePesewas: feePes, initPesewas: initAfaPes });
+    if (paidPes == null) {
+      throw new Error('Amount does not match the current fee');
+    }
+    const amountGhs = paidPes / 100;
+    if (String(pData.storeSlug || '') !== storeSlug || Number(pData.storeOwnerId) !== storeOwnerId) {
+      throw new Error('Store mismatch');
+    }
+    const fullName = String(pData.full_name || '').trim();
+    const phone = String(pData.phone || '').trim();
+    const ghanaCard = String(pData.ghana_card_number || '').trim();
+    const occupation = String(pData.occupation || '').trim();
+    const dob = String(pData.date_of_birth || '').trim();
+    if (!fullName || !phone || !ghanaCard || !occupation || !dob) {
+      throw new Error('Application data is incomplete');
+    }
+    const result = db
+      .prepare(
+        `INSERT INTO afa_applications
+         (user_id, full_name, phone, ghana_card_number, occupation, date_of_birth, payment_amount, status, applied_at,
+          is_public_checkout, public_store_slug, paystack_reference)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', datetime('now'), 1, ?, ?)`
+      )
+      .run(storeOwnerId, fullName, phone, ghanaCard, occupation, dob, amountGhs, storeSlug, ref);
+    db.prepare('DELETE FROM afa_public_paystack_pending WHERE reference = ?').run(ref);
+    return { kind: 'afa', applicationId: result.lastInsertRowid, already: false, reference: ref };
+  }
+
+  if (kind === 'public_store_bundle') {
+    const storeOwnerId = parseInt(String(meta.store_owner_id || ''), 10);
+    if (!Number.isFinite(storeOwnerId) || storeOwnerId < 1) {
+      throw new Error('Invalid payment metadata');
+    }
+    const storeSlug = sanitizePathSlugServer(meta.store_slug);
+    const network = String(meta.network || '')
+      .toLowerCase()
+      .trim();
+    const bundleSize = String(meta.bundle_size || '').trim();
+    const phoneDigits = String(meta.recipient_phone || '').replace(/\D/g, '');
+    if (!storeSlug || !PUBLIC_BUNDLE_NETS.has(network) || !bundleSize || phoneDigits.length !== 10) {
+      throw new Error('Invalid payment metadata');
+    }
+    const srow = db.prepare('SELECT data_json, moderation_status FROM user_stores_v2 WHERE user_id = ? AND path_slug = ?').get(storeOwnerId, storeSlug);
+    if (!srow?.data_json) {
+      throw new Error('Store no longer available');
+    }
+    let sdata;
+    try {
+      sdata = JSON.parse(srow.data_json);
+    } catch {
+      throw new Error('Invalid store data');
+    }
+    if (!isStorePubliclyVisible({ moderationStatus: srow.moderation_status, data: sdata })) {
+      throw new Error('Store no longer available');
+    }
+    const currentStoreGhs = resolveStoreBundlePriceGhsFromData(sdata, network, bundleSize);
+    if (currentStoreGhs == null || !Number.isFinite(currentStoreGhs)) {
+      throw new Error('Package is no longer available');
+    }
+    const storePesewas = Math.round(Number(currentStoreGhs) * 100);
+    const initMetaGhs = getMetaAmountGhsFromPaystack(meta);
+    const initPesewas = initMetaGhs != null ? Math.round(initMetaGhs * 100) : null;
+    /** `data.amount` is usually pesewas, but is sometimes the GHS value (e.g. 5.9 vs 590) — see pickPaystackPaidPesewasForGhs. */
+    const paidPesewas = pickPaystackPaidPesewasForGhs(verified, { storePesewas, initPesewas });
+    if (paidPesewas == null) {
+      throw new Error('Amount does not match current price');
+    }
+    const paidGhs = paidPesewas / 100;
+    if (!Number.isFinite(paidGhs) || paidGhs < 0.01) {
+      throw new Error('Invalid amount paid');
+    }
+    /** Bill at what the customer was actually charged (init quote if store price changed after checkout). */
+    const price = Math.round(paidGhs * 100) / 100;
+    const baseGhs = defaultBundleBaseGhs(network, bundleSize);
+    const storeProfitGhs = baseGhs != null && Number.isFinite(baseGhs) && Number.isFinite(price) ? price - baseGhs : null;
+    const result = db
+      .prepare(
+        `INSERT INTO orders (user_id, bundle_size, bundle_price, recipient_number, network, status, created_at,
+         store_owner_id, store_base_ghs, store_profit_ghs, paystack_reference)
+         VALUES (?, ?, ?, ?, ?, 'processing', datetime('now'),
+         ?, ?, ?, ?)`
+      )
+      .run(
+        storeOwnerId,
+        bundleSize,
+        price,
+        phoneDigits,
+        network,
+        storeOwnerId,
+        baseGhs,
+        storeProfitGhs,
+        ref
+      );
+    return { kind: 'bundle', orderId: result.lastInsertRowid, already: false, reference: ref };
+  }
+
+  throw new Error('This payment is not a public store checkout');
+}
+
+/** Guest checkout: same Paystack secret as wallet; amount is derived server-side from store data. */
+app.post('/api/public/paystack/bundle/initialize', async (req, res) => {
+  if (!paystackConfigured()) {
+    return res.status(503).json({ error: 'Paystack is not configured on this server' });
+  }
+  const storeSlug = sanitizePathSlugServer(req.body?.storeSlug);
+  const network = String(req.body?.network || '')
+    .toLowerCase()
+    .trim();
+  const bundleSize = String(req.body?.bundleSize ?? '').trim();
+  const phoneDigits = String(req.body?.recipientPhone || '').replace(/\D/g, '');
+  if (!storeSlug || !PUBLIC_BUNDLE_NETS.has(network) || !bundleSize) {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+  if (phoneDigits.length !== 10) {
+    return res.status(400).json({ error: 'Enter a valid 10-digit phone number' });
+  }
+  const row = db.prepare("SELECT user_id, data_json, moderation_status FROM user_stores_v2 WHERE path_slug = ?").get(storeSlug);
+  if (!row?.data_json) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  let data;
+  try {
+    data = JSON.parse(row.data_json);
+  } catch {
+    return res.status(500).json({ error: 'Invalid store data' });
+  }
+  if (!data || typeof data !== 'object') {
+    return res.status(500).json({ error: 'Invalid store data' });
+  }
+  if (!isStorePubliclyVisible({ moderationStatus: row.moderation_status, data })) {
+    return res.status(404).json({ error: 'Store not available' });
+  }
+  const price = resolveStoreBundlePriceGhsFromData(data, network, bundleSize);
+  if (price == null || !Number.isFinite(price) || price < 0.01) {
+    return res.status(400).json({ error: 'This package is not available' });
+  }
+  const amountPesewas = Math.round(price * 100);
+  if (amountPesewas < 1) {
+    return res.status(400).json({ error: 'Invalid amount' });
+  }
+  const storeOwnerId = row.user_id;
+  const reference = `PBS-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  // Paystack rejects non-public TLDs (e.g. .local). Use a valid-shaped domain; no mailbox required for MoMo.
+  const guestDomain = (process.env.PAYSTACK_GUEST_EMAIL_DOMAIN || 'ultraxas.com').trim().replace(/^@/, '') || 'ultraxas.com';
+  const email = `payer+${phoneDigits}@${guestDomain}`.slice(0, 120);
+  const baseGhs = defaultBundleBaseGhs(network, bundleSize);
+  const meta = {
+    kind: 'public_store_bundle',
+    store_slug: storeSlug,
+    store_owner_id: String(storeOwnerId),
+    network,
+    bundle_size: bundleSize,
+    recipient_phone: phoneDigits,
+    amount_ghs: String(price),
+  };
+  if (baseGhs != null && Number.isFinite(baseGhs)) {
+    meta.store_base_ghs = String(baseGhs);
+  }
+  const callbackUrl = `${resolveClientAppOrigin()}/store/${storeSlug}`;
+  try {
+    const pData = await paystackInitializeTransaction({
+      email,
+      amountPesewas,
+      reference,
+      metadata: meta,
+      callbackUrl,
+    });
+    return res.json({
+      access_code: pData.access_code,
+      reference: pData.reference || reference,
+      authorization_url: pData.authorization_url,
+      amount_ghs: price,
+    });
+  } catch (e) {
+    console.error('[public paystack bundle init]', e);
+    return res.status(502).json({ error: e.message || 'Paystack error' });
+  }
+});
+
+/** Public AFA: fee from store; form stored until Paystack success. */
+app.post('/api/public/paystack/afa/initialize', async (req, res) => {
+  if (!paystackConfigured()) {
+    return res.status(503).json({ error: 'Paystack is not configured on this server' });
+  }
+  const storeSlug = sanitizePathSlugServer(req.body?.storeSlug);
+  const fullName = String(req.body?.full_name || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const ghanaCard = String(req.body?.ghana_card_number || '').trim();
+  const occupation = String(req.body?.occupation || '').trim();
+  const dob = String(req.body?.date_of_birth || '').trim();
+  if (!storeSlug) {
+    return res.status(400).json({ error: 'Store is required' });
+  }
+  if (!fullName || !phone || !ghanaCard || !occupation || !dob) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  const phoneDigits = phone.replace(/\D/g, '');
+  if (phoneDigits.length < 8) {
+    return res.status(400).json({ error: 'Enter a valid phone number' });
+  }
+  const row = db.prepare('SELECT user_id, data_json, moderation_status FROM user_stores_v2 WHERE path_slug = ?').get(storeSlug);
+  if (!row?.data_json) {
+    return res.status(404).json({ error: 'Store not found' });
+  }
+  let data;
+  try {
+    data = JSON.parse(row.data_json);
+  } catch {
+    return res.status(500).json({ error: 'Invalid store data' });
+  }
+  if (!isStorePubliclyVisible({ moderationStatus: row.moderation_status, data })) {
+    return res.status(404).json({ error: 'Store not available' });
+  }
+  const fee = resolvePublicAfaFeeGhsFromStoreData(data);
+  if (fee == null || !Number.isFinite(fee) || fee < 0.01) {
+    return res.status(400).json({ error: 'AFA registration is not available for this store' });
+  }
+  const storeOwnerId = row.user_id;
+  const amountPesewas = Math.round(fee * 100);
+  if (amountPesewas < 1) {
+    return res.status(400).json({ error: 'Invalid amount' });
+  }
+  const reference = `PFA-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const guestDomain = (process.env.PAYSTACK_GUEST_EMAIL_DOMAIN || 'ultraxas.com').trim().replace(/^@/, '') || 'ultraxas.com';
+  const email = `aface+${phoneDigits}@${guestDomain}`.slice(0, 120);
+  const callbackUrl = `${resolveClientAppOrigin()}/store/${storeSlug}`;
+  const meta = {
+    kind: 'public_store_afa',
+    store_owner_id: String(storeOwnerId),
+    store_slug: storeSlug,
+    amount_ghs: String(fee),
+  };
+  const pending = {
+    storeOwnerId,
+    storeSlug,
+    full_name: fullName,
+    phone,
+    ghana_card_number: ghanaCard,
+    occupation,
+    date_of_birth: dob,
+  };
+  try {
+    db.prepare('INSERT INTO afa_public_paystack_pending (reference, data_json) VALUES (?, ?)').run(
+      reference,
+      JSON.stringify(pending)
+    );
+  } catch (e) {
+    return res.status(500).json({ error: 'Could not start application session' });
+  }
+  try {
+    const pData = await paystackInitializeTransaction({
+      email,
+      amountPesewas,
+      reference,
+      metadata: meta,
+      callbackUrl,
+    });
+    return res.json({
+      access_code: pData.access_code,
+      reference: pData.reference || reference,
+      authorization_url: pData.authorization_url,
+      amount_ghs: fee,
+    });
+  } catch (e) {
+    try {
+      db.prepare('DELETE FROM afa_public_paystack_pending WHERE reference = ?').run(reference);
+    } catch (_) {
+      // ignore
+    }
+    console.error('[public paystack afa init]', e);
+    return res.status(502).json({ error: e.message || 'Paystack error' });
+  }
+});
+
+async function sendPublicPaystackVerify(req, res) {
+  if (!paystackConfigured()) {
+    return res.status(503).json({ error: 'Paystack is not configured' });
+  }
+  const reference = String(req.body?.reference || '').trim();
+  if (!reference) {
+    return res.status(400).json({ error: 'reference required' });
+  }
+  try {
+    const out = await fulfillPublicPaystackReference(reference);
+    if (out.kind === 'afa') {
+      return res.json({
+        ok: true,
+        kind: 'afa',
+        applicationId: out.applicationId,
+        already: out.already,
+        reference: out.reference,
+      });
+    }
+    if (out.kind === 'bundle') {
+      return res.json({
+        ok: true,
+        kind: 'bundle',
+        orderId: out.orderId,
+        already: out.already,
+        reference: out.reference,
+      });
+    }
+    return res.status(400).json({ error: 'Unknown result' });
+  } catch (e) {
+    console.error('[public paystack verify]', e);
+    return res.status(400).json({ error: e.message || 'Verification failed' });
+  }
+}
+
+app.post('/api/public/paystack/verify', sendPublicPaystackVerify);
+app.post('/api/public/paystack/bundle/verify', sendPublicPaystackVerify);
+
 // ---- My vendor store (signed-in owner) ----
 app.get('/api/store', authMiddleware, (req, res) => {
+  const requestedStoreId = Number.parseInt(String(req.query?.storeId || ''), 10);
   const row = db
-    .prepare("SELECT path_slug, data_json, updated_at FROM user_stores WHERE user_id = ?")
-    .get(req.userId);
+    .prepare(
+      Number.isFinite(requestedStoreId)
+        ? "SELECT id, path_slug, data_json, updated_at, moderation_status, moderation_note, reviewed_at FROM user_stores_v2 WHERE user_id = ? AND id = ?"
+        : "SELECT id, path_slug, data_json, updated_at, moderation_status, moderation_note, reviewed_at FROM user_stores_v2 WHERE user_id = ? ORDER BY datetime(COALESCE(updated_at, '1970-01-01')) DESC, id DESC LIMIT 1"
+    )
+    .get(...(Number.isFinite(requestedStoreId) ? [req.userId, requestedStoreId] : [req.userId]));
   if (!row?.data_json) {
     return res.json({ store: null });
   }
@@ -911,6 +1807,7 @@ app.get('/api/store', authMiddleware, (req, res) => {
     }
     return res.json({
       store: {
+        storeId: Number(row.id),
         pathSlug: row.path_slug,
         pathSlugOverride: d.pathSlugOverride != null ? String(d.pathSlugOverride) : null,
         display: d.display || {},
@@ -920,12 +1817,47 @@ app.get('/api/store', authMiddleware, (req, res) => {
         customBundleActive: d.customBundleActive && typeof d.customBundleActive === 'object' ? d.customBundleActive : {},
         bundles: d.bundles || { mtn: [], telecel: [], bigtime: [], ishare: [] },
         ownerName: d.ownerName || 'Store',
+        moderationStatus: normalizeStoreModerationStatus(row.moderation_status),
+        moderationNote: row.moderation_note ? String(row.moderation_note) : '',
+        moderationReviewedAt: row.reviewed_at || null,
         v: d.v != null ? d.v : 1,
         updatedAt: d.updatedAt != null && Number.isFinite(Number(d.updatedAt)) ? Number(d.updatedAt) : 0,
       },
     });
   } catch (e) {
     return res.json({ store: null });
+  }
+});
+
+app.get('/api/stores', authMiddleware, (req, res) => {
+  try {
+    const rows = db
+      .prepare(
+        "SELECT id, path_slug, data_json, updated_at, moderation_status, moderation_note, reviewed_at FROM user_stores_v2 WHERE user_id = ? ORDER BY datetime(COALESCE(updated_at, '1970-01-01')) DESC, id DESC LIMIT 50"
+      )
+      .all(req.userId);
+    const stores = rows
+      .map((row) => {
+        let d = {};
+        try {
+          d = JSON.parse(row.data_json || '{}');
+        } catch {
+          d = {};
+        }
+        const display = d && typeof d === 'object' && d.display && typeof d.display === 'object' ? d.display : {};
+        const name = String(display.storeName || d.ownerName || 'Store').trim() || 'Store';
+        return {
+          storeId: Number(row.id),
+          pathSlug: String(row.path_slug || ''),
+          storeName: name,
+          moderationStatus: normalizeStoreModerationStatus(row.moderation_status),
+          updatedAt: row.updated_at || null,
+        };
+      })
+      .slice(0, 10);
+    return res.json({ stores });
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to load stores' });
   }
 });
 
@@ -942,7 +1874,7 @@ app.put('/api/store', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'pathSlug and pathSlugOverride are inconsistent' });
   }
   const other = db
-    .prepare("SELECT user_id FROM user_stores WHERE path_slug = ? AND user_id != ?")
+    .prepare("SELECT user_id FROM user_stores_v2 WHERE path_slug = ? AND user_id != ?")
     .get(pathSlug, req.userId);
   if (other) {
     return res.status(409).json({ error: 'This store URL is already taken' });
@@ -955,6 +1887,35 @@ app.put('/api/store', authMiddleware, (req, res) => {
     b.customBundleActive && typeof b.customBundleActive === 'object' ? b.customBundleActive : {};
   const bundles =
     b.bundles && typeof b.bundles === 'object' ? b.bundles : { mtn: [], telecel: [], bigtime: [], ishare: [] };
+  const normalizedBundles = {
+    mtn: Array.isArray(bundles.mtn) ? bundles.mtn : [],
+    telecel: Array.isArray(bundles.telecel) ? bundles.telecel : [],
+    bigtime: Array.isArray(bundles.bigtime) ? bundles.bigtime : [],
+    ishare: Array.isArray(bundles.ishare) ? bundles.ishare : [],
+  };
+  const basePriceByKey = new Map();
+  for (const network of ['mtn', 'telecel', 'bigtime', 'ishare']) {
+    const list = normalizedBundles[network];
+    for (const item of list) {
+      const size = item && item.size != null ? String(item.size) : '';
+      const base = item != null ? Number(item.price) : NaN;
+      if (!size || !Number.isFinite(base)) continue;
+      basePriceByKey.set(`${network}|${size}`, base);
+    }
+  }
+  for (const [rawKey, rawValue] of Object.entries(customBundlePrices || {})) {
+    const key = String(rawKey || '').trim();
+    if (!key) continue;
+    if (rawValue == null || String(rawValue).trim() === '') continue;
+    const priceNum = Number(rawValue);
+    if (!Number.isFinite(priceNum)) continue;
+    const base = basePriceByKey.get(key);
+    if (Number.isFinite(base) && priceNum + 1e-9 < base) {
+      return res.status(400).json({
+        error: `Price for ${key} cannot be lower than base price (GHS ${base.toFixed(2)}).`,
+      });
+    }
+  }
   const ownerName = typeof b.ownerName === 'string' ? b.ownerName.slice(0, 200) : 'Store';
   const availability = b.availability === false || b.availability === 0 || b.availability === '0' ? false : true;
   const now = Date.now();
@@ -966,37 +1927,77 @@ app.put('/api/store', authMiddleware, (req, res) => {
     service,
     customBundlePrices,
     customBundleActive,
-    bundles: {
-      mtn: Array.isArray(bundles.mtn) ? bundles.mtn : [],
-      telecel: Array.isArray(bundles.telecel) ? bundles.telecel : [],
-      bigtime: Array.isArray(bundles.bigtime) ? bundles.bigtime : [],
-      ishare: Array.isArray(bundles.ishare) ? bundles.ishare : [],
-    },
+    bundles: normalizedBundles,
     ownerName,
     availability,
     updatedAt: now,
   };
   const json = JSON.stringify(payload);
-  const haveRow = db.prepare('SELECT 1 AS x FROM user_stores WHERE user_id = ?').get(req.userId);
-  if (haveRow) {
-    db
-      .prepare("UPDATE user_stores SET path_slug = ?, data_json = ?, updated_at = datetime('now') WHERE user_id = ?")
-      .run(pathSlug, json, req.userId);
-  } else {
-    if (db.prepare("SELECT 1 AS x FROM user_stores WHERE path_slug = ?").get(pathSlug)) {
+  const requestedStoreId = Number.parseInt(String(b.storeId || ''), 10);
+  const createNew = b.createNew === true;
+  const targetStore = Number.isFinite(requestedStoreId)
+    ? db.prepare('SELECT id, moderation_status FROM user_stores_v2 WHERE id = ? AND user_id = ?').get(requestedStoreId, req.userId)
+    : db.prepare("SELECT id, moderation_status FROM user_stores_v2 WHERE user_id = ? ORDER BY datetime(COALESCE(updated_at, '1970-01-01')) DESC, id DESC LIMIT 1").get(req.userId);
+  const storeCountRow = db.prepare('SELECT COUNT(1) AS c FROM user_stores_v2 WHERE user_id = ?').get(req.userId);
+  const storeCount = Number(storeCountRow?.c || 0);
+  const wantsPendingResubmission =
+    String(b.moderationStatus || '').trim().toLowerCase() === 'pending';
+  if (createNew || !targetStore) {
+    if (storeCount >= 10) {
+      return res.status(400).json({ error: 'Store limit reached. You can create up to 10 stores.' });
+    }
+    if (db.prepare("SELECT 1 AS x FROM user_stores_v2 WHERE path_slug = ?").get(pathSlug)) {
       return res.status(409).json({ error: 'This store URL is already taken' });
     }
-    db
-      .prepare("INSERT INTO user_stores (user_id, path_slug, data_json, updated_at) VALUES (?, ?, ?, datetime('now'))")
+    const info = db
+      .prepare("INSERT INTO user_stores_v2 (user_id, path_slug, data_json, updated_at, moderation_status, moderation_note, reviewed_at, reviewed_by) VALUES (?, ?, ?, datetime('now'), 'pending', '', NULL, NULL)")
       .run(req.userId, pathSlug, json);
+    return res.json({ ok: true, storeId: Number(info.lastInsertRowid || 0), pathSlug, updatedAt: now, moderationStatus: 'pending' });
   }
-  return res.json({ ok: true, pathSlug, updatedAt: now });
+  if (targetStore) {
+    if (wantsPendingResubmission) {
+      // Vendor re-submission should move an existing store back into admin review queue.
+      db
+        .prepare(
+          "UPDATE user_stores_v2 SET path_slug = ?, data_json = ?, updated_at = datetime('now'), moderation_status = 'pending', moderation_note = '', reviewed_at = NULL, reviewed_by = NULL WHERE id = ? AND user_id = ?"
+        )
+        .run(pathSlug, json, targetStore.id, req.userId);
+    } else {
+      db
+        .prepare("UPDATE user_stores_v2 SET path_slug = ?, data_json = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?")
+        .run(pathSlug, json, targetStore.id, req.userId);
+    }
+  }
+  const moderationStatus = targetStore
+    ? wantsPendingResubmission
+      ? 'pending'
+      : normalizeStoreModerationStatus(targetStore.moderation_status)
+    : 'pending';
+  return res.json({ ok: true, storeId: Number(targetStore?.id || 0), pathSlug, updatedAt: now, moderationStatus });
+});
+
+app.delete('/api/store', authMiddleware, (req, res) => {
+  const uid = req.userId;
+  try {
+    const requestedStoreId = Number.parseInt(String(req.body?.storeId || req.query?.storeId || ''), 10);
+    if (Number.isFinite(requestedStoreId)) {
+      db.prepare('DELETE FROM user_stores_v2 WHERE id = ? AND user_id = ?').run(requestedStoreId, uid);
+      return res.json({ ok: true, deletedStoreId: requestedStoreId });
+    }
+    const row = db.prepare("SELECT id FROM user_stores_v2 WHERE user_id = ? ORDER BY datetime(COALESCE(updated_at, '1970-01-01')) DESC, id DESC LIMIT 1").get(uid);
+    if (!row) return res.json({ ok: true });
+    db.prepare('DELETE FROM user_stores_v2 WHERE id = ? AND user_id = ?').run(row.id, uid);
+    return res.json({ ok: true, deletedStoreId: Number(row.id) });
+  } catch (e) {
+    console.error('[store/delete]', e);
+    return res.status(500).json({ error: 'Failed to delete store' });
+  }
 });
 
 /**
  * Store dashboard → Earnings: wallet + aggregates for this vendor (orders where store_owner_id = you).
  * Period: today | this-week | this-month | last-month (default this-month). Revenue/profit in period
- * use that window; total* and pending are all-time where relevant.
+ * use that window; total* are all-time. Counts all paid/earning rows except failed/cancelled (includes `processing`).
  */
 function storeEarningsPeriodClause(period) {
   const p = String(period || 'this-month').trim() || 'this-month';
@@ -1012,22 +2013,14 @@ function storeEarningsPeriodClause(period) {
   return "strftime('%Y-%m', o.created_at) = strftime('%Y-%m', 'now', 'localtime')";
 }
 
-function orderProfitExpression(alias = 'o') {
-  return `COALESCE(${alias}.store_profit_ghs, CASE
-    WHEN ${alias}.store_base_ghs IS NOT NULL AND ${alias}.bundle_price IS NOT NULL
-    THEN ${alias}.bundle_price - ${alias}.store_base_ghs
-    ELSE 0
-  END)`;
-}
-
 app.get('/api/store/earnings', authMiddleware, (req, res) => {
   const uid = req.userId;
   const period = String(req.query?.period || 'this-month').trim() || 'this-month';
   const wallet = db.prepare('SELECT balance, updated_at FROM wallets WHERE user_id = ?').get(uid);
   const balanceGhs = wallet ? Number(wallet.balance || 0) : 0;
   const perCond = storeEarningsPeriodClause(period);
-  const isCompleted = "LOWER(COALESCE(o.status,'')) = 'completed'";
-  const isNonTerminal = "LOWER(COALESCE(o.status,'')) NOT IN ('completed','failed','cancelled')";
+  const earned = storeOrderCountsTowardEarnings('o');
+  const processingOnly = storeOrderIsProcessing('o');
   const profitX = orderProfitExpression('o');
 
   let revenueInPeriodGhs = 0;
@@ -1040,7 +2033,7 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
       .prepare(
         `SELECT COALESCE(SUM(o.bundle_price), 0) AS t
          FROM orders o
-         WHERE o.store_owner_id = ? AND ${isCompleted} AND ${perCond}`
+         WHERE o.store_owner_id = ? AND ${earned} AND ${perCond}`
       )
       .get(uid);
     revenueInPeriodGhs = r1 && r1.t != null ? Number(r1.t) : 0;
@@ -1052,7 +2045,7 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
       .prepare(
         `SELECT COALESCE(SUM(${profitX}), 0) AS t
          FROM orders o
-         WHERE o.store_owner_id = ? AND ${isNonTerminal}`
+         WHERE o.store_owner_id = ? AND ${processingOnly}`
       )
       .get(uid);
     pendingProfitGhs = r2 && r2.t != null ? Number(r2.t) : 0;
@@ -1064,7 +2057,7 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
       .prepare(
         `SELECT COALESCE(SUM(o.bundle_price), 0) AS t
          FROM orders o
-         WHERE o.store_owner_id = ? AND ${isCompleted}`
+         WHERE o.store_owner_id = ? AND ${earned}`
       )
       .get(uid);
     totalRevenueGhs = r3 && r3.t != null ? Number(r3.t) : 0;
@@ -1076,7 +2069,7 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
       .prepare(
         `SELECT COALESCE(SUM(${profitX}), 0) AS t
          FROM orders o
-         WHERE o.store_owner_id = ? AND ${isCompleted}`
+         WHERE o.store_owner_id = ? AND ${earned}`
       )
       .get(uid);
     totalProfitGhs = r4 && r4.t != null ? Number(r4.t) : 0;
@@ -1088,7 +2081,7 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
       .prepare(
         `SELECT COALESCE(SUM(${profitX}), 0) AS t
          FROM orders o
-         WHERE o.store_owner_id = ? AND ${isCompleted} AND ${perCond}`
+         WHERE o.store_owner_id = ? AND ${earned} AND ${perCond}`
       )
       .get(uid);
     periodProfitGhs = r5 && r5.t != null ? Number(r5.t) : 0;
@@ -1097,7 +2090,9 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
   }
 
   let totalWithdrawnGhs = 0;
+  let pendingRequestedGhs = 0;
   const withdrawals = [];
+  let latestWithdrawalRequestStatus = 'pending';
   try {
     const tw = db
       .prepare(
@@ -1135,8 +2130,35 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
   } catch (e) {
     console.error('[store/earnings] withdrawals list', e);
   }
+  try {
+    const latestReq = db
+      .prepare(
+        `SELECT status
+         FROM store_withdrawal_requests
+         WHERE user_id = ?
+         ORDER BY datetime(created_at) DESC, id DESC
+         LIMIT 1`
+      )
+      .get(uid);
+    latestWithdrawalRequestStatus = normalizeWithdrawalRequestStatus(latestReq?.status);
+  } catch (e) {
+    console.error('[store/earnings] latest withdrawal request status', e);
+  }
 
-  const withdrawableGhs = balanceGhs;
+  try {
+    const pr = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_ghs), 0) AS t
+         FROM store_withdrawal_requests
+         WHERE user_id = ? AND LOWER(COALESCE(status,'')) IN ('pending','processing')`
+      )
+      .get(uid);
+    pendingRequestedGhs = pr && pr.t != null ? Number(pr.t) : 0;
+  } catch (e) {
+    console.error('[store/earnings] pending requests total', e);
+  }
+  const withdrawableFromProfit = Math.max(0, totalProfitGhs - totalWithdrawnGhs - pendingRequestedGhs);
+  const withdrawableGhs = Math.round(withdrawableFromProfit * 100) / 100;
   return res.json({
     balanceGhs,
     walletUpdatedAt: wallet?.updated_at || null,
@@ -1148,8 +2170,180 @@ app.get('/api/store/earnings', authMiddleware, (req, res) => {
     totalRevenueGhs: totalRevenueGhs,
     totalProfitGhs: totalProfitGhs,
     totalWithdrawnGhs: totalWithdrawnGhs,
+    pendingRequestedGhs,
+    latestWithdrawalRequestStatus,
     withdrawals,
   });
+});
+
+const MIN_STORE_WITHDRAWAL_GHS = 50;
+const STORE_WITHDRAWAL_FEE_RATE = 0.02;
+
+/** Store vendor: request a payout to mobile money (admin reviews on dashboard). */
+app.post('/api/store/withdrawal-request', authMiddleware, (req, res) => {
+  const requestedStoreId = Number.parseInt(String(req.body?.storeId || ''), 10);
+  const targetStore = Number.isFinite(requestedStoreId)
+    ? db.prepare('SELECT id, data_json FROM user_stores_v2 WHERE id = ? AND user_id = ?').get(requestedStoreId, req.userId)
+    : db
+        .prepare(
+          "SELECT id, data_json FROM user_stores_v2 WHERE user_id = ? ORDER BY datetime(COALESCE(updated_at, '1970-01-01')) DESC, id DESC LIMIT 1"
+        )
+        .get(req.userId);
+  if (!targetStore) {
+    return res.status(404).json({ error: 'Store not found for withdrawal request.' });
+  }
+  let storeData = {};
+  try {
+    storeData = JSON.parse(targetStore.data_json || '{}');
+  } catch {
+    storeData = {};
+  }
+  const storeService =
+    storeData && typeof storeData === 'object' && storeData.service && typeof storeData.service === 'object'
+      ? storeData.service
+      : {};
+  if (normalizeStoreWithdrawalStatus(storeService.withdrawalStatus) !== 'enabled') {
+    return res.status(403).json({ error: 'Withdrawals are paused by admin for this store right now.' });
+  }
+  const fullName = String(req.body?.fullName || req.body?.full_name || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const amountGhs = Number(req.body?.amountGhs ?? req.body?.amount_ghs);
+  if (!fullName) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+  const phoneDigits = phone.replace(/\D/g, '');
+  if (phoneDigits.length < 8) {
+    return res.status(400).json({ error: 'Enter a valid phone number (at least 8 digits).' });
+  }
+  if (!Number.isFinite(amountGhs) || amountGhs < MIN_STORE_WITHDRAWAL_GHS) {
+    return res.status(400).json({ error: `Minimum withdrawal is GHS ${MIN_STORE_WITHDRAWAL_GHS}.` });
+  }
+  const earned = storeOrderCountsTowardEarnings('o');
+  const profitRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(${orderProfitExpression('o')}), 0) AS t
+       FROM orders o
+       WHERE o.store_owner_id = ? AND ${earned}`
+    )
+    .get(req.userId);
+  const totalProfitGhs = profitRow && profitRow.t != null ? Number(profitRow.t) : 0;
+  const withdrawnRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(ABS(amount)), 0) AS t
+       FROM transactions
+       WHERE user_id = ? AND LOWER(COALESCE(type,'')) IN ('withdrawal', 'payout', 'store_payout')`
+    )
+    .get(req.userId);
+  const totalWithdrawnGhs = withdrawnRow && withdrawnRow.t != null ? Number(withdrawnRow.t) : 0;
+  const pendingReqRow = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount_ghs), 0) AS t
+       FROM store_withdrawal_requests
+       WHERE user_id = ? AND LOWER(COALESCE(status,'')) IN ('pending','processing')`
+    )
+    .get(req.userId);
+  const pendingRequestedGhs = pendingReqRow && pendingReqRow.t != null ? Number(pendingReqRow.t) : 0;
+  const availableToWithdraw = Math.max(0, totalProfitGhs - totalWithdrawnGhs - pendingRequestedGhs);
+  if (amountGhs > availableToWithdraw + 1e-6) {
+    return res
+      .status(400)
+      .json({ error: `Amount cannot exceed your withdrawable profit balance (GHS ${availableToWithdraw.toFixed(2)}).` });
+  }
+  const rawFee = amountGhs * STORE_WITHDRAWAL_FEE_RATE;
+  const feeGhs = Math.round(rawFee * 100) / 100;
+  const netGhs = Math.round((amountGhs - feeGhs) * 100) / 100;
+  if (netGhs <= 0) {
+    return res.status(400).json({ error: 'Amount is too small after the processing fee.' });
+  }
+  try {
+    const r = db
+      .prepare(
+        `INSERT INTO store_withdrawal_requests
+         (user_id, full_name, phone, amount_ghs, fee_ghs, net_after_fee_ghs, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`
+      )
+      .run(req.userId, fullName, phone, amountGhs, feeGhs, netGhs);
+    return res.json({
+      ok: true,
+      id: r.lastInsertRowid,
+      amountGhs,
+      feeGhs,
+      netAfterFeeGhs: netGhs,
+    });
+  } catch (e) {
+    console.error('[store/withdrawal-request]', e);
+    return res.status(500).json({ error: 'Could not save withdrawal request' });
+  }
+});
+
+app.get('/api/admin/withdrawal-requests', adminAuthMiddleware, (req, res) => {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT r.id, r.user_id, r.full_name, r.phone, r.amount_ghs, r.fee_ghs, r.net_after_fee_ghs, r.status, r.created_at,
+                u.email AS user_email,
+                u.full_name AS user_account_name
+         FROM store_withdrawal_requests r
+         JOIN users u ON u.id = r.user_id
+         ORDER BY datetime(r.created_at) DESC
+         LIMIT 500`
+      )
+      .all();
+    return res.json({ requests: rows });
+  } catch (e) {
+    console.error('[admin/withdrawal-requests]', e);
+    return res.status(500).json({ error: 'Failed to list withdrawal requests' });
+  }
+});
+
+app.patch('/api/admin/withdrawal-requests/:requestId', adminAuthMiddleware, (req, res) => {
+  const requestId = parseInt(String(req.params.requestId || ''), 10);
+  if (!Number.isFinite(requestId)) {
+    return res.status(400).json({ error: 'Invalid request id' });
+  }
+  const nextStatus = normalizeWithdrawalRequestStatus(req.body?.status);
+  const row = db
+    .prepare(
+      `SELECT id, user_id, amount_ghs, fee_ghs, net_after_fee_ghs, status
+       FROM store_withdrawal_requests
+       WHERE id = ?`
+    )
+    .get(requestId);
+  if (!row) {
+    return res.status(404).json({ error: 'Withdrawal request not found' });
+  }
+  const prevStatus = normalizeWithdrawalRequestStatus(row.status);
+  if (prevStatus === 'completed' && nextStatus !== 'completed') {
+    return res.status(400).json({ error: 'Completed withdrawals cannot be moved back to another status.' });
+  }
+
+  try {
+    db.prepare("UPDATE store_withdrawal_requests SET status = ? WHERE id = ?").run(nextStatus, requestId);
+    if (nextStatus === 'completed' && prevStatus !== 'completed') {
+      const amountGhs = Number(row.amount_ghs || 0);
+      const netGhs = Number(row.net_after_fee_ghs || 0);
+      const feeGhs = Number(row.fee_ghs || 0);
+      const ref = `STORE-WD-REQ-${requestId}-${Date.now()}`;
+      const desc = `Store withdrawal paid (request #${requestId}): requested GHS ${amountGhs.toFixed(2)}, fee GHS ${feeGhs.toFixed(2)}, net GHS ${netGhs.toFixed(2)}`;
+      db.prepare(
+        "INSERT INTO transactions (user_id, type, amount, reference, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))"
+      ).run(row.user_id, 'store_payout', -Math.abs(amountGhs), ref, desc, 'completed');
+    }
+    const updated = db
+      .prepare(
+        `SELECT r.id, r.user_id, r.full_name, r.phone, r.amount_ghs, r.fee_ghs, r.net_after_fee_ghs, r.status, r.created_at,
+                u.email AS user_email,
+                u.full_name AS user_account_name
+         FROM store_withdrawal_requests r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.id = ?`
+      )
+      .get(requestId);
+    return res.json({ ok: true, request: updated || null });
+  } catch (e) {
+    console.error('[admin/withdrawal-requests patch]', e);
+    return res.status(500).json({ error: 'Failed to update withdrawal request' });
+  }
 });
 
 // ---- Bundles (public) ----

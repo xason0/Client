@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useReducer, useId } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useReducer } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from './api';
-import PublicStorefront, { readPublicStoreSnapshot } from './PublicStorefront.jsx';
+import PublicStorefront, { readPublicStoreSnapshot, PublicStoreNetLivePill } from './PublicStorefront.jsx';
 import UltraxasChatBar from './components/UltraxasChatBar';
 import BroadcastRichEditor from './components/BroadcastRichEditor';
 import {
@@ -14,6 +14,9 @@ import {
 
 /** Must match server `MIN_WALLET_TOPUP_GHS` / `WALLET_MIN_TOPUP_GHS`. */
 const MIN_WALLET_TOPUP_GHS = 10;
+/** Min GHS for store withdrawal; keep in sync with `MIN_STORE_WITHDRAWAL_GHS` in `vps-server.js`. */
+const MIN_STORE_WITHDRAWAL_GHS = 50;
+const STORE_WITHDRAWAL_FEE_RATE = 0.02;
 
 /** Store dashboard → Settings: look for package cards on the public storefront. */
 const STORE_THEME_OPTIONS = [
@@ -24,8 +27,9 @@ const STORE_THEME_OPTIONS = [
   { id: 'minimal', label: 'Simple', desc: 'Minimal lines' },
   { id: 'bold', label: 'Strong', desc: 'Bold border and text' },
 ];
-const DEFAULT_STORE_ACCENT = '#0ea5e9';
+const DEFAULT_STORE_ACCENT = '#7c3aed';
 const STORE_ACCENT_PRESETS = [
+  '#7c3aed',
   '#0ea5e9',
   '#8b5cf6',
   '#ec4899',
@@ -42,99 +46,42 @@ function clampStoreAccentHex(s) {
 const MAX_STORE_LOGO_BYTES = 2 * 1024 * 1024;
 
 /**
- * Store → Settings: circular logo preview. Disc is a single def’d `<circle>` re-used via
- * `<use href=… />` (SVG’s native instancing) — gradient on `<use>`, or ring-only clone over photo.
+ * Store → Settings: large circular image slot, small + badge (bottom-right, not centered on top).
  */
-function StoreSettingsLogoPreviewSvg({ logoDataUrl, accentColor, idBase }) {
-  const ac = clampStoreAccentHex(accentColor);
-  const gid = `splg-${idBase}`;
-  const did = `spld-${idBase}`;
-  const cid = `splc-${idBase}`;
-  const hid = `splh-${idBase}`;
-  const fid = `splf-${idBase}`;
+function StoreSettingsLogoImageSlot({ logoDataUrl, isDark }) {
   return (
-    <svg
-      className="w-24 h-24 sm:w-28 sm:h-28 shrink-0 block transition duration-200 active:scale-[0.99]"
-      viewBox="0 0 112 112"
-      aria-hidden
-    >
-      <defs>
-        <radialGradient id={gid} cx="32%" cy="28%" r="75%" gradientUnits="objectBoundingBox">
-          <stop offset="0%" stopColor={ac} />
-          <stop offset="65%" stopColor={ac} />
-          <stop offset="100%" stopColor="#0f172a" />
-        </radialGradient>
-        <filter id={fid} x="-40%" y="-40%" width="180%" height="180%">
-          <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor={ac} floodOpacity="0.45" />
-        </filter>
-        {/** Reusable 100px disc: drawn via `<use href=…/>` (SVG `use` instance) */}
-        <circle id={did} cx="56" cy="56" r="50" fill="none" />
-        {logoDataUrl ? (
-          <clipPath id={cid}>
-            <circle cx="56" cy="56" r="50" />
-          </clipPath>
-        ) : null}
-        {/** Home icon template for store placeholder */}
-        <symbol id={hid} viewBox="0 0 24 24">
-          <path
-            d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.35"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M9 22V12h6v10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.35"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </symbol>
-      </defs>
-      <g filter={`url(#${fid})`}>
-        {logoDataUrl ? (
-          <>
-            <image
-              href={logoDataUrl}
-              x="6"
-              y="6"
-              width="100"
-              height="100"
-              clipPath={`url(#${cid})`}
-              preserveAspectRatio="xMidYMid slice"
-            />
-            <use
-              href={`#${did}`}
-              fill="none"
-              stroke="white"
-              strokeWidth="3.5"
-              strokeOpacity="0.95"
-            />
-          </>
-        ) : (
-          <>
-            <use
-              href={`#${did}`}
-              fill={`url(#${gid})`}
-              stroke="white"
-              strokeWidth="3.5"
-              strokeOpacity="0.95"
-            />
-            <use
-              href={`#${hid}`}
-              x="32"
-              y="32"
-              width="48"
-              height="48"
-              className="text-white"
-            />
-          </>
-        )}
-      </g>
-    </svg>
+    <div className="relative h-24 w-24 shrink-0 sm:h-28 sm:w-28">
+      <div
+        className={[
+          'flex h-full w-full items-center justify-center overflow-hidden rounded-full transition',
+          logoDataUrl
+            ? 'bg-slate-200/50 ring-1 ring-slate-200/80 dark:bg-zinc-800/50 dark:ring-white/10'
+            : isDark
+              ? 'border-2 border-dashed border-slate-500/50 bg-zinc-900/40'
+              : 'border-2 border-dashed border-slate-300/90 bg-slate-50/80',
+        ].join(' ')}
+      >
+        {logoDataUrl ? <img src={logoDataUrl} alt="" className="h-full w-full object-cover" /> : null}
+      </div>
+      <div
+        className="absolute bottom-0 right-0 z-[1] flex h-5 w-5 items-center justify-center rounded-full border border-white bg-violet-600 text-white shadow-sm dark:border-zinc-900"
+        aria-hidden
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          className="text-white"
+        >
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+      </div>
+    </div>
   );
 }
 
@@ -256,6 +203,235 @@ const DASHBOARD_HEADLINES = [
   'Fast. Trusted. Professional.',
   'Advert-Ready Digital Service',
 ];
+
+/**
+ * Dashboard spotlight: default is a two-line broadcast. Env overrides; use `\n` for headline / tagline. Empty env hides.
+ */
+const DASHBOARD_ANNOUNCEMENT_ENV = import.meta.env.VITE_DASHBOARD_ANNOUNCEMENT;
+const DASHBOARD_AD_DEFAULT =
+  "Your branded storefront for bundles—share one public link, set your prices, and see every sale as it happens.\nAll of it lives in Store Dashboard: your URL, your margins, and order history in one place.";
+
+const DASHBOARD_ANNOUNCEMENT =
+  DASHBOARD_ANNOUNCEMENT_ENV === undefined ? DASHBOARD_AD_DEFAULT : String(DASHBOARD_ANNOUNCEMENT_ENV).trim();
+
+const DASHBOARD_ANNOUNCEMENT_TYPE_MS = 22;
+const DASHBOARD_ANNOUNCEMENT_CTA_MS = 380;
+
+/** Persists in localStorage: survives logout, new login, and tab close. A new `text` (new hash) can show a fresh message. */
+const DASHBOARD_ANNOUNCE_DISMISS_KEY = 'dataplus_dash_announce_dismissed_hash';
+
+function hashDashboardAnnouncementString(s) {
+  const str = String(s || '');
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return `${h}:${str.length}`;
+}
+
+function isDashboardAnnouncementDismissed(announcementText) {
+  const body = String(announcementText || '').trim();
+  if (!body) return true;
+  if (typeof localStorage === 'undefined') return false;
+  let stored = null;
+  try {
+    stored = localStorage.getItem(DASHBOARD_ANNOUNCE_DISMISS_KEY);
+  } catch {
+    return false;
+  }
+  return stored === hashDashboardAnnouncementString(body);
+}
+
+function rememberDashboardAnnouncementDismissed(announcementText) {
+  const body = String(announcementText || '').trim();
+  if (!body || typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(DASHBOARD_ANNOUNCE_DISMISS_KEY, hashDashboardAnnouncementString(body));
+  } catch {
+    // ignore quota
+  }
+}
+
+/** “Introducing” + ad-style copy (typewriter) + optional “Try it now” → Store Dashboard. */
+function DashboardAnnouncementBar({ text, isDark, onOpenStore, showStoreCta = true, ctaLabel = 'Try it now' }) {
+  const body = String(text || '').trim();
+  const [dismissed, setDismissed] = useState(() => isDashboardAnnouncementDismissed(text));
+  const [shownLen, setShownLen] = useState(0);
+  const [ctaRevealed, setCtaRevealed] = useState(false);
+  const [reduced, setReduced] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const fn = () => setReduced(!!mq.matches);
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+
+  useEffect(() => {
+    setDismissed(isDashboardAnnouncementDismissed(text));
+  }, [text]);
+
+  useEffect(() => {
+    if (!body) {
+      setShownLen(0);
+      return undefined;
+    }
+    if (reduced) {
+      setShownLen(body.length);
+      return undefined;
+    }
+    setShownLen(0);
+    let n = 0;
+    const id = window.setInterval(() => {
+      n += 1;
+      if (n >= body.length) {
+        setShownLen(body.length);
+        window.clearInterval(id);
+        return;
+      }
+      setShownLen(n);
+    }, DASHBOARD_ANNOUNCEMENT_TYPE_MS);
+    return () => window.clearInterval(id);
+  }, [body, reduced]);
+
+  const typedDone = body.length > 0 && shownLen >= body.length;
+  const canCta = Boolean(showStoreCta && typeof onOpenStore === 'function');
+
+  useEffect(() => {
+    if (!typedDone || !canCta) {
+      setCtaRevealed(false);
+      return undefined;
+    }
+    if (reduced) {
+      setCtaRevealed(true);
+      return undefined;
+    }
+    setCtaRevealed(false);
+    const t = window.setTimeout(() => setCtaRevealed(true), DASHBOARD_ANNOUNCEMENT_CTA_MS);
+    return () => window.clearTimeout(t);
+  }, [typedDone, canCta, reduced, body]);
+
+  if (!body) return null;
+  if (dismissed) return null;
+
+  const out = body.slice(0, shownLen);
+  const hasMultiline = body.indexOf('\n') !== -1;
+  const br = out.indexOf('\n');
+  const lineMain = br === -1 ? out : out.slice(0, br);
+  const lineSub = br === -1 ? '' : out.slice(br + 1);
+  const showSub = hasMultiline && (br === -1 ? false : out.length > br + 1);
+
+  return (
+    <div className="dashboard-ad-fire-shell group relative mt-3 sm:mt-4 w-full overflow-hidden rounded-2xl">
+      <div className="dashboard-ad-fire-spin" aria-hidden />
+      <div
+        className={`dashboard-ad-spotlight relative z-[1] m-0.5 overflow-hidden rounded-[14px] border ${
+          isDark
+            ? 'border-white/10 bg-gradient-to-b from-slate-900/95 via-slate-950/90 to-slate-950/98 shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_2px_0_rgba(255,255,255,0.03)_inset,0_20px_50px_-20px_rgba(0,0,0,0.65)]'
+            : 'border-slate-200/90 bg-gradient-to-b from-white via-slate-50/95 to-violet-50/25 shadow-[0_1px_0_rgba(255,255,255,0.95)_inset,0_20px_48px_-18px_rgba(15,23,42,0.12)]'
+        }`}
+        role="status"
+        aria-label={body.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}
+      >
+      <div
+        className="h-px w-full bg-gradient-to-r from-transparent via-violet-500/50 to-transparent opacity-60"
+        aria-hidden
+      />
+      <div className="relative z-[1] px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
+        <div className="mb-3 flex min-h-[1.75rem] flex-wrap items-center justify-between gap-2 sm:mb-4">
+          <span className={`dashboard-announcement-intro ${isDark ? 'dashboard-announcement-intro--dark' : ''}`}>
+            Introducing
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              rememberDashboardAnnouncementDismissed(body);
+              setDismissed(true);
+            }}
+            className={[
+              '-m-0.5 inline-flex shrink-0 items-center justify-center rounded-lg p-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2',
+              isDark
+                ? 'text-slate-400 hover:bg-white/10 hover:text-slate-100 focus-visible:ring-offset-slate-950'
+                : 'text-slate-500 hover:bg-slate-200/80 hover:text-slate-800 focus-visible:ring-offset-white',
+            ].join(' ')}
+            aria-label="Close and don’t show this update again"
+            title="Close and don’t show this update again"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {hasMultiline ? (
+          <div className="min-h-[4.25rem] sm:min-h-[3.5rem]">
+            <p
+              className={`dashboard-ad-copy m-0 text-[1.02rem] font-normal leading-[1.55] tracking-[0.01em] sm:text-[1.08rem] sm:leading-[1.6] ${
+                isDark ? 'text-slate-100/95' : 'text-indigo-950/90'
+              }`}
+            >
+              {lineMain}
+            </p>
+            {showSub ? (
+              <p
+                className={`dashboard-ad-copy m-0 mt-2.5 max-w-2xl text-[0.8125rem] font-normal leading-[1.55] sm:mt-2.5 sm:text-sm ${
+                  isDark ? 'text-violet-200/80' : 'text-violet-800/80'
+                }`}
+              >
+                {lineSub}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p
+            className={`dashboard-ad-copy m-0 min-h-[2.5rem] max-w-2xl text-[1.02rem] font-normal leading-[1.55] tracking-[0.01em] sm:text-[1.08rem] ${
+              isDark ? 'text-slate-100/95' : 'text-indigo-950/90'
+            }`}
+          >
+            {out}
+          </p>
+        )}
+
+        {canCta && ctaRevealed ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 sm:mt-5">
+            <button
+              type="button"
+              onClick={() => onOpenStore?.()}
+              className={`inline-flex min-h-[2.5rem] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm transition-[filter,box-shadow] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 focus-visible:ring-offset-2 ${
+                isDark
+                  ? 'bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500/90 text-white hover:brightness-110 focus-visible:ring-offset-zinc-950'
+                  : 'bg-gradient-to-r from-violet-700 via-violet-600 to-orange-500 text-white hover:brightness-105 focus-visible:ring-offset-white'
+              }`}
+              aria-label="Open Store Dashboard"
+            >
+              {ctaLabel}
+            </button>
+            <span className={`text-xs sm:text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+              Opens your vendor Store Dashboard
+            </span>
+          </div>
+        ) : null}
+      </div>
+      </div>
+    </div>
+  );
+}
 
 /** Customer-facing product name (support header, headlines, etc.). */
 const APP_BRAND_DISPLAY_NAME = 'DataPlus';
@@ -384,11 +560,9 @@ function defaultStorePathSlugFromUser(u) {
   return 'my-store';
 }
 
-/** Store Dashboard is in private testing — only these signed-in emails see the menu and page. */
-const STORE_DASHBOARD_ALLOWLIST = new Set(['ultraxas@gmail.com'].map((e) => e.trim().toLowerCase()));
+/** Store Dashboard: any signed-in account can open the vendor store (menu → Store Dashboard). */
 function isStoreDashboardAllowedForUser(u) {
-  const em = u && typeof u.email === 'string' ? u.email.trim().toLowerCase() : '';
-  return em.length > 0 && STORE_DASHBOARD_ALLOWLIST.has(em);
+  return Boolean(u);
 }
 
 /** Card style aligned with system “team notified” messages — admin replies in support. */
@@ -1148,19 +1322,26 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       return {};
     }
   });
-  const [storePricingSaveMessage, setStorePricingSaveMessage] = useState(null);
   const [storeEarningsPeriod, setStoreEarningsPeriod] = useState('this-month');
   const [storeEarningsRefreshHint, setStoreEarningsRefreshHint] = useState(false);
   const [storeEarningsActionMsg, setStoreEarningsActionMsg] = useState(null);
   const [storeEarningsData, setStoreEarningsData] = useState(null);
   const [storeEarningsLoading, setStoreEarningsLoading] = useState(false);
   const [storeEarningsError, setStoreEarningsError] = useState(null);
+  const [storeWithdrawalModalOpen, setStoreWithdrawalModalOpen] = useState(false);
+  const [storeWithdrawalStep, setStoreWithdrawalStep] = useState('form');
+  const [storeWithdrawalName, setStoreWithdrawalName] = useState('');
+  const [storeWithdrawalPhone, setStoreWithdrawalPhone] = useState('');
+  const [storeWithdrawalAmountStr, setStoreWithdrawalAmountStr] = useState('');
+  const [storeWithdrawalSubmitting, setStoreWithdrawalSubmitting] = useState(false);
+  const [storeWithdrawalError, setStoreWithdrawalError] = useState(null);
   const loadStoreServiceSettings = () => {
     const defaults = {
       afaEnabled: true,
       afaPrice: '15',
       afaDescription: 'Register for MTN AFA to enjoy bundle benefits',
       vouchersEnabled: false,
+      withdrawalStatus: 'enabled',
     };
     if (typeof window === 'undefined') return defaults;
     try {
@@ -1173,6 +1354,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           afaPrice: typeof p.afaPrice === 'string' ? p.afaPrice : String(p.afaPrice ?? defaults.afaPrice),
           afaDescription: typeof p.afaDescription === 'string' ? p.afaDescription : defaults.afaDescription,
           vouchersEnabled: typeof p.vouchersEnabled === 'boolean' ? p.vouchersEnabled : defaults.vouchersEnabled,
+          withdrawalStatus:
+            String(p.withdrawalStatus || '').toLowerCase() === 'paused' ? 'paused' : defaults.withdrawalStatus,
         };
       }
     } catch {
@@ -1190,6 +1373,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       accentColor: DEFAULT_STORE_ACCENT,
       storeName: '',
       storeDescription: '',
+      heroTitle: '',
+      heroTagline: '',
       whatsapp: '',
       whatsappGroup: '',
       paystackEnabled: true,
@@ -1207,6 +1392,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           accentColor: clampStoreAccentHex(p.accentColor),
           storeName: typeof p.storeName === 'string' ? p.storeName.slice(0, 100) : defaults.storeName,
           storeDescription: typeof p.storeDescription === 'string' ? p.storeDescription.slice(0, 500) : defaults.storeDescription,
+          heroTitle: typeof p.heroTitle === 'string' ? p.heroTitle.slice(0, 100) : defaults.heroTitle,
+          heroTagline: typeof p.heroTagline === 'string' ? p.heroTagline.slice(0, 200) : defaults.heroTagline,
           whatsapp: typeof p.whatsapp === 'string' ? p.whatsapp : defaults.whatsapp,
           whatsappGroup: typeof p.whatsappGroup === 'string' ? p.whatsappGroup : defaults.whatsappGroup,
           paystackEnabled: typeof p.paystackEnabled === 'boolean' ? p.paystackEnabled : defaults.paystackEnabled,
@@ -1220,16 +1407,34 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   };
   const [storeDisplaySettings, setStoreDisplaySettings] = useState(() => loadStoreDisplaySettings());
   const [storeSettingsMessage, setStoreSettingsMessage] = useState(null);
+  const [storeModerationStatus, setStoreModerationStatus] = useState('pending');
+  const [storeModerationNote, setStoreModerationNote] = useState('');
+  const [storeModerationReviewedAt, setStoreModerationReviewedAt] = useState(null);
+  const [storeAppealBusy, setStoreAppealBusy] = useState(false);
+  const [storeDeleteConfirmOpen, setStoreDeleteConfirmOpen] = useState(false);
+  const [storeDeleteBusy, setStoreDeleteBusy] = useState(false);
+  const [storeEditorOpen, setStoreEditorOpen] = useState(false);
+  const [storeNewDraftMode, setStoreNewDraftMode] = useState(false);
+  const [storeExists, setStoreExists] = useState(true);
+  const [activeStoreId, setActiveStoreId] = useState(null);
+  const [myStores, setMyStores] = useState([]);
+  const [storeListOpen, setStoreListOpen] = useState(false);
+  const storeSavedSnapshotRef = useRef(null);
+  /** Fixed toast for Store (auto-sync + manual save); not cleared when server sync is skipped (e.g. signed out). */
+  const [storeAutoSyncNotice, setStoreAutoSyncNotice] = useState(null);
   const [storeLogoError, setStoreLogoError] = useState(null);
-  const storeLookPreviewId = useId().replace(/:/g, '');
   const storeLogoInputRef = useRef(null);
   const storeApiSyncTimerRef = useRef(null);
+  const storeAutoSyncNoticeTimerRef = useRef(null);
   const storePricingLocalPersistTimerRef = useRef(null);
   const buildMyStoreRequestBodyRef = useRef(null);
   const vendorStoreSyncedForUserRef = useRef(null);
+  const lastStoreAutoSyncBodyRef = useRef('');
+  const lastSeenStoreModerationStatusRef = useRef('pending');
   const [storeLinkEditOpen, setStoreLinkEditOpen] = useState(false);
   const [storePathSlugDraft, setStorePathSlugDraft] = useState('');
   const [storeLinkSettingsMessage, setStoreLinkSettingsMessage] = useState(null);
+  const [storeLinkCopied, setStoreLinkCopied] = useState(false);
   /** Server snapshot for `/store/:slug` when the viewer is not the owner (GET /api/public/store/:slug). */
   const [publicStoreFromApi, setPublicStoreFromApi] = useState(null);
   const [orders, setOrders] = useState([]);
@@ -1241,6 +1446,288 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [transactionTypeFilter, setTransactionTypeFilter] = useState('All Types');
   const [transactionStatusFilter, setTransactionStatusFilter] = useState('All Status');
   const [transactionSearch, setTransactionSearch] = useState('');
+  const captureStoreSnapshot = () => ({
+    storeId: activeStoreId,
+    pathSlugOverride: storePathSlugOverride || '',
+    display: { ...storeDisplaySettings },
+    service: { ...storeServiceSettings },
+    customBundlePrices: { ...storeCustomBundlePrices },
+    customBundleActive: { ...storeCustomBundleActive },
+    availability: !!storeAvailabilityOn,
+    moderationStatus: storeModerationStatus,
+    moderationNote: storeModerationNote,
+    moderationReviewedAt: storeModerationReviewedAt,
+  });
+  const applyStoreSnapshot = (snap) => {
+    if (!snap || typeof snap !== 'object') return;
+    setActiveStoreId(Number.isFinite(Number(snap.storeId)) ? Number(snap.storeId) : null);
+    setStorePathSlugOverride(String(snap.pathSlugOverride || ''));
+    setStoreDisplaySettings(snap.display && typeof snap.display === 'object' ? { ...snap.display } : loadStoreDisplaySettings());
+    setStoreServiceSettings(snap.service && typeof snap.service === 'object' ? { ...snap.service } : loadStoreServiceSettings());
+    setStoreCustomBundlePrices(
+      snap.customBundlePrices && typeof snap.customBundlePrices === 'object' ? { ...snap.customBundlePrices } : {}
+    );
+    setStoreCustomBundleActive(
+      snap.customBundleActive && typeof snap.customBundleActive === 'object' ? { ...snap.customBundleActive } : {}
+    );
+    setStoreAvailabilityOn(!!snap.availability);
+    setStoreModerationStatus(String(snap.moderationStatus || 'pending'));
+    setStoreModerationNote(String(snap.moderationNote || ''));
+    setStoreModerationReviewedAt(snap.moderationReviewedAt || null);
+  };
+  const hydrateStoreFromServer = useCallback((store, currentUser) => {
+    if (!store || typeof store !== 'object') return false;
+    setActiveStoreId(Number.isFinite(Number(store.storeId)) ? Number(store.storeId) : null);
+    const dSlug = defaultStorePathSlugFromUser(currentUser || user);
+    if (store.pathSlug && String(store.pathSlug) !== dSlug) {
+      const s = sanitizeStorePathSegment(String(store.pathSlug));
+      if (s) {
+        setStorePathSlugOverride(s);
+        try {
+          localStorage.setItem('dataplus_store_slug_override', s);
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      setStorePathSlugOverride('');
+      try {
+        localStorage.removeItem('dataplus_store_slug_override');
+      } catch {
+        // ignore
+      }
+    }
+    setStoreModerationStatus(String(store.moderationStatus || 'pending').trim().toLowerCase() || 'pending');
+    setStoreModerationNote(String(store.moderationNote || ''));
+    setStoreModerationReviewedAt(store.moderationReviewedAt || null);
+    if (store.display && typeof store.display === 'object') {
+      const d = { ...loadStoreDisplaySettings(), ...store.display };
+      setStoreDisplaySettings(d);
+      try {
+        localStorage.setItem('dataplus_store_display_v1', JSON.stringify(d));
+      } catch {
+        // ignore
+      }
+    }
+    if (store.service && typeof store.service === 'object') {
+      const sv = { ...loadStoreServiceSettings(), ...store.service };
+      setStoreServiceSettings(sv);
+      try {
+        localStorage.setItem('dataplus_store_services_v1', JSON.stringify(sv));
+      } catch {
+        // ignore
+      }
+    }
+    if (store.customBundlePrices && typeof store.customBundlePrices === 'object' && !Array.isArray(store.customBundlePrices)) {
+      setStoreCustomBundlePrices({ ...store.customBundlePrices });
+      try {
+        localStorage.setItem('dataplus_store_custom_bundle_prices', JSON.stringify(store.customBundlePrices));
+      } catch {
+        // ignore
+      }
+    } else {
+      setStoreCustomBundlePrices({});
+    }
+    if (store.customBundleActive && typeof store.customBundleActive === 'object' && !Array.isArray(store.customBundleActive)) {
+      setStoreCustomBundleActive({ ...store.customBundleActive });
+      try {
+        localStorage.setItem('dataplus_store_custom_bundle_active', JSON.stringify(store.customBundleActive));
+      } catch {
+        // ignore
+      }
+    } else {
+      setStoreCustomBundleActive({});
+    }
+    setStoreAvailabilityOn(store.availability !== undefined ? !!store.availability : true);
+    storeSavedSnapshotRef.current = {
+      pathSlugOverride:
+        store.pathSlug && String(store.pathSlug) !== dSlug ? sanitizeStorePathSegment(String(store.pathSlug)) : '',
+      display: store.display && typeof store.display === 'object' ? { ...loadStoreDisplaySettings(), ...store.display } : loadStoreDisplaySettings(),
+      service: store.service && typeof store.service === 'object' ? { ...loadStoreServiceSettings(), ...store.service } : loadStoreServiceSettings(),
+      customBundlePrices:
+        store.customBundlePrices && typeof store.customBundlePrices === 'object' && !Array.isArray(store.customBundlePrices)
+          ? { ...store.customBundlePrices }
+          : {},
+      customBundleActive:
+        store.customBundleActive && typeof store.customBundleActive === 'object' && !Array.isArray(store.customBundleActive)
+          ? { ...store.customBundleActive }
+          : {},
+      availability: store.availability !== undefined ? !!store.availability : true,
+      moderationStatus: String(store.moderationStatus || 'pending').trim().toLowerCase() || 'pending',
+      moderationNote: String(store.moderationNote || ''),
+      moderationReviewedAt: store.moderationReviewedAt || null,
+    };
+    setStoreNewDraftMode(false);
+    return true;
+  }, [user]);
+  const refreshMyStores = useCallback(async () => {
+    if (!isSignedIn || !api.getToken()) {
+      setMyStores([]);
+      return [];
+    }
+    const list = await api.getMyStores();
+    const rows = Array.isArray(list) ? list.slice(0, 10) : [];
+    setMyStores(rows);
+    if (rows.length === 0) {
+      setActiveStoreId(null);
+      setStoreExists(false);
+      setStoreModerationStatus('pending');
+      setStoreModerationNote('');
+      setStoreModerationReviewedAt(null);
+    }
+    return rows;
+  }, [isSignedIn]);
+  const openStoreById = useCallback(async (storeId) => {
+    if (!Number.isFinite(Number(storeId)) || !isSignedIn || !api.getToken()) return;
+    setStoreSettingsMessage('Loading selected store…');
+    try {
+      const { store } = await api.getMyStore(Number(storeId));
+      if (!store) {
+        setStoreSettingsMessage('This store was not found. Refresh and try again.');
+        return;
+      }
+      const ok = hydrateStoreFromServer(store, user);
+      if (ok) {
+        setStoreExists(true);
+        setStoreEditorOpen(false);
+        setStoreDashTab('overview');
+      }
+    } catch (err) {
+      setStoreSettingsMessage(err?.message || 'Could not load selected store.');
+    }
+  }, [isSignedIn, user, hydrateStoreFromServer]);
+  const reloadStoreFromServer = useCallback(async () => {
+    if (!isSignedIn || !api.getToken()) {
+      setStoreSettingsMessage('Please sign in again, then tap Refresh store.');
+      return;
+    }
+    setStoreSettingsMessage('Refreshing your saved store…');
+    try {
+      const { store } = await api.getMyStore();
+      if (!store) {
+        setActiveStoreId(null);
+        setStoreSettingsMessage('No saved store found yet.');
+        await refreshMyStores();
+        return;
+      }
+      const ok = hydrateStoreFromServer(store, user);
+      if (ok) {
+        setStoreExists(true);
+        const restoredName = String(store?.display?.storeName || '').trim();
+        if (!restoredName) {
+          setStoreDisplaySettings((prev) => {
+            const next = { ...prev, storeName: 'ULTRAXAS' };
+            try {
+              localStorage.setItem('dataplus_store_display_v1', JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+          setStoreSettingsMessage('Store loaded. Store name set to ULTRAXAS.');
+        } else {
+          setStoreSettingsMessage('Your saved store has been loaded.');
+        }
+        setStoreEditorOpen(false);
+        setStoreDashTab('overview');
+        await refreshMyStores();
+      }
+    } catch (err) {
+      setStoreSettingsMessage(err?.message || 'Could not refresh your store right now.');
+    }
+  }, [isSignedIn, user, hydrateStoreFromServer, refreshMyStores]);
+  const deleteStoreNow = useCallback(async () => {
+    if (storeDeleteBusy) return;
+    setStoreDeleteBusy(true);
+    setStoreSettingsMessage('Deleting store...');
+    try {
+      const resp = await api.deleteMyStore(
+        Number.isFinite(Number(activeStoreId)) ? { storeId: Number(activeStoreId) } : undefined
+      );
+      if (resp && resp.skipped) {
+        setStoreSettingsMessage('Please sign in again, then try deleting the store.');
+        return;
+      }
+      const check = await api.getMyStore();
+      if (check?.store) {
+        const ok = hydrateStoreFromServer(check.store, user);
+        if (ok) {
+          setStoreExists(true);
+          setStoreDeleteConfirmOpen(false);
+          setStoreSettingsMessage('Store deleted. Switched to your latest remaining store.');
+          await refreshMyStores();
+          return;
+        }
+      }
+      setStoreExists(false);
+      setStoreDeleteConfirmOpen(false);
+      setStoreDisplaySettings({
+        logoDataUrl: null,
+        theme: 'default',
+        accentColor: DEFAULT_STORE_ACCENT,
+        storeName: '',
+        storeDescription: '',
+        heroTitle: '',
+        heroTagline: '',
+        whatsapp: '',
+        whatsappGroup: '',
+        paystackEnabled: true,
+        feeAbsorption: 0,
+      });
+      setStoreServiceSettings({
+        afaEnabled: true,
+        afaPrice: '15',
+        afaDescription: 'Register for MTN AFA to enjoy bundle benefits',
+        vouchersEnabled: false,
+        withdrawalStatus: 'enabled',
+      });
+      setStoreCustomBundlePrices({});
+      setStoreCustomBundleActive({});
+      setStoreAvailabilityOn(false);
+      setStorePathSlugOverride('');
+      setStoreModerationStatus('pending');
+      setStoreModerationNote('');
+      setStoreModerationReviewedAt(null);
+      setActiveStoreId(null);
+      storeSavedSnapshotRef.current = null;
+      setStoreNewDraftMode(false);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('dataplus_store_display_v1');
+        localStorage.removeItem('dataplus_store_services_v1');
+        localStorage.removeItem('dataplus_store_custom_bundle_prices');
+        localStorage.removeItem('dataplus_store_custom_bundle_active');
+        localStorage.removeItem('dataplus_store_available');
+        localStorage.removeItem('dataplus_store_slug_override');
+      }
+      setStoreSettingsMessage('Store deleted. Use New store to create another one.');
+      await refreshMyStores();
+      if (typeof window !== 'undefined') {
+        window.setTimeout(() => setStoreSettingsMessage(null), 9000);
+      }
+    } catch (err) {
+      const msg = err?.message || 'Could not delete store';
+      setStoreSettingsMessage(msg);
+    } finally {
+      setStoreDeleteBusy(false);
+    }
+  }, [storeDeleteBusy, activeStoreId, hydrateStoreFromServer, user, refreshMyStores]);
+  const handleDeletePress = useCallback(() => {
+    if (storeDeleteBusy) return;
+    setStoreDeleteConfirmOpen(true);
+  }, [storeDeleteBusy]);
+  const showStoreDashboardToast = useCallback((type, text, timeoutMs = 14000) => {
+    setStoreAutoSyncNotice({ type, text });
+    if (storeAutoSyncNoticeTimerRef.current) {
+      clearTimeout(storeAutoSyncNoticeTimerRef.current);
+      storeAutoSyncNoticeTimerRef.current = null;
+    }
+    if (timeoutMs > 0 && typeof window !== 'undefined') {
+      storeAutoSyncNoticeTimerRef.current = window.setTimeout(() => {
+        setStoreAutoSyncNotice(null);
+        storeAutoSyncNoticeTimerRef.current = null;
+      }, timeoutMs);
+    }
+  }, []);
   const [adminStats, setAdminStats] = useState(null);
   const [adminStatsLoading, setAdminStatsLoading] = useState(false);
   const [adminStatsError, setAdminStatsError] = useState(null);
@@ -1261,6 +1748,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   const [adminWalletsLoading, setAdminWalletsLoading] = useState(false);
   const [adminWalletsError, setAdminWalletsError] = useState(null);
   const [adminWalletsSearch, setAdminWalletsSearch] = useState('');
+  const [adminStores, setAdminStores] = useState([]);
+  const [adminStoresLoading, setAdminStoresLoading] = useState(false);
+  const [adminStoresError, setAdminStoresError] = useState(null);
+  const [adminStoresSearch, setAdminStoresSearch] = useState('');
+  const [adminStoresShowDeclined, setAdminStoresShowDeclined] = useState(false);
+  const [adminStoreSavingUserId, setAdminStoreSavingUserId] = useState(null);
+  const [adminWithdrawalRequests, setAdminWithdrawalRequests] = useState([]);
+  const [adminWithdrawalRequestsLoading, setAdminWithdrawalRequestsLoading] = useState(false);
+  const [adminWithdrawalRequestsError, setAdminWithdrawalRequestsError] = useState(null);
+  const [adminWithdrawalRequestSavingId, setAdminWithdrawalRequestSavingId] = useState(null);
   const [adminTotalWalletBalance, setAdminTotalWalletBalance] = useState(0);
   const [dashboardHeadlineIndex, setDashboardHeadlineIndex] = useState(0);
   const [dashboardHeadlineVisible, setDashboardHeadlineVisible] = useState(true);
@@ -1601,6 +2098,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** After Paystack redirect, URL contains ?reference=… — verify and credit wallet */
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const path = window.location.pathname || '/';
+    if (path === '/store' || path.startsWith('/store/')) {
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     const ref = (params.get('reference') || params.get('trxref') || '').trim();
     if (!ref || !api.getToken()) return;
@@ -1953,6 +2454,16 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           setAdminWallets([]);
         })
         .finally(() => setAdminWalletsLoading(false));
+    } else if (currentPage === 'admin-stores' && hasAdminAccess) {
+      setAdminStoresLoading(true);
+      setAdminStoresError(null);
+      api.getAdminStores()
+        .then((list) => setAdminStores(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminStoresError(err?.message || 'Failed to load stores');
+          setAdminStores([]);
+        })
+        .finally(() => setAdminStoresLoading(false));
     } else if (currentPage === 'admin-applications' && hasAdminAccess) {
       setAgentApplicationsLoading(true);
       setAgentApplicationsError(null);
@@ -1975,6 +2486,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           setAdminBroadcasts([]);
         })
         .finally(() => setAdminBroadcastsLoading(false));
+    } else if (currentPage === 'admin-withdrawal-requests' && hasAdminAccess) {
+      setAdminWithdrawalRequestsLoading(true);
+      setAdminWithdrawalRequestsError(null);
+      api
+        .getAdminWithdrawalRequests()
+        .then((list) => setAdminWithdrawalRequests(Array.isArray(list) ? list : []))
+        .catch((err) => {
+          setAdminWithdrawalRequestsError(err?.message || 'Failed to load withdrawal requests');
+          setAdminWithdrawalRequests([]);
+        })
+        .finally(() => setAdminWithdrawalRequestsLoading(false));
     } else if (adminSupportModalOpen && hasAdminAccess) {
       setAdminSupportLoading(true);
       setAdminSupportError(null);
@@ -2521,7 +3043,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         }
       } else {
         setStoreEarningsData(null);
-        setStoreEarningsError('Could not load earnings from the API. Deploy the latest server or check your connection.');
+        setStoreEarningsError('Could not load earnings right now. Please check your connection and try again.');
       }
     } catch (e) {
       setStoreEarningsData(null);
@@ -3021,7 +3543,20 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   useEffect(() => {
     if (!adminRoute) return;
     if (adminPinVerified || (isSignedIn && user?.role === 'admin')) {
-      const adminSubPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'];
+      const adminSubPages = [
+        'admin',
+        'admin-users',
+        'admin-orders',
+        'admin-packages',
+        'admin-all-transactions',
+        'admin-wallet',
+        'admin-stores',
+        'admin-withdrawal-requests',
+        'admin-applications',
+        'admin-broadcasts',
+        'admin-support',
+        'admin-analytics',
+      ];
       const mainAppPages = ['dashboard', 'store-dashboard', 'bulk-orders', 'afa-registration', 'orders', 'transactions', 'join-us', 'profile', 'topup', 'pending-orders', 'completed-orders', 'my-orders'];
       if (adminSubPages.includes(currentPage)) return;
       if (mainAppPages.includes(currentPage)) return;
@@ -3043,7 +3578,20 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   /** Leaving /admin must drop admin-only pages from state; PIN sessions are not admin UI on `/`. */
   useEffect(() => {
     if (location.pathname === '/admin') return;
-    const adminPages = ['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'];
+    const adminPages = [
+      'admin',
+      'admin-users',
+      'admin-orders',
+      'admin-packages',
+      'admin-all-transactions',
+      'admin-wallet',
+      'admin-stores',
+      'admin-withdrawal-requests',
+      'admin-applications',
+      'admin-broadcasts',
+      'admin-support',
+      'admin-analytics',
+    ];
     setCurrentPage((p) => (adminPages.includes(p) ? 'dashboard' : p));
     setSelectedMenu((m) => (adminPages.includes(m) ? 'dashboard' : m));
   }, [location.pathname]);
@@ -3108,7 +3656,20 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       navigate('/admin');
       setCurrentPage('admin');
       setProfileOpen(false);
-    } else if (['admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-analytics'].includes(menu)) {
+    } else if (
+      [
+        'admin-users',
+        'admin-orders',
+        'admin-packages',
+        'admin-all-transactions',
+        'admin-wallet',
+        'admin-stores',
+        'admin-withdrawal-requests',
+        'admin-applications',
+        'admin-broadcasts',
+        'admin-analytics',
+      ].includes(menu)
+    ) {
       navigate('/admin');
       setCurrentPage(menu);
       setSelectedMenu(menu);
@@ -3149,6 +3710,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     [user?.id, user?.email]
   );
   const effectiveStorePathSlug = storePathSlugOverride || defaultStorePathSlug;
+  const managerStoreDisplay =
+    storeNewDraftMode && storeSavedSnapshotRef.current?.display ? storeSavedSnapshotRef.current.display : storeDisplaySettings;
+  const managerStoreSlug =
+    storeNewDraftMode && storeSavedSnapshotRef.current
+      ? storeSavedSnapshotRef.current.pathSlugOverride || defaultStorePathSlug
+      : effectiveStorePathSlug;
   const fullStoreLinkUrl = useMemo(() => {
     const base = getPublicSiteOrigin();
     if (!base) return '';
@@ -3164,6 +3731,25 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     const m = p.match(/^\/store\/([a-z0-9-]+)$/i);
     return m ? sanitizeStorePathSegment(m[1]) : null;
   }, [location?.pathname]);
+  const publicStorePathSegmentRef = useRef(null);
+  useEffect(() => {
+    publicStorePathSegmentRef.current = publicStorePathSegment;
+  }, [publicStorePathSegment]);
+
+  // Public /store: match phone OS light/dark only (no per-site toggle; clear saved customer theme while here)
+  useLayoutEffect(() => {
+    if (publicStorePathSegment) {
+      clearManualThemeForSurface(false);
+      const t = getSystemTheme();
+      setTheme(t);
+      document.documentElement.setAttribute('data-theme', t);
+    } else {
+      const t = readThemeForSurface(false);
+      setTheme(t);
+      document.documentElement.setAttribute('data-theme', t);
+    }
+  }, [publicStorePathSegment]);
+
   const isPublicUrlMine = useMemo(
     () =>
       Boolean(
@@ -3274,7 +3860,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   buildMyStoreRequestBodyRef.current = () => {
     const ownerName =
       (storeDisplaySettings?.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store';
+    const moderationStatus =
+      String(storeModerationStatus || (storeExists ? 'approved' : 'pending'))
+        .trim()
+        .toLowerCase() || (storeExists ? 'approved' : 'pending');
     return {
+      storeId: Number.isFinite(Number(activeStoreId)) ? Number(activeStoreId) : undefined,
+      createNew: !!storeNewDraftMode,
       pathSlug: effectiveStorePathSlug,
       pathSlugOverride: hasCustomStorePath
         ? sanitizeStorePathSegment(storePathSlugOverride) || null
@@ -3291,6 +3883,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         ishare: [...(bundlesByNetwork.ishare || defaultBundles.ishare)],
       },
       ownerName,
+      moderationStatus,
+      moderationNote: String(storeModerationNote || ''),
     };
   };
 
@@ -3304,7 +3898,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     if (!body) return;
     api
       .putMyStore(body)
-      .then(() => {
+      .then((resp) => {
+        if (Number.isFinite(Number(resp?.storeId))) {
+          setActiveStoreId(Number(resp.storeId));
+        }
+        const ms = String(resp?.moderationStatus || '').trim().toLowerCase();
+        if (ms === 'pending' || ms === 'approved' || ms === 'declined') {
+          setStoreModerationStatus(ms);
+          if (ms === 'pending') {
+            setStoreModerationNote('');
+            setStoreModerationReviewedAt(null);
+          }
+        }
         try {
           persistPublicStoreSnapshot();
         } catch {
@@ -3352,6 +3957,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
       publicStoreFromApi &&
       String(publicStoreFromApi.slug || '') === publicStorePathSegment
     ) {
+      const pubMs = String(publicStoreFromApi.moderationStatus || publicStoreFromApi.moderation_status || 'approved')
+        .trim()
+        .toLowerCase();
+      if (pubMs && pubMs !== 'approved') return null;
       return {
         ...publicStoreFromApi,
         availability: publicStoreFromApi.availability !== false,
@@ -3397,6 +4006,43 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     };
   }, [publicStorePathSegment, isPublicUrlMine]);
 
+  // When the user returns to the tab, refetch the public store (avoids double-fetch on first paint by only running after a hidden->visible transition).
+  useEffect(() => {
+    if (isPublicUrlMine) return;
+    let last = 0;
+    const wasHiddenRef = { current: false };
+    const run = () => {
+      if (document.visibilityState === 'hidden') {
+        wasHiddenRef.current = true;
+        return;
+      }
+      if (document.visibilityState !== 'visible' || !wasHiddenRef.current) return;
+      wasHiddenRef.current = false;
+      const slug = publicStorePathSegmentRef.current;
+      if (!slug) return;
+      const now = Date.now();
+      if (now - last < 500) return;
+      last = now;
+      (async () => {
+        const s = await api.getPublicStoreBySlug(slug);
+        if (String(publicStorePathSegmentRef.current) !== String(slug)) return;
+        setPublicStoreFromApi(s);
+      })();
+    };
+    const onPageShow = (e) => {
+      if (e?.persisted) {
+        wasHiddenRef.current = true;
+        run();
+      }
+    };
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, [isPublicUrlMine]);
+
   useEffect(() => {
     if (!isSignedIn || !user?.id) {
       vendorStoreSyncedForUserRef.current = null;
@@ -3412,9 +4058,22 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         const { store } = await api.getMyStore();
         if (cancelled) return;
         if (!store) {
+          setActiveStoreId(null);
+          setStoreExists(false);
+          setStoreModerationStatus('pending');
+          setStoreModerationNote('');
+          setStoreModerationReviewedAt(null);
+          storeSavedSnapshotRef.current = null;
+          setStoreNewDraftMode(false);
+          refreshMyStores();
           vendorStoreSyncedForUserRef.current = user.id;
           return;
         }
+        setStoreModerationStatus(String(store.moderationStatus || 'pending').trim().toLowerCase() || 'pending');
+        setActiveStoreId(Number.isFinite(Number(store.storeId)) ? Number(store.storeId) : null);
+        setStoreExists(true);
+        setStoreModerationNote(String(store.moderationNote || ''));
+        setStoreModerationReviewedAt(store.moderationReviewedAt || null);
         const dSlug = defaultStorePathSlugFromUser(user);
         if (store.pathSlug && String(store.pathSlug) !== dSlug) {
           const s = sanitizeStorePathSegment(String(store.pathSlug));
@@ -3449,6 +4108,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               storeName: typeof d.storeName === 'string' ? d.storeName.slice(0, 100) : prev.storeName,
               storeDescription:
                 typeof d.storeDescription === 'string' ? d.storeDescription.slice(0, 500) : prev.storeDescription,
+              heroTitle: typeof d.heroTitle === 'string' ? d.heroTitle.slice(0, 100) : prev.heroTitle,
+              heroTagline: typeof d.heroTagline === 'string' ? d.heroTagline.slice(0, 200) : prev.heroTagline,
               whatsapp: typeof d.whatsapp === 'string' ? d.whatsapp : prev.whatsapp,
               whatsappGroup: typeof d.whatsappGroup === 'string' ? d.whatsappGroup : prev.whatsappGroup,
               paystackEnabled: typeof d.paystackEnabled === 'boolean' ? d.paystackEnabled : prev.paystackEnabled,
@@ -3474,6 +4135,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               afaDescription:
                 typeof sv.afaDescription === 'string' ? sv.afaDescription : prev.afaDescription,
               vouchersEnabled: typeof sv.vouchersEnabled === 'boolean' ? sv.vouchersEnabled : prev.vouchersEnabled,
+              withdrawalStatus: String(sv.withdrawalStatus || '').toLowerCase() === 'paused' ? 'paused' : 'enabled',
             };
             try {
               localStorage.setItem('dataplus_store_services_v1', JSON.stringify(next));
@@ -3508,6 +4170,28 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         if (store.availability !== undefined) {
           setStoreAvailabilityOn(!!store.availability);
         }
+        storeSavedSnapshotRef.current = {
+          pathSlugOverride:
+            store.pathSlug && String(store.pathSlug) !== defaultStorePathSlugFromUser(user)
+              ? sanitizeStorePathSegment(String(store.pathSlug))
+              : '',
+          display: store.display && typeof store.display === 'object' ? { ...loadStoreDisplaySettings(), ...store.display } : loadStoreDisplaySettings(),
+          service:
+            store.service && typeof store.service === 'object' ? { ...loadStoreServiceSettings(), ...store.service } : loadStoreServiceSettings(),
+          customBundlePrices:
+            store.customBundlePrices && typeof store.customBundlePrices === 'object' && !Array.isArray(store.customBundlePrices)
+              ? { ...store.customBundlePrices }
+              : {},
+          customBundleActive:
+            store.customBundleActive && typeof store.customBundleActive === 'object' && !Array.isArray(store.customBundleActive)
+              ? { ...store.customBundleActive }
+              : {},
+          availability: store.availability !== undefined ? !!store.availability : true,
+          moderationStatus: String(store.moderationStatus || 'pending').trim().toLowerCase() || 'pending',
+          moderationNote: String(store.moderationNote || ''),
+          moderationReviewedAt: store.moderationReviewedAt || null,
+        };
+        setStoreNewDraftMode(false);
         window.setTimeout(() => {
           if (!cancelled) {
             try {
@@ -3518,6 +4202,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           }
         }, 0);
         vendorStoreSyncedForUserRef.current = user.id;
+        refreshMyStores();
       } catch {
         // offline or older API: keep local cache
         vendorStoreSyncedForUserRef.current = user.id;
@@ -3526,13 +4211,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, user?.id, user?.email, persistPublicStoreSnapshot]);
+  }, [isSignedIn, user?.id, user?.email, persistPublicStoreSnapshot, refreshMyStores]);
 
   useEffect(() => {
-    if (!isSignedIn || !api.getToken() || !effectiveStorePathSlug) {
+    if (!isSignedIn || !api.getToken() || !effectiveStorePathSlug || storeNewDraftMode || !storeExists) {
       if (storeApiSyncTimerRef.current) {
         clearTimeout(storeApiSyncTimerRef.current);
         storeApiSyncTimerRef.current = null;
+      }
+      if (storeNewDraftMode) {
+        setStoreAutoSyncNotice({
+          type: 'info',
+          text: 'Draft mode is active. Changes stay local until you tap Save store settings.',
+        });
       }
       return undefined;
     }
@@ -3540,7 +4231,45 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     storeApiSyncTimerRef.current = setTimeout(() => {
       storeApiSyncTimerRef.current = null;
       const body = buildMyStoreRequestBodyRef.current ? buildMyStoreRequestBodyRef.current() : null;
-      if (body) api.putMyStore(body).catch(() => {});
+      if (!body) return;
+      const bodyKey = JSON.stringify(body);
+      if (bodyKey === lastStoreAutoSyncBodyRef.current) {
+        showStoreDashboardToast(
+          'success',
+          'Everything is already up to date. Make any change and we will save it automatically.',
+        );
+        return;
+      }
+      setStoreAutoSyncNotice({
+        type: 'info',
+        text: 'Saving your store changes... this should only take a moment.',
+      });
+      api.putMyStore(body)
+        .then((resp) => {
+          if (Number.isFinite(Number(resp?.storeId))) {
+            setActiveStoreId(Number(resp.storeId));
+          }
+          const ms = String(resp?.moderationStatus || '').trim().toLowerCase();
+          if (ms === 'pending' || ms === 'approved' || ms === 'declined') {
+            setStoreModerationStatus(ms);
+            if (ms === 'pending') {
+              setStoreModerationNote('');
+              setStoreModerationReviewedAt(null);
+            }
+          }
+          lastStoreAutoSyncBodyRef.current = bodyKey;
+          showStoreDashboardToast(
+            'success',
+            'Your store has been saved. Keep editing if you want, and we will keep auto-saving.',
+          );
+        })
+        .catch(() => {
+          showStoreDashboardToast(
+            'error',
+            'We could not save right now. Please check your internet and try again.',
+            20000,
+          );
+        });
     }, 2500);
     return () => {
       if (storeApiSyncTimerRef.current) {
@@ -3560,7 +4289,52 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     storeCustomBundleActive,
     bundlesByNetwork,
     user,
+    storeNewDraftMode,
+    storeExists,
+    showStoreDashboardToast,
   ]);
+
+  // Keep owner moderation status in sync so approval messages appear without manual reload.
+  useEffect(() => {
+    if (!isSignedIn || !api.getToken() || !storeExists) return undefined;
+    let cancelled = false;
+    const syncModeration = async () => {
+      try {
+        const { store } = await api.getMyStore();
+        if (cancelled || !store) return;
+        const nextStatus = String(store.moderationStatus || 'pending').trim().toLowerCase() || 'pending';
+        const prevStatus = String(lastSeenStoreModerationStatusRef.current || 'pending').trim().toLowerCase() || 'pending';
+        setStoreModerationStatus(nextStatus);
+        setStoreModerationNote(String(store.moderationNote || ''));
+        setStoreModerationReviewedAt(store.moderationReviewedAt || null);
+        if (nextStatus === 'approved' && prevStatus !== 'approved') {
+          setStoreSettingsMessage('Your store has been approved. You can open it directly from the link below.');
+        }
+        lastSeenStoreModerationStatusRef.current = nextStatus;
+      } catch {
+        // keep last known moderation state on transient API failures
+      }
+    };
+    syncModeration();
+    const id = setInterval(syncModeration, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [isSignedIn, storeExists]);
+  useEffect(() => {
+    if (currentPage !== 'store-dashboard') return;
+    refreshMyStores();
+  }, [currentPage, refreshMyStores]);
+
+  useEffect(() => {
+    if (currentPage === 'store-dashboard') return;
+    if (storeAutoSyncNoticeTimerRef.current) {
+      clearTimeout(storeAutoSyncNoticeTimerRef.current);
+      storeAutoSyncNoticeTimerRef.current = null;
+    }
+    setStoreAutoSyncNotice(null);
+  }, [currentPage]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !effectiveStorePathSlug) return;
@@ -3602,6 +4376,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
     effectiveStorePathSlug,
     persistPublicStoreSnapshot,
   ]);
+
+  useEffect(() => () => {
+    if (storeAutoSyncNoticeTimerRef.current) {
+      clearTimeout(storeAutoSyncNoticeTimerRef.current);
+      storeAutoSyncNoticeTimerRef.current = null;
+    }
+  }, []);
 
   const MenuItem = ({ id, icon, label, hasSubmenu = false, badge }) => {
     const isSelected = selectedMenu === id;
@@ -3933,16 +4714,15 @@ export default function App({ adminRoute: adminRouteProp = false }) {
   }, [broadcastModalOpen, visibleBroadcastId, broadcastAutoCloseSec, broadcastAutoCloseReshowHours]);
 
   return (
-    <div className={`h-full min-h-0 flex flex-col overflow-hidden transition-colors duration-300 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`} style={{ minHeight: '100dvh' }}>
+    <div
+      className={`h-full min-h-0 flex flex-col ${
+        publicStorePathSegment ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden'
+      } transition-colors duration-300 ${isDark ? 'bg-black text-white' : 'bg-slate-50 text-slate-900'}`}
+      style={{ minHeight: '100dvh' }}
+    >
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @keyframes pulse-ray {
-          0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-          50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
-        }
-        .status-dot { animation: pulse-ray 2s infinite; }
         @keyframes gradient-flow {
           0% { background-position: 0% 50%; }
           100% { background-position: 200% 50%; }
@@ -4076,13 +4856,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           />
         </div>
       ) : publicStorePathSegment ? (
-        <div
-          className={`flex-1 h-0 min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain ${isDark ? 'bg-zinc-950' : 'bg-slate-100'}`}
-          style={{ WebkitOverflowScrolling: 'touch' }}
-        >
+        <div className={`flex-1 w-full min-w-0 touch-manipulation ${isDark ? 'bg-zinc-950' : 'bg-slate-100'}`}>
           <PublicStorefront
             isDark={isDark}
-            onToggleTheme={toggleTheme}
             slug={publicStorePathSegment}
             data={publicStorefrontData}
             onOpenSignIn={() => {
@@ -4262,6 +5038,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 <MenuItem id="admin-packages" icon={<Svg.Grid stroke={stroke} />} label="Data Packages" />
                 <MenuItem id="admin-all-transactions" icon={<Svg.Card stroke={stroke} />} label="All Transactions" />
                 <MenuItem id="admin-wallet" icon={<Svg.Wallet stroke={stroke} />} label="Wallet Management" />
+                <MenuItem id="admin-stores" icon={<Svg.Home stroke={stroke} />} label="Store Management" />
+                <MenuItem
+                  id="admin-withdrawal-requests"
+                  icon={(
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 3v10" />
+                      <path d="m7 8 5-5 5 5" />
+                      <rect x="3" y="15" width="18" height="6" rx="1.5" />
+                    </svg>
+                  )}
+                  label="Withdrawal requests"
+                />
                 <MenuItem id="admin-broadcasts" icon={<Svg.Megaphone stroke={stroke} />} label="Broadcasts" />
                 <MenuItem id="admin-analytics" icon={<Svg.Chart stroke={stroke} />} label="Analytics" />
               </>
@@ -4280,7 +5068,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         </div>
       </aside>
 
-      <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 pb-20 sm:pb-24">
+      <main className="flex-1 min-h-0 touch-manipulation overflow-y-auto overflow-x-hidden w-full min-w-0 px-3 sm:px-4 md:px-6 lg:px-8 pb-20 sm:pb-24">
         <header
           className={`fixed top-0 left-0 right-0 z-50 h-14 sm:h-16 transition-all duration-300 flex items-center justify-between px-3 sm:px-4 md:px-6 backdrop-blur-xl md:left-72 ${isDark ? 'bg-black/90' : 'bg-white/40'} ${scrolled ? 'shadow-lg' : ''}`}
           style={{ paddingLeft: 'max(0.75rem, env(safe-area-inset-left))', paddingRight: 'max(0.75rem, env(safe-area-inset-right))' }}
@@ -4875,15 +5663,293 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               }`}
             >
               <div>
-                <h1 className={`text-2xl sm:text-3xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Store
-                </h1>
+                <div className="flex items-start justify-between gap-3">
+                  <h1 className={`text-2xl sm:text-3xl font-extrabold uppercase tracking-[0.16em] ${
+                    isDark ? 'text-white' : 'text-slate-900'
+                  }`}>
+                    STORE
+                  </h1>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const hadExistingStore = !!storeExists;
+                      if (hadExistingStore && (storeDisplaySettings?.storeName || effectiveStorePathSlug)) {
+                        storeSavedSnapshotRef.current = captureStoreSnapshot();
+                      }
+                      // Keep current store visible while drafting another one.
+                      // New draft remains local until the user explicitly saves it.
+                      setStoreExists(hadExistingStore);
+                      const stamp = Date.now().toString(36).slice(-4);
+                      const baseSlug = sanitizeStorePathSegment((storeDisplaySettings?.storeName || '').trim()) || defaultStorePathSlug || 'ultraxas';
+                      setStorePathSlugOverride(`${baseSlug}-${stamp}`);
+                      setStoreDisplaySettings({
+                        logoDataUrl: null,
+                        theme: 'default',
+                        accentColor: DEFAULT_STORE_ACCENT,
+                        storeName: '',
+                        storeDescription: '',
+                        heroTitle: '',
+                        heroTagline: '',
+                        whatsapp: '',
+                        whatsappGroup: '',
+                        paystackEnabled: true,
+                        feeAbsorption: 0,
+                      });
+                      setStoreServiceSettings({
+                        afaEnabled: true,
+                        afaPrice: '15',
+                        afaDescription: 'Register for MTN AFA to enjoy bundle benefits',
+                        vouchersEnabled: false,
+                        withdrawalStatus: 'enabled',
+                      });
+                      setStoreCustomBundlePrices({});
+                      setStoreCustomBundleActive({});
+                      setStoreAvailabilityOn(false);
+                      setStoreModerationStatus('pending');
+                      setStoreModerationNote('');
+                      setStoreModerationReviewedAt(null);
+                      setStoreNewDraftMode(true);
+                      setActiveStoreId(null);
+                      setStoreEditorOpen(true);
+                      setStoreDashTab('overview');
+                      setStoreSettingsMessage('New store started. Your current store stays unchanged until you save this one.');
+                      if (typeof window !== 'undefined') {
+                        window.setTimeout(() => setStoreSettingsMessage(null), 9000);
+                      }
+                    }}
+                    className={`inline-flex items-center justify-center rounded-xl w-10 h-10 text-sm font-semibold shadow-sm ${
+                      isDark
+                        ? 'bg-violet-500/20 text-violet-200 border border-violet-500/40 hover:bg-violet-500/30'
+                        : 'bg-violet-100 text-violet-800 border border-violet-200 hover:bg-violet-200'
+                    }`}
+                    aria-label="Create another store"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden
+                    >
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </button>
+                </div>
                 <p className={`text-sm sm:text-base mt-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Manage your store settings, pricing, and customer communications
+                  Manage your store details, prices, and customer messages
                 </p>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Your stores ({myStores.length}/10)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setStoreListOpen((v) => !v)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold ${
+                        isDark ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                      aria-expanded={storeListOpen}
+                      aria-label={storeListOpen ? 'Hide your stores' : 'Show your stores'}
+                    >
+                      <span>{storeListOpen ? 'Hide stores' : 'Show stores'}</span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`transition-transform ${storeListOpen ? 'rotate-180' : ''}`}
+                        aria-hidden
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </button>
+                  </div>
+                  {storeListOpen ? (
+                  <div className="space-y-1.5 mt-2">
+                    {myStores.length === 0 ? (
+                      <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        No stores yet. Tap plus to create your first store.
+                      </p>
+                    ) : null}
+                    {myStores.map((s, idx) => {
+                      const sid = Number(s?.storeId || 0);
+                      const active = Number(activeStoreId || 0) === sid && !storeNewDraftMode;
+                      const ms = String(s?.moderationStatus || 'pending').toLowerCase();
+                      const statusLabel = ms === 'approved' ? 'Approved' : ms === 'declined' ? 'Declined' : 'Pending';
+                      return (
+                        <button
+                          key={sid}
+                          type="button"
+                          onClick={() => openStoreById(sid)}
+                          className={`w-full text-left rounded-lg px-3 py-2 text-xs sm:text-sm border ${
+                            active
+                              ? (isDark ? 'bg-violet-500/20 border-violet-400/40 text-violet-100' : 'bg-violet-100 border-violet-200 text-violet-900')
+                              : (isDark ? 'bg-white/5 border-white/10 text-slate-200 hover:bg-white/10' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50')
+                          }`}
+                        >
+                          <span className="font-semibold">{idx + 1}. {String(s?.storeName || 'Store').slice(0, 26)}</span>
+                          <span className={`ml-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>/store/{String(s?.pathSlug || '').trim() || '—'}</span>
+                          <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            ms === 'approved'
+                              ? (isDark ? 'bg-emerald-500/20 text-emerald-200' : 'bg-emerald-100 text-emerald-800')
+                              : ms === 'declined'
+                                ? (isDark ? 'bg-rose-500/20 text-rose-200' : 'bg-rose-100 text-rose-800')
+                                : (isDark ? 'bg-amber-500/20 text-amber-200' : 'bg-amber-100 text-amber-800')
+                          }`}>
+                            {statusLabel}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  ) : null}
+                </div>
               </div>
+              {storeListOpen ? (
+              <div className={`rounded-2xl border p-4 ${isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white border-slate-200/90'}`}>
+                {storeExists ? (
+                  <>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex items-start gap-2.5">
+                        <div className={`shrink-0 h-9 w-9 rounded-full overflow-hidden border ${isDark ? 'border-white/15 bg-white/10' : 'border-slate-200 bg-slate-100'}`}>
+                          {managerStoreDisplay?.logoDataUrl ? (
+                            <img src={managerStoreDisplay.logoDataUrl} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className={`h-full w-full flex items-center justify-center text-[10px] font-semibold ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
+                              LOGO
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {(managerStoreDisplay.storeName && String(managerStoreDisplay.storeName).trim()) || 'Untitled store'}
+                          </p>
+                          <p className={`text-xs mt-1 break-all ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                            {storeModerationStatus === 'approved'
+                              ? `/store/${managerStoreSlug}`
+                              : `/store/${managerStoreSlug} (inactive until admin approval)`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStoreNewDraftMode(false);
+                            setStoreEditorOpen(true);
+                            setStoreDashTab('settings');
+                          }}
+                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                          </svg>
+                          Manage
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeletePress}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            handleDeletePress();
+                          }}
+                          className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${isDark ? 'bg-rose-500/20 text-rose-200 hover:bg-rose-500/30' : 'bg-rose-100 text-rose-800 hover:bg-rose-200'}`}
+                        >
+                          <Svg.Trash stroke="currentColor" className="w-3.5 h-3.5" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <div className={`mt-3 rounded-xl border p-3 ${isDark ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-slate-50/70'}`}>
+                      <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        Store preview
+                      </p>
+                      <div className="mt-2 flex items-start gap-3">
+                        <div className={`shrink-0 h-11 w-11 rounded-full overflow-hidden border ${isDark ? 'border-white/15 bg-white/10' : 'border-slate-200 bg-white'}`}>
+                          {managerStoreDisplay?.logoDataUrl ? (
+                            <img src={managerStoreDisplay.logoDataUrl} alt="" className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {(managerStoreDisplay.storeName && String(managerStoreDisplay.storeName).trim()) || 'Your Store Name'}
+                          </p>
+                          <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {String(managerStoreDisplay.storeDescription || '').trim() || 'This is how customers will see your store information.'}
+                          </p>
+                        </div>
+                      </div>
+                      {storeModerationStatus === 'approved' && fullStoreLinkUrl ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <a
+                            href={fullStoreLinkUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                              isDark ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            }`}
+                          >
+                            Open store
+                          </a>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!fullStoreLinkUrl) return;
+                              let copied = false;
+                              try {
+                                await navigator.clipboard.writeText(fullStoreLinkUrl);
+                                copied = true;
+                              } catch {}
+                              if (copied) {
+                                setStoreLinkCopied(true);
+                                if (typeof window !== 'undefined') window.setTimeout(() => setStoreLinkCopied(false), 1600);
+                              }
+                            }}
+                            className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                              isDark ? 'bg-violet-500/20 text-violet-200 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-800 hover:bg-violet-200'
+                            }`}
+                          >
+                            {storeLinkCopied ? 'Copied' : 'Copy link'}
+                          </button>
+                        </div>
+                      ) : (
+                        <p className={`mt-3 text-xs ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                          Once admin approves this store, you can open it or copy its link from here.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className={`rounded-xl border p-4 text-sm ${isDark ? 'border-white/10 bg-white/[0.03] text-slate-300' : 'border-slate-200 bg-slate-50/70 text-slate-600'}`}>
+                    No store created yet. Tap the plus button to create your first store.
+                  </div>
+                )}
+              </div>
+              ) : (
+                <div className={`rounded-2xl border p-4 text-sm ${isDark ? 'bg-zinc-900/60 border-white/10 text-slate-300' : 'bg-white border-slate-200/90 text-slate-600'}`}>
+                  Tap <span className="font-semibold">Show stores</span> to view and pick a store.
+                </div>
+              )}
+              {!storeEditorOpen ? (
+                <p className={`text-xs -mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                  Tap Manage to update this store, or tap plus to create another one.
+                </p>
+              ) : null}
               <div
-                className="flex gap-3 sm:gap-3.5 overflow-x-auto py-1.5 pb-2.5 -mx-1 px-2 snap-x snap-mandatory scrollbar-thin"
+                className={`flex gap-3 sm:gap-3.5 overflow-x-auto py-1.5 pb-2.5 -mx-1 px-2 snap-x snap-mandatory scrollbar-thin ${storeEditorOpen ? '' : 'hidden'}`}
                 style={{ WebkitOverflowScrolling: 'touch' }}
                 role="tablist"
                 aria-label="Store sections"
@@ -4922,6 +5988,27 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   );
                 })}
               </div>
+              {storeAutoSyncNotice ? (
+                <p
+                  className={`mt-2 w-full max-w-2xl mx-auto px-2 text-center text-xs sm:text-sm font-medium leading-relaxed ${
+                    storeAutoSyncNotice.type === 'error'
+                      ? isDark
+                        ? 'text-amber-400'
+                        : 'text-amber-700'
+                      : storeAutoSyncNotice.type === 'info'
+                        ? isDark
+                          ? 'text-emerald-300/90'
+                          : 'text-emerald-600'
+                        : isDark
+                          ? 'text-emerald-400'
+                          : 'text-emerald-600'
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {storeAutoSyncNotice.text}
+                </p>
+              ) : null}
               <input
                 ref={storeLogoInputRef}
                 type="file"
@@ -4951,7 +6038,50 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 }}
                 aria-label="Choose store picture"
               />
-              {storeDashTab === 'overview' ? (
+              {storeDeleteConfirmOpen ? (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+                  <div
+                    className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                    onClick={() => {
+                      if (!storeDeleteBusy) setStoreDeleteConfirmOpen(false);
+                    }}
+                    aria-hidden="true"
+                  />
+                  <div
+                    className={`relative w-full max-w-sm rounded-2xl p-5 sm:p-6 shadow-2xl ${isDark ? 'bg-zinc-950 border border-white/10' : 'bg-white border border-slate-200'}`}
+                    onClick={(e) => e.stopPropagation()}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="store-delete-title"
+                  >
+                    <h3 id="store-delete-title" className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Remove this store?
+                    </h3>
+                    <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      This will remove this store from your account. You can create another store any time.
+                    </p>
+                    <div className="mt-5 flex gap-3">
+                      <button
+                        type="button"
+                        disabled={storeDeleteBusy}
+                        onClick={() => setStoreDeleteConfirmOpen(false)}
+                        className={`flex-1 py-2.5 rounded-xl font-medium ${isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'}`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={storeDeleteBusy}
+                        onClick={deleteStoreNow}
+                        className="flex-1 py-2.5 rounded-xl font-semibold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-60"
+                      >
+                        {storeDeleteBusy ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {storeEditorOpen ? (storeDashTab === 'overview' ? (
                 <div className="space-y-4 w-full min-w-0">
                   <div
                     className={`rounded-2xl p-4 sm:p-5 shadow-sm border text-left ${
@@ -4983,7 +6113,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       </div>
                       <div className="min-w-0 flex-1">
                         <h2 className={`text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                          Store Status
+                          Store status
                         </h2>
                         <p
                           className={`text-sm mt-2 flex flex-wrap items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
@@ -5001,10 +6131,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
-                              Store Availability
+                              Store visibility
                             </p>
                             <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                              Toggle to make your store visible to customers
+                              Turn this on to show your store to customers
                             </p>
                           </div>
                           <button
@@ -5102,31 +6232,43 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       type="button"
                       onClick={async () => {
                         if (!fullStoreLinkUrl) return;
+                        let copied = false;
                         try {
                           await navigator.clipboard.writeText(fullStoreLinkUrl);
+                          copied = true;
                         } catch {
                           try {
                             const ta = document.createElement('textarea');
                             ta.value = fullStoreLinkUrl;
                             document.body.appendChild(ta);
                             ta.select();
-                            document.execCommand('copy');
+                            copied = document.execCommand('copy');
                             document.body.removeChild(ta);
                           } catch {
                             /* ignore */
+                          }
+                        }
+                        if (copied) {
+                          setStoreLinkCopied(true);
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreLinkCopied(false), 1800);
                           }
                         }
                       }}
                       className={`shrink-0 px-3 flex items-center justify-center border-l ${
                         isDark ? 'border-white/10 bg-white/5 hover:bg-white/10 text-violet-300' : 'border-slate-200 bg-white hover:bg-slate-50 text-violet-600'
                       }`}
-                      title="Copy link"
+                      title={storeLinkCopied ? 'Copied' : 'Copy link'}
                       aria-label="Copy store link"
                     >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                        <rect x="9" y="9" width="13" height="13" rx="2" />
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                      </svg>
+                      {storeLinkCopied ? (
+                        <span className="text-xs font-semibold">Copied</span>
+                      ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                          <rect x="9" y="9" width="13" height="13" rx="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                      )}
                     </button>
                   </div>
                   {hasCustomStorePath && storePathSlugOverride ? (
@@ -5246,9 +6388,28 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             applyStorePathOverride(storePathSlugDraft);
                             setStoreLinkEditOpen(false);
+                            persistPublicStoreSnapshot();
+                            if (isSignedIn && api.getToken()) {
+                              const body = buildMyStoreRequestBodyRef.current
+                                ? buildMyStoreRequestBodyRef.current()
+                                : null;
+                              const resp = body ? await api.putMyStore(body) : { ok: false };
+                              if (resp?.skipped) {
+                                setStoreLinkSettingsMessage('Saved locally only. Sign in again to save online.');
+                                return;
+                              }
+                              if (Number.isFinite(Number(resp?.storeId))) {
+                                setActiveStoreId(Number(resp.storeId));
+                              }
+                              await refreshMyStores();
+                            }
+                            setStoreLinkSettingsMessage('Link settings saved.');
+                            if (typeof window !== 'undefined') {
+                              window.setTimeout(() => setStoreLinkSettingsMessage(null), 2400);
+                            }
                           }}
                           className="text-sm font-medium rounded-lg px-4 py-2 bg-violet-600 text-white hover:bg-violet-500"
                         >
@@ -5278,6 +6439,13 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         onClick={() => {
                           setStorePathSlugDraft(effectiveStorePathSlug);
                           setStoreLinkEditOpen(false);
+                          setStoreLogoError(null);
+                          setStoreDashTab('overview');
+                          setStoreEditorOpen(false);
+                          setStoreLinkSettingsMessage('Changes cancelled.');
+                          if (typeof window !== 'undefined') {
+                            window.setTimeout(() => setStoreLinkSettingsMessage(null), 1800);
+                          }
                         }}
                         className={`w-full sm:w-auto rounded-xl border py-2.5 px-4 text-sm font-medium ${
                           isDark
@@ -5289,20 +6457,34 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
+                        onClick={async () => {
                           if (storeLinkEditOpen) {
                             applyStorePathOverride(storePathSlugDraft);
                             setStoreLinkEditOpen(false);
                           }
-                          setStoreLinkSettingsMessage('Profile settings saved');
+                          persistPublicStoreSnapshot();
+                          if (isSignedIn && api.getToken()) {
+                            const body = buildMyStoreRequestBodyRef.current
+                              ? buildMyStoreRequestBodyRef.current()
+                              : null;
+                            const resp = body ? await api.putMyStore(body) : { ok: false };
+                            if (resp?.skipped) {
+                              setStoreLinkSettingsMessage('Saved locally only. Sign in again to save online.');
+                              return;
+                            }
+                            if (Number.isFinite(Number(resp?.storeId))) {
+                              setActiveStoreId(Number(resp.storeId));
+                            }
+                            await refreshMyStores();
+                          }
+                          setStoreLinkSettingsMessage('Link settings saved.');
                           if (typeof window !== 'undefined') {
                             window.setTimeout(() => setStoreLinkSettingsMessage(null), 2800);
                           }
-                          persistPublicStoreSnapshot();
                         }}
                         className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                       >
-                        Save profile settings
+                        Save link settings
                       </button>
                     </div>
                   </div>
@@ -5363,31 +6545,26 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         isDark ? 'border-white/10 bg-white/5' : 'border-slate-200 bg-slate-50/80'
                       }`}
                     >
-                      <div className="flex gap-3">
-                        <div className="shrink-0 pt-0.5" aria-hidden>
-                          <svg width="20" height="20" className={isDark ? 'text-violet-300' : 'text-violet-600'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M3 3v6h6M21 12V5h-6" />
-                            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                            <path d="M3 12a9 9 0 0 0 15-6.7L21 16" />
-                            <path d="M3 3l6 6" />
-                            <path d="M12 3v3" />
-                            <path d="M3 3h3" />
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`shrink-0 mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-lg ${
+                            isDark ? 'bg-violet-500/20 text-violet-200' : 'bg-violet-100 text-violet-700'
+                          }`}
+                          aria-hidden
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 19h16" />
+                            <path d="M6 16l4-5 3 3 5-6" />
+                            <path d="M18 8h2v2" />
                           </svg>
                         </div>
                         <p className={`text-sm leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          Set your price <strong className="text-violet-600 dark:text-violet-300">higher</strong> than the
-                          base price to earn profit. <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Your profit = Your price − Base price.</span>
+                          Set your price <strong className={isDark ? 'text-violet-300' : 'text-violet-700'}>above</strong> the
+                          default price to earn profit.
+                          <span className={isDark ? 'text-slate-400' : 'text-slate-500'}> Profit = Your price - Default price.</span>
                         </p>
                       </div>
                     </div>
-                    {storePricingSaveMessage ? (
-                      <p
-                        className={`text-sm mt-3 text-center ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
-                        role="status"
-                      >
-                        {storePricingSaveMessage}
-                      </p>
-                    ) : null}
                     <ul className="mt-4 space-y-0 rounded-xl border overflow-hidden divide-y list-none p-0 m-0" role="list">
                       {storePricingNetworkRows.map((row) => {
                         const open = storePricingOpenId === row.id;
@@ -5480,6 +6657,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   const yourStr = storeCustomBundlePrices[k];
                                   const yourNum = yourStr != null && yourStr !== '' ? Number.parseFloat(String(yourStr), 10) : NaN;
                                   const hasValidYour = Number.isFinite(yourNum) && yourNum >= 0;
+                                  const isBelowBase = Number.isFinite(yourNum) && yourNum < base;
                                   const profit = hasValidYour ? yourNum - base : null;
                                   const showProfitGhs = hasValidYour && Number.isFinite(profit);
                                   const activeOn = storeCustomBundleActive[k] !== false;
@@ -5520,7 +6698,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                           id={`pr-${k}`}
                                           type="number"
                                           inputMode="decimal"
-                                          min="0"
+                                          min={String(base)}
                                           step="0.01"
                                           placeholder="Set price"
                                           value={storeCustomBundlePrices[k] ?? ''}
@@ -5534,6 +6712,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                               : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'
                                           }`}
                                         />
+                                        {isBelowBase ? (
+                                          <p className={`text-xs mt-1 ${isDark ? 'text-rose-300' : 'text-rose-600'}`}>
+                                            Cannot save below base price (GHS {base.toFixed(2)}).
+                                          </p>
+                                        ) : null}
                                       </div>
                                       <div className="min-w-0 sm:flex sm:items-center sm:pl-0">
                                         <p
@@ -5597,6 +6780,30 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const findBelowBaseEntry = () => {
+                                        for (const netRow of storePricingNetworkRows) {
+                                          const bundlesList = getPricingBundles(netRow.id);
+                                          for (const bundle of bundlesList) {
+                                            const key = storePricingBundleKey(netRow.id, bundle.size);
+                                            const raw = storeCustomBundlePrices[key];
+                                            if (raw == null || String(raw).trim() === '') continue;
+                                            const entered = Number.parseFloat(String(raw), 10);
+                                            const basePrice = Number(bundle.price);
+                                            if (Number.isFinite(entered) && Number.isFinite(basePrice) && entered < basePrice) {
+                                              return { key, basePrice };
+                                            }
+                                          }
+                                        }
+                                        return null;
+                                      };
+                                      const belowBase = findBelowBaseEntry();
+                                      if (belowBase) {
+                                        showStoreDashboardToast(
+                                          'error',
+                                          `You cannot save prices below base price. Update ${belowBase.key} to at least GHS ${belowBase.basePrice.toFixed(2)}.`
+                                        );
+                                        return;
+                                      }
                                       try {
                                         localStorage.setItem('dataplus_store_custom_bundle_prices', JSON.stringify(storeCustomBundlePrices));
                                         localStorage.setItem('dataplus_store_custom_bundle_active', JSON.stringify(storeCustomBundleActive));
@@ -5604,10 +6811,10 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                         // ignore
                                       }
                                       persistPublicStoreSnapshot();
-                                      setStorePricingSaveMessage('Custom prices and active settings saved for this device.');
-                                      if (typeof window !== 'undefined') {
-                                        window.setTimeout(() => setStorePricingSaveMessage(null), 3000);
-                                      }
+                                      showStoreDashboardToast(
+                                        'success',
+                                        'Your custom prices and which packages are active or hidden were saved. The message above stays for a while so you can confirm before it fades.',
+                                      );
                                     }}
                                     className="text-sm font-medium rounded-lg px-4 py-2 bg-violet-600 text-white hover:bg-violet-500"
                                   >
@@ -5626,8 +6833,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       })}
                     </ul>
                     <p className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                      Base price is read-only; your price and profit update the public store. Inactive packages are hidden
-                      on your /store preview. Changes save here and sync to the server when you are signed in.
+                      Default price cannot be changed here. Your own price and profit update what customers see. Hidden
+                      offers will not show to customers. Changes save automatically while you are signed in.
                     </p>
                   </div>
                 </div>
@@ -5643,6 +6850,65 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       {storeEarningsError}
                     </p>
                   ) : null}
+                  {(() => {
+                    const d = storeEarningsData;
+                    const gatePaused =
+                      String(storeServiceSettings?.withdrawalStatus || '').toLowerCase() === 'paused';
+                    const reqRaw = String(d?.latestWithdrawalRequestStatus ?? 'pending').toLowerCase();
+                    const reqLabel =
+                      reqRaw === 'processing'
+                        ? 'Processing'
+                        : reqRaw === 'failed'
+                          ? 'Failed'
+                          : reqRaw === 'completed'
+                            ? 'Completed'
+                            : 'Pending';
+                    const gateChip = gatePaused
+                      ? isDark
+                        ? 'bg-rose-500/20 text-rose-200 border border-rose-500/35'
+                        : 'bg-rose-100 text-rose-900 border border-rose-200/90'
+                      : isDark
+                        ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/35'
+                        : 'bg-emerald-100 text-emerald-900 border border-emerald-200/90';
+                    const reqChip =
+                      reqRaw === 'processing'
+                        ? isDark
+                          ? 'bg-sky-500/20 text-sky-200 border border-sky-500/35'
+                          : 'bg-sky-100 text-sky-900 border border-sky-200/90'
+                        : reqRaw === 'failed'
+                          ? isDark
+                            ? 'bg-rose-500/25 text-rose-100 border border-rose-500/40'
+                            : 'bg-rose-100 text-rose-900 border border-rose-200/90'
+                          : reqRaw === 'completed'
+                            ? isDark
+                              ? 'bg-violet-500/20 text-violet-200 border border-violet-500/35'
+                              : 'bg-violet-100 text-violet-900 border border-violet-200/90'
+                            : isDark
+                              ? 'bg-amber-500/20 text-amber-200 border border-amber-500/35'
+                              : 'bg-amber-100 text-amber-900 border border-amber-200/90';
+                    return (
+                      <div
+                        className={`rounded-2xl border px-3 py-2.5 sm:px-4 flex flex-wrap items-center gap-2 ${
+                          isDark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-50/90'
+                        }`}
+                        role="status"
+                        aria-label="Withdrawal status"
+                      >
+                        <span className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          Withdrawals
+                        </span>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${gateChip}`}>
+                          {gatePaused ? 'Paused by admin' : 'Open'}
+                        </span>
+                        <span className={`text-xs font-semibold uppercase tracking-wide ml-0 sm:ml-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          Request
+                        </span>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${reqChip}`}>
+                          {reqLabel}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="min-w-0">
                       <label
@@ -5723,6 +6989,17 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             : 'This month';
                     const d = storeEarningsData;
                     const withdrawable = d && Number.isFinite(Number(d.withdrawableGhs)) ? Number(d.withdrawableGhs) : dashboardBalance;
+                    const withdrawalStatus =
+                      String(storeServiceSettings?.withdrawalStatus || '').toLowerCase() === 'paused' ? 'paused' : 'enabled';
+                    const withdrawalRequestStatusRaw = String(d?.latestWithdrawalRequestStatus ?? 'pending').toLowerCase();
+                    const withdrawalRequestStatus =
+                      withdrawalRequestStatusRaw === 'processing'
+                        ? 'Processing'
+                        : withdrawalRequestStatusRaw === 'failed'
+                          ? 'Failed'
+                          : withdrawalRequestStatusRaw === 'completed'
+                            ? 'Completed'
+                            : 'Pending';
                     const revP = d && Number.isFinite(Number(d.revenueInPeriodGhs)) ? Number(d.revenueInPeriodGhs) : 0;
                     const profP = d && Number.isFinite(Number(d.periodProfitGhs)) ? Number(d.periodProfitGhs) : 0;
                     const pending = d && Number.isFinite(Number(d.profitPendingGhs)) ? Number(d.profitPendingGhs) : 0;
@@ -5730,7 +7007,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     const totProf = d && Number.isFinite(Number(d.totalProfitGhs)) ? Number(d.totalProfitGhs) : 0;
                     const totWd = d && Number.isFinite(Number(d.totalWithdrawnGhs)) ? Number(d.totalWithdrawnGhs) : 0;
                     const wds = Array.isArray(d?.withdrawals) ? d.withdrawals : [];
-                    const EarningCard = ({ icon, amount, label, sub }) => (
+                    const EarningCard = ({ icon, amount, label, sub, badges }) => (
                       <div
                         className={`rounded-2xl border p-4 ${
                           isDark
@@ -5760,6 +7037,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             >
                               {label}
                             </p>
+                            {badges ? (
+                              <div className="flex flex-wrap gap-2 mt-2" role="status">
+                                {badges}
+                              </div>
+                            ) : null}
                             {sub ? (
                               <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{sub}</p>
                             ) : null}
@@ -5767,23 +7049,35 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         </div>
                       </div>
                     );
+                    const withdrawalGateChip =
+                      withdrawalStatus === 'paused'
+                        ? isDark
+                          ? 'bg-rose-500/20 text-rose-200 border border-rose-500/35'
+                          : 'bg-rose-100 text-rose-900 border border-rose-200/90'
+                        : isDark
+                          ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/35'
+                          : 'bg-emerald-100 text-emerald-900 border border-emerald-200/90';
+                    const withdrawalReqChip =
+                      withdrawalRequestStatusRaw === 'processing'
+                        ? isDark
+                          ? 'bg-sky-500/20 text-sky-200 border border-sky-500/35'
+                          : 'bg-sky-100 text-sky-900 border border-sky-200/90'
+                        : withdrawalRequestStatusRaw === 'failed'
+                          ? isDark
+                            ? 'bg-rose-500/25 text-rose-100 border border-rose-500/40'
+                            : 'bg-rose-100 text-rose-900 border border-rose-200/90'
+                          : withdrawalRequestStatusRaw === 'completed'
+                            ? isDark
+                              ? 'bg-violet-500/20 text-violet-200 border border-violet-500/35'
+                              : 'bg-violet-100 text-violet-900 border border-violet-200/90'
+                            : isDark
+                              ? 'bg-amber-500/20 text-amber-200 border border-amber-500/35'
+                              : 'bg-amber-100 text-amber-900 border border-amber-200/90';
                     return (
                       <div className="space-y-3">
                         {storeEarningsLoading && !storeEarningsData ? (
-                          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Loading earnings from the server…</p>
+                          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Loading your earnings…</p>
                         ) : null}
-                        <EarningCard
-                          icon={
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21 12V7H5a2 2 0 0 1 0-4h14" />
-                              <path d="M3 5v14a2 2 0 0 0 2 2h16" />
-                              <path d="M3 5l5 2v10" />
-                            </svg>
-                          }
-                          amount={showAmt(dashboardBalance)}
-                          label="Available balance"
-                          sub="From your wallet on the API"
-                        />
                         <EarningCard
                           icon={
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -5793,7 +7087,25 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           }
                           amount={showAmt(withdrawable)}
                           label="Withdrawable now"
-                          sub="Same as available until payout rules apply"
+                          badges={
+                            <>
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] sm:text-xs font-semibold ${withdrawalGateChip}`}
+                              >
+                                {withdrawalStatus === 'paused' ? 'Withdrawals paused' : 'Withdrawals open'}
+                              </span>
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] sm:text-xs font-semibold ${withdrawalReqChip}`}
+                              >
+                                Latest request: {withdrawalRequestStatus}
+                              </span>
+                            </>
+                          }
+                          sub={
+                            withdrawalStatus === 'paused'
+                              ? 'New withdrawal requests are blocked until your store is allowed again.'
+                              : 'Use “Request withdrawal” below when you are ready to cash out.'
+                          }
                         />
                         <div
                           className={`rounded-2xl border p-4 ${
@@ -5830,7 +7142,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   >
                                     {showAmt(revP)}
                                   </p>
-                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Customer spend (completed)</p>
+                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                    Customer spend (paid, excl. failed/cancelled)
+                                  </p>
                                 </div>
                                 <div>
                                   <p
@@ -5840,7 +7154,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                                   >
                                     {showAmt(profP)}
                                   </p>
-                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Your profit (completed)</p>
+                                  <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                    Your profit (same basis)
+                                  </p>
                                 </div>
                               </div>
                             </div>
@@ -5855,8 +7171,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             </svg>
                           }
                           amount={showAmt(pending)}
-                          label="Pending profit"
-                          sub="Store orders not completed or cancelled yet"
+                          label="Pending profit (processing)"
+                          sub="Orders still in processing (not yet marked completed in admin); period and totals above include these once paid"
                         />
                         <EarningCard
                           icon={
@@ -5887,19 +7203,18 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           }
                           amount={showAmt(totWd)}
                           label="Total withdrawn"
-                          sub="Payout and withdrawal transactions on the API"
+                          sub="All payout and withdrawal records"
                         />
                         {totRev === 0 && !storeEarningsLoading && d ? (
                           <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                            No store sales in your server ledger yet. When public checkout records orders for your store, sales
-                            and profit will appear here.
+                            No sales yet. When customers start buying from your store, your sales and profit will show here.
                           </p>
                         ) : null}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                           <button
                             type="button"
                             onClick={() => {
-                              setStoreEarningsActionMsg('Transfer from store earnings to wallet will be available when payouts are enabled on the API.');
+                              setStoreEarningsActionMsg('Transfer to wallet will be available once payouts are enabled.');
                               if (typeof window !== 'undefined') {
                                 window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
                               }
@@ -5919,18 +7234,34 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           <button
                             type="button"
                             onClick={() => {
-                              setStoreEarningsActionMsg('Withdrawal requests will be available when store payouts are enabled on the API.');
-                              if (typeof window !== 'undefined') {
-                                window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
+                              if (withdrawalStatus === 'paused') {
+                                setStoreEarningsActionMsg('Withdrawals are paused by admin for this store right now.');
+                                if (typeof window !== 'undefined') {
+                                  window.setTimeout(() => setStoreEarningsActionMsg(null), 3500);
+                                }
+                                return;
                               }
+                              setStoreWithdrawalError(null);
+                              setStoreWithdrawalStep('form');
+                              setStoreWithdrawalName(String(user?.full_name || '').trim());
+                              setStoreWithdrawalPhone(String(user?.phone || '').trim());
+                              setStoreWithdrawalAmountStr('');
+                              setStoreWithdrawalModalOpen(true);
                             }}
-                            className="inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
+                            disabled={withdrawalStatus === 'paused'}
+                            className={`inline-flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-sm font-medium shadow-sm ${
+                              withdrawalStatus === 'paused'
+                                ? isDark
+                                  ? 'bg-slate-700 text-slate-300 cursor-not-allowed'
+                                  : 'bg-slate-300 text-slate-600 cursor-not-allowed'
+                                : 'bg-violet-600 text-white hover:bg-violet-500'
+                            }`}
                           >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                               <path d="M22 2L11 13" />
                               <path d="M22 2l-7 20-4-9-9-4 20-7z" />
                             </svg>
-                            Request withdrawal
+                            {withdrawalStatus === 'paused' ? 'Withdrawal paused' : 'Request withdrawal'}
                           </button>
                         </div>
                         <div
@@ -5958,10 +7289,9 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                               <p
                                 className={`text-sm mt-2 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}
                               >
-                                Earnings and balances are loaded from the same API as your wallet. Store revenue and profit
-                                rows are recorded when a customer purchase is attributed to your store on the server. Profits
-                                stay pending while those orders are not completed; cancelled or failed orders do not add to
-                                settled profit.
+                                Revenue and profit count when a customer has paid, including orders still being fulfilled
+                                (status processing). Only failed, cancelled, or refunded orders are excluded. Withdrawals are capped
+                                by your total store profit on that same basis.
                               </p>
                             </div>
                           </div>
@@ -5977,7 +7307,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           <p
                             className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
                           >
-                            Payout and withdrawal entries from the API
+                            Your payout and withdrawal records
                           </p>
                           {wds.length === 0 ? (
                             <p
@@ -6033,8 +7363,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     </p>
                   ) : null}
                   <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                    When you are signed in, service options sync to the server (automatically after you stop editing, or
-                    immediately when you save).
+                    Service options are saved when you tap Save, or automatically a few seconds after you stop editing.
                   </p>
                   {(() => {
                     const afaP = Number.parseFloat(String(storeServiceSettings.afaPrice), 10);
@@ -6214,48 +7543,46 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             </div>
                             <span
                               className={`inline-flex items-center gap-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] sm:text-xs font-semibold ${
-                                isDark ? 'bg-emerald-900/45 text-emerald-300' : 'bg-emerald-100 text-emerald-800'
+                                isDark ? 'bg-amber-900/45 text-amber-300' : 'bg-amber-100 text-amber-800'
                               }`}
                             >
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                                <path d="M20 6L9 17l-5-5" />
+                                <path d="M12 8v5" />
+                                <path d="M12 16h.01" />
+                                <circle cx="12" cy="12" r="9" />
                               </svg>
-                              2 type(s) available
+                              Currently unavailable
                             </span>
                           </div>
                           <p
                             className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
                           >
-                            Allow customers to purchase exam vouchers, e-pins, and other voucher types through your store
+                            Voucher sales are temporarily unavailable right now.
                           </p>
                           <div
                             className={`mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-0`}
                           >
                             <div>
                               <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                                Enable voucher sales
+                                Voucher sales
                               </p>
                               <p
                                 className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
                               >
-                                Show the vouchers section on your storefront
+                                This feature is temporarily unavailable
                               </p>
                             </div>
                             <button
                               type="button"
                               role="switch"
-                              aria-checked={vouchOn}
-                              onClick={() =>
-                                setStoreServiceSettings((s) => ({ ...s, vouchersEnabled: !s.vouchersEnabled }))
-                              }
+                              aria-checked={false}
+                              disabled
                               className={`relative self-end sm:self-center inline-flex h-7 w-12 shrink-0 items-center rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
-                                vouchOn ? 'bg-violet-600' : isDark ? 'bg-slate-600' : 'bg-slate-300'
-                              }`}
+                                isDark ? 'bg-slate-700 opacity-60' : 'bg-slate-300 opacity-70'
+                              } cursor-not-allowed`}
                             >
                               <span
-                                className={`pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow transition ${
-                                  vouchOn ? 'translate-x-[22px]' : 'translate-x-0.5'
-                                }`}
+                                className="pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow translate-x-0.5"
                                 aria-hidden
                               />
                             </button>
@@ -6272,13 +7599,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             persistPublicStoreSnapshot();
                             if (isSignedIn && api.getToken()) {
                               flushStoreToApi();
-                              setStoreServicesPanelMessage('Service settings saved and synced to the server.');
-                            } else {
-                              setStoreServicesPanelMessage('Service settings saved on this device. Sign in to sync to the server.');
                             }
-                            if (typeof window !== 'undefined') {
-                              window.setTimeout(() => setStoreServicesPanelMessage(null), 3200);
-                            }
+                            showStoreDashboardToast(
+                              'success',
+                              'Your service settings (AFA, vouchers, and related options) were saved. This line stays for a while so you are not left wondering what happened.',
+                            );
                           }}
                           className="w-full rounded-xl py-3 px-4 text-sm font-semibold bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                         >
@@ -6336,6 +7661,91 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 </div>
               ) : (
                 <div className="w-full min-w-0 text-left space-y-4">
+                  {storeModerationStatus === 'pending' ? (
+                    <div className={`rounded-xl border p-3 text-sm ${isDark ? 'bg-amber-500/15 border-amber-500/35 text-amber-100' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                      Your store is pending admin review. It is not public yet. Once approved, customers can access your store link.
+                    </div>
+                  ) : storeModerationStatus === 'declined' ? (
+                    <div className={`rounded-xl border p-3 text-sm ${isDark ? 'bg-rose-500/15 border-rose-500/35 text-rose-100' : 'bg-rose-50 border-rose-200 text-rose-900'}`}>
+                      <p className="font-semibold">Your store was declined by admin and is hidden from public access.</p>
+                      {storeModerationNote ? (
+                        <p className="mt-1 opacity-90">{storeModerationNote}</p>
+                      ) : null}
+                      {storeModerationReviewedAt ? (
+                        <p className="mt-1 text-xs opacity-80">Reviewed: {new Date(storeModerationReviewedAt).toLocaleString()}</p>
+                      ) : null}
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          disabled={storeAppealBusy}
+                          onClick={async () => {
+                            if (storeAppealBusy) return;
+                            if (!isSignedIn || !api.getToken()) {
+                              setStoreSettingsMessage('Sign in again to send your appeal.');
+                              return;
+                            }
+                            setStoreAppealBusy(true);
+                            setStoreSettingsMessage('Sending your appeal to admin review…');
+                            try {
+                              const body = buildMyStoreRequestBodyRef.current ? buildMyStoreRequestBodyRef.current() : null;
+                              const payload = {
+                                ...(body && typeof body === 'object' ? body : {}),
+                                moderationStatus: 'pending',
+                                moderationNote:
+                                  'Vendor appealed the decline and requested another review.',
+                              };
+                              const resp = await api.putMyStore(payload);
+                              if (Number.isFinite(Number(resp?.storeId))) {
+                                setActiveStoreId(Number(resp.storeId));
+                              }
+                              const ms = String(resp?.moderationStatus || 'pending').trim().toLowerCase() || 'pending';
+                              setStoreModerationStatus(ms);
+                              setStoreModerationReviewedAt(null);
+                              setStoreModerationNote(
+                                'Appeal sent. Your store is back in pending review and remains hidden until approved.'
+                              );
+                              setStoreSettingsMessage('Appeal submitted. Awaiting admin review.');
+                            } catch (err) {
+                              setStoreSettingsMessage(err?.message || 'Could not submit appeal. Please try again.');
+                            } finally {
+                              setStoreAppealBusy(false);
+                            }
+                          }}
+                          className={`rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-60 ${
+                            isDark
+                              ? 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                              : 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                          }`}
+                        >
+                          {storeAppealBusy ? 'Sending appeal…' : 'Appeal decision'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : storeModerationStatus === 'approved' ? (
+                    <div className={`rounded-xl border p-3 text-sm ${isDark ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-100' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+                      <p className="font-semibold">Your store has been approved by admin.</p>
+                      <p className="mt-1 opacity-90">Your public store is now live. You can open it directly from the link below.</p>
+                      {storeModerationReviewedAt ? (
+                        <p className="mt-1 text-xs opacity-80">Approved: {new Date(storeModerationReviewedAt).toLocaleString()}</p>
+                      ) : null}
+                      {fullStoreLinkUrl ? (
+                        <div className="mt-3">
+                          <a
+                            href={fullStoreLinkUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`inline-flex items-center rounded-lg px-3 py-2 text-xs font-semibold ${
+                              isDark
+                                ? 'bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/35'
+                                : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                            }`}
+                          >
+                            Open my store
+                          </a>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {storeSettingsMessage ? (
                     <p
                       className={`text-sm text-center ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
@@ -6345,8 +7755,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     </p>
                   ) : null}
                   <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-                    When you are signed in, storefront and payment options sync to the server (automatically after you
-                    stop editing, or immediately when you save).
+                    Store look and payment options are saved when you tap Save, or automatically a few seconds after you stop editing.
                   </p>
                   <div
                     className={`rounded-2xl border p-4 sm:p-5 ${
@@ -6365,26 +7774,25 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         {storeLogoError}
                       </p>
                     ) : null}
-                    <div
-                      className={`mt-4 rounded-2xl border p-4 sm:p-5 text-center ${
-                        isDark ? 'bg-black/20 border-white/10' : 'bg-slate-50 border-slate-200/80'
-                      }`}
-                    >
+                    <div className="mt-4 text-left">
                       <button
                         type="button"
                         onClick={() => storeLogoInputRef.current?.click()}
-                        className="mx-auto flex flex-col items-center gap-2 min-w-0 w-full max-w-sm rounded-2xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent focus:ring-violet-500/60"
+                        className="flex w-full min-w-0 max-w-lg flex-row items-center gap-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-900 rounded-xl py-1 -ml-0.5 pl-0.5"
                       >
-                        <StoreSettingsLogoPreviewSvg
-                          logoDataUrl={storeDisplaySettings.logoDataUrl}
-                          accentColor={storeDisplaySettings.accentColor}
-                          idBase={storeLookPreviewId}
-                        />
-                        <span
-                          className={`text-sm font-medium ${isDark ? 'text-violet-300' : 'text-violet-700'}`}
-                        >
-                          Tap to choose a picture
-                        </span>
+                        <StoreSettingsLogoImageSlot logoDataUrl={storeDisplaySettings.logoDataUrl} isDark={isDark} />
+                        <div className="min-w-0 flex-1 py-0.5">
+                          <span
+                            className={`text-sm font-medium block ${isDark ? 'text-violet-300' : 'text-violet-700'}`}
+                          >
+                            Tap to choose a picture
+                          </span>
+                          <span
+                            className={`text-xs mt-0.5 block ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
+                          >
+                            {(storeDisplaySettings.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store name below'} · preview only
+                          </span>
+                        </div>
                       </button>
                       {storeDisplaySettings.logoDataUrl ? (
                         <button
@@ -6393,16 +7801,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                             setStoreDisplaySettings((s) => ({ ...s, logoDataUrl: null }));
                             setStoreLogoError(null);
                           }}
-                          className={`mt-2 text-sm font-medium ${isDark ? 'text-rose-400 hover:text-rose-300' : 'text-rose-600 hover:text-rose-700'}`}
+                          className={`mt-2 text-sm font-medium text-left ${isDark ? 'text-rose-400 hover:text-rose-300' : 'text-rose-600 hover:text-rose-700'}`}
                         >
                           Remove image
                         </button>
                       ) : null}
-                      <p
-                        className={`text-xs mt-3 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}
-                      >
-                        {(storeDisplaySettings.storeName && String(storeDisplaySettings.storeName).trim()) || 'Store name below'} · preview only
-                      </p>
                     </div>
                     <p className={`text-sm font-medium mt-5 ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
                       Store accent
@@ -6545,6 +7948,58 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         />
                         <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
                           {storeDisplaySettings.storeDescription.length}/500 characters
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-hero-title"
+                        >
+                          Hero headline (public store)
+                        </label>
+                        <input
+                          id="store-hero-title"
+                          type="text"
+                          value={storeDisplaySettings.heroTitle}
+                          maxLength={100}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({ ...s, heroTitle: e.target.value.slice(0, 100) }))
+                          }
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          placeholder="Dataplus data"
+                        />
+                        <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          Main line under the logo on your public /store page. {storeDisplaySettings.heroTitle.length}/100
+                        </p>
+                      </div>
+                      <div>
+                        <label
+                          className={`text-sm font-medium ${isDark ? 'text-slate-200' : 'text-slate-800'}`}
+                          htmlFor="store-hero-tagline"
+                        >
+                          Hero tagline (public store)
+                        </label>
+                        <input
+                          id="store-hero-tagline"
+                          type="text"
+                          value={storeDisplaySettings.heroTagline}
+                          maxLength={200}
+                          onChange={(e) =>
+                            setStoreDisplaySettings((s) => ({ ...s, heroTagline: e.target.value.slice(0, 200) }))
+                          }
+                          className={`mt-1.5 w-full rounded-lg border px-2.5 py-2 text-sm ${
+                            isDark
+                              ? 'bg-black/30 border-white/15 text-white'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          placeholder="Affordable, reliable and faster delivery"
+                        />
+                        <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                          {storeDisplaySettings.heroTagline.length}/200
                         </p>
                       </div>
                       <div>
@@ -6765,23 +8220,50 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       try {
+                        if (storeNewDraftMode) {
+                          setStoreModerationStatus('pending');
+                          setStoreModerationReviewedAt(null);
+                          setStoreModerationNote('Awaiting admin review. Your public link stays inactive until approved.');
+                          setStoreAvailabilityOn(false);
+                        }
                         const raw = JSON.stringify(storeDisplaySettings);
                         localStorage.setItem('dataplus_store_display_v1', raw);
                         persistPublicStoreSnapshot();
                         if (isSignedIn && api.getToken()) {
-                          flushStoreToApi();
-                          setStoreSettingsMessage('Store settings saved and synced to the server.');
-                        } else {
-                          setStoreSettingsMessage('Store settings saved on this device. Sign in to sync to the server.');
+                          const body = buildMyStoreRequestBodyRef.current
+                            ? buildMyStoreRequestBodyRef.current()
+                            : null;
+                          const resp = body ? await api.putMyStore(body) : { ok: false };
+                          if (resp?.skipped) {
+                            setStoreSettingsMessage('Store was saved locally only. Sign in again to send it to admin review.');
+                            showStoreDashboardToast(
+                              'error',
+                              'Store saved locally only. Please sign in again, then tap Save store settings so admin can review it.',
+                              15000,
+                            );
+                            return;
+                          }
+                          if (Number.isFinite(Number(resp?.storeId))) {
+                            setActiveStoreId(Number(resp.storeId));
+                          }
+                          await refreshMyStores();
                         }
-                        if (typeof window !== 'undefined') {
-                          window.setTimeout(() => setStoreSettingsMessage(null), 3000);
-                        }
+                        showStoreDashboardToast(
+                          'success',
+                          'Your storefront name, look, payment options, and other settings on this page were saved. The notice stays visible for several seconds before it goes away on its own.',
+                        );
+                        setStoreExists(true);
+                        storeSavedSnapshotRef.current = captureStoreSnapshot();
+                        setStoreNewDraftMode(false);
+                        setStoreEditorOpen(false);
                       } catch {
-                        setStoreSettingsMessage(
-                          'Could not save (storage full?). Try a smaller logo or clear site data.',
+                        setStoreSettingsMessage('Couldn’t save. Try a smaller image or clear site data.');
+                        showStoreDashboardToast(
+                          'error',
+                          'We could not save your settings, often because the logo image is too large for storage. Try a smaller file or a different format. This error stays a bit longer so you can read it.',
+                          20000,
                         );
                         if (typeof window !== 'undefined') {
                           window.setTimeout(() => setStoreSettingsMessage(null), 5000);
@@ -6799,9 +8281,19 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                       <button
                         type="button"
                         onClick={() => {
-                          setStoreDisplaySettings(loadStoreDisplaySettings());
-                          setStoreLogoError(null);
-                          setStoreSettingsMessage('Restored to last saved store settings.');
+                          if (storeNewDraftMode && storeSavedSnapshotRef.current) {
+                            applyStoreSnapshot(storeSavedSnapshotRef.current);
+                            setStoreNewDraftMode(false);
+                            setStoreDashTab('overview');
+                            setStoreEditorOpen(false);
+                            setStoreLogoError(null);
+                            setStoreSettingsMessage('Draft cancelled. Your existing store preview is unchanged.');
+                          } else {
+                            setStoreDashTab('overview');
+                            setStoreEditorOpen(false);
+                            setStoreLogoError(null);
+                            setStoreSettingsMessage('Closed settings. Your current store preview is unchanged.');
+                          }
                           if (typeof window !== 'undefined') {
                             window.setTimeout(() => setStoreSettingsMessage(null), 2500);
                           }
@@ -6820,6 +8312,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                           if (storeLinkEditOpen) {
                             applyStorePathOverride(storePathSlugDraft);
                             setStoreLinkEditOpen(false);
+                          } else {
+                            setStoreLinkSettingsMessage('No link change to save');
+                            if (typeof window !== 'undefined') {
+                              window.setTimeout(() => setStoreLinkSettingsMessage(null), 1800);
+                            }
+                            return;
                           }
                           setStoreLinkSettingsMessage('Profile settings saved');
                           if (typeof window !== 'undefined') {
@@ -6833,12 +8331,12 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                         }}
                         className="w-full sm:w-auto sm:min-w-[10rem] rounded-xl py-2.5 px-3 sm:px-4 text-sm font-medium bg-violet-600 text-white hover:bg-violet-500 shadow-sm"
                       >
-                        Save profile settings
+                        Save link settings
                       </button>
                     </div>
                   </div>
                 </div>
-              )}
+              )) : null}
             </div>
           </>
         ) : currentPage === 'join-us' ? (
@@ -6893,11 +8391,25 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                     {DASHBOARD_HEADLINES[dashboardHeadlineIndex]}
                   </h1>
                 </div>
-                <div className="relative w-4 h-4 flex items-center justify-center">
-                  <div className="absolute w-4 h-4 rounded-full bg-green-500 status-dot" />
-                  <div className="relative w-3 h-3 rounded-full bg-green-400" />
+                <div className="shrink-0 pl-1">
+                  <PublicStoreNetLivePill genLabel="Live" isDark={isDark} />
                 </div>
               </div>
+              {DASHBOARD_ANNOUNCEMENT ? (
+                <DashboardAnnouncementBar
+                  text={DASHBOARD_ANNOUNCEMENT}
+                  isDark={isDark}
+                  showStoreCta={isStoreDashboardAllowedForUser(user)}
+                  onOpenStore={() => {
+                    if (!isStoreDashboardAllowedForUser(user)) return;
+                    setStoreDashTab('overview');
+                    setCurrentPage('store-dashboard');
+                    setSelectedMenu('store-dashboard');
+                    setProfileOpen(false);
+                    setSidebarOpen(false);
+                  }}
+                />
+              ) : null}
             </div>
 
             <div
@@ -7713,7 +9225,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </>
             );
           })()
-        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
+        ) : (['admin', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-stores', 'admin-withdrawal-requests', 'admin-applications', 'admin-broadcasts', 'admin-support', 'admin-analytics'].includes(currentPage) && ((adminRoute && adminPinVerified) || (isSignedIn && user?.role === 'admin'))) ? (
           <>
             {(() => {
               const adminPageTitles = {
@@ -7723,6 +9235,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-packages': 'Data Packages',
                 'admin-all-transactions': 'All Transactions',
                 'admin-wallet': 'Wallet Management',
+                'admin-stores': 'Store Management',
+                'admin-withdrawal-requests': 'Withdrawal requests',
                 'admin-applications': 'Agent Applications',
                 'admin-broadcasts': 'Broadcasts',
                 'admin-support': 'Messages',
@@ -7735,6 +9249,8 @@ export default function App({ adminRoute: adminRouteProp = false }) {
                 'admin-packages': 'Manage data packages',
                 'admin-all-transactions': 'View all transactions',
                 'admin-wallet': 'Manage user wallet balances',
+                'admin-stores': 'Manage storefront identity, availability, and quick health metrics',
+                'admin-withdrawal-requests': 'Payout requests from store vendors — name, phone, and amount',
                 'admin-applications': 'Manage agent membership applications',
                 'admin-broadcasts': 'Pop-up announcements for customers — image, caption, optional link button, and timing',
                 'admin-support': 'Customer conversations — tap a thread to open and reply',
@@ -8861,6 +10377,544 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
+            {currentPage === 'admin-stores' && (
+              <div className="space-y-4 pb-8">
+                {adminStoresError ? (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {adminStoresError}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                  <input
+                    type="search"
+                    value={adminStoresSearch}
+                    onChange={(e) => setAdminStoresSearch(e.target.value)}
+                    placeholder="Search by store name, slug, owner, or email…"
+                    className={`flex-1 min-w-0 px-4 py-3 rounded-xl border text-sm placeholder:opacity-70 ${isDark ? 'bg-white/5 border-white/15 text-white placeholder:text-white/45' : 'bg-white border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                    aria-label="Search stores"
+                  />
+                  <button
+                    type="button"
+                    disabled={adminStoresLoading}
+                    onClick={() => {
+                      setAdminStoresLoading(true);
+                      setAdminStoresError(null);
+                      api.getAdminStores()
+                        .then((list) => setAdminStores(Array.isArray(list) ? list : []))
+                        .catch((err) => {
+                          setAdminStoresError(err?.message || 'Failed to load stores');
+                          setAdminStores([]);
+                        })
+                        .finally(() => setAdminStoresLoading(false));
+                    }}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                  >
+                    {adminStoresLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdminStoresShowDeclined((v) => !v)}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${
+                      isDark ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                    }`}
+                  >
+                    {adminStoresShowDeclined ? 'Hide declined' : 'Show declined'}
+                  </button>
+                </div>
+
+                {(() => {
+                  const rowsAll = Array.isArray(adminStores) ? adminStores : [];
+                  const rowsBase = adminStoresShowDeclined
+                    ? rowsAll
+                    : rowsAll.filter((r) => String(r.moderation_status || 'approved').toLowerCase() !== 'declined');
+                  const rows = [...rowsBase].sort((a, b) => {
+                    const ta = Date.parse(String(a?.updated_at || a?.created_at || '')) || 0;
+                    const tb = Date.parse(String(b?.updated_at || b?.created_at || '')) || 0;
+                    return tb - ta;
+                  });
+                  const q = (adminStoresSearch || '').trim().toLowerCase();
+                  const filtered = !q
+                    ? rows
+                    : rows.filter((row) => {
+                        const blob = [
+                          row.store_name,
+                          row.path_slug,
+                          row.owner_name,
+                          row.user_full_name,
+                          row.user_email,
+                          row.user_phone,
+                        ]
+                          .join(' ')
+                          .toLowerCase();
+                        return blob.includes(q);
+                      });
+                  const openCount = rows.filter((r) => r.availability !== false).length;
+                  const closedCount = Math.max(0, rows.length - openCount);
+                  const pendingCount = rows.filter((r) => String(r.moderation_status || '') === 'pending').length;
+                  const declinedCount = rows.filter((r) => String(r.moderation_status || '') === 'declined').length;
+                  const toGhs = (n) => {
+                    const v = Number(n);
+                    return Number.isFinite(v) ? v.toFixed(2) : '0.00';
+                  };
+                  const publicOrigin = getPublicSiteOrigin().replace(/\/$/, '');
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        {[
+                          { label: 'Stores', value: rows.length },
+                          { label: 'Open', value: openCount },
+                          { label: 'Closed', value: closedCount },
+                          { label: 'Pending', value: pendingCount },
+                          { label: 'Declined', value: declinedCount },
+                        ].map((x) => (
+                          <div key={x.label} className={`rounded-xl border p-4 ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}>
+                            <p className={`text-xs uppercase tracking-wide ${isDark ? 'text-white/50' : 'text-slate-500'}`}>{x.label}</p>
+                            <p className={`text-xl font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{x.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
+                        <div className={`px-4 py-3 border-b ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                          <h2 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            Stores ({filtered.length}{q ? ` of ${rows.length}` : ''})
+                          </h2>
+                        </div>
+                        {adminStoresLoading && rows.length === 0 ? (
+                          <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>Loading stores…</div>
+                        ) : filtered.length === 0 ? (
+                          <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                            {rows.length === 0 ? 'No stores created yet.' : 'No matching stores.'}
+                          </div>
+                        ) : (
+                          <div className={`divide-y max-h-[min(78vh,920px)] overflow-y-auto ${isDark ? 'divide-white/10' : 'divide-slate-200'}`}>
+                            {filtered.map((row) => {
+                              const updatedAt = row.updated_at
+                                ? new Date(String(row.updated_at).replace(' ', 'T'))
+                                : null;
+                              const updatedStr =
+                                updatedAt && !Number.isNaN(updatedAt.getTime())
+                                  ? updatedAt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                                  : '—';
+                              const isSaving = String(adminStoreSavingUserId) === String(row.store_id);
+                              const moderationStatus = String(row.moderation_status || 'approved').toLowerCase();
+                              const withdrawalStatus = String(row.withdrawal_status || 'enabled').toLowerCase() === 'paused' ? 'paused' : 'enabled';
+                              const moderationNote = String(row.moderation_note || '').trim();
+                              const slug = String(row.path_slug || '').trim();
+                              const publicLink = slug ? `${publicOrigin}/store/${slug}` : '';
+                              return (
+                                <div key={row.store_id || row.user_id} className={`p-4 sm:p-5 ${isDark ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50'}`}>
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0 flex items-start gap-2.5">
+                                      <div className={`shrink-0 h-9 w-9 rounded-full overflow-hidden border ${isDark ? 'border-white/15 bg-white/10' : 'border-slate-200 bg-slate-100'}`}>
+                                        {row.logo_data_url ? (
+                                          <img src={row.logo_data_url} alt="" className="h-full w-full object-cover" />
+                                        ) : null}
+                                      </div>
+                                      <div className="min-w-0">
+                                      <p className={`text-sm sm:text-base font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                        {String(row.store_name || 'Store')}
+                                      </p>
+                                      <p className={`text-xs mt-0.5 break-all ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                                        /store/{slug || '—'}
+                                      </p>
+                                      <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                                        {(row.owner_name || row.user_full_name || 'Owner not set')} · {(row.user_email || '—')}
+                                      </p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${row.availability !== false ? (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800') : (isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-800')}`}>
+                                        {row.availability !== false ? 'Open' : 'Closed'}
+                                      </span>
+                                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                        moderationStatus === 'pending'
+                                          ? (isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-800')
+                                          : moderationStatus === 'declined'
+                                            ? (isDark ? 'bg-rose-500/20 text-rose-300' : 'bg-rose-100 text-rose-800')
+                                            : (isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-800')
+                                      }`}>
+                                        {moderationStatus === 'pending' ? 'Pending review' : moderationStatus === 'declined' ? 'Declined' : 'Approved'}
+                                      </span>
+                                      <span
+                                        className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                          withdrawalStatus === 'paused'
+                                            ? isDark
+                                              ? 'bg-amber-500/20 text-amber-300'
+                                              : 'bg-amber-100 text-amber-800'
+                                            : isDark
+                                              ? 'bg-sky-500/20 text-sky-300'
+                                              : 'bg-sky-100 text-sky-800'
+                                        }`}
+                                      >
+                                        {withdrawalStatus === 'paused' ? 'Withdrawals paused' : 'Withdrawals enabled'}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={async () => {
+                                          setAdminStoreSavingUserId(row.store_id);
+                                          setAdminStoresError(null);
+                                          const nextAvailability = row.availability === false;
+                                          try {
+                                            const data = await api.patchAdminStore(row.store_id, { availability: nextAvailability });
+                                            setAdminStores((prev) =>
+                                              prev.map((x) =>
+                                                String(x.store_id || x.user_id) === String(row.store_id || row.user_id)
+                                                  ? (data?.store && typeof data.store === 'object'
+                                                      ? { ...x, ...data.store }
+                                                      : { ...x, availability: nextAvailability })
+                                                  : x
+                                              )
+                                            );
+                                          } catch (err) {
+                                            setAdminStoresError(err?.message || 'Failed to update store');
+                                          } finally {
+                                            setAdminStoreSavingUserId(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                                      >
+                                        {isSaving ? 'Saving…' : row.availability !== false ? 'Close store' : 'Open store'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={async () => {
+                                          setAdminStoreSavingUserId(row.store_id);
+                                          setAdminStoresError(null);
+                                          const nextWithdrawalStatus = withdrawalStatus === 'paused' ? 'enabled' : 'paused';
+                                          try {
+                                            const data = await api.patchAdminStore(row.store_id, {
+                                              withdrawalStatus: nextWithdrawalStatus,
+                                            });
+                                            setAdminStores((prev) =>
+                                              prev.map((x) =>
+                                                String(x.store_id || x.user_id) === String(row.store_id || row.user_id)
+                                                  ? (data?.store && typeof data.store === 'object'
+                                                      ? { ...x, ...data.store }
+                                                      : { ...x, withdrawal_status: nextWithdrawalStatus })
+                                                  : x
+                                              )
+                                            );
+                                          } catch (err) {
+                                            setAdminStoresError(err?.message || 'Failed to update withdrawal status');
+                                          } finally {
+                                            setAdminStoreSavingUserId(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                                          withdrawalStatus === 'paused'
+                                            ? isDark
+                                              ? 'bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
+                                              : 'bg-sky-100 text-sky-800 hover:bg-sky-200'
+                                            : isDark
+                                              ? 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                                              : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                        }`}
+                                      >
+                                        {withdrawalStatus === 'paused' ? 'Enable withdrawals' : 'Pause withdrawals'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSaving || moderationStatus === 'approved'}
+                                        onClick={async () => {
+                                          setAdminStoreSavingUserId(row.store_id);
+                                          setAdminStoresError(null);
+                                          try {
+                                            const data = await api.patchAdminStore(row.store_id, {
+                                              moderationStatus: 'approved',
+                                              moderationNote: 'Your store was approved and is now visible to the public.',
+                                            });
+                                            setAdminStores((prev) =>
+                                              prev.map((x) =>
+                                                String(x.store_id || x.user_id) === String(row.store_id || row.user_id)
+                                                  ? (data?.store && typeof data.store === 'object'
+                                                      ? { ...x, ...data.store }
+                                                      : { ...x, moderation_status: 'approved' })
+                                                  : x
+                                              )
+                                            );
+                                          } catch (err) {
+                                            setAdminStoresError(err?.message || 'Failed to approve store');
+                                          } finally {
+                                            setAdminStoreSavingUserId(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                                          isDark ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30' : 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                        }`}
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSaving || moderationStatus === 'declined'}
+                                        onClick={async () => {
+                                          setAdminStoreSavingUserId(row.store_id);
+                                          setAdminStoresError(null);
+                                          try {
+                                            const data = await api.patchAdminStore(row.store_id, {
+                                              moderationStatus: 'declined',
+                                              moderationNote:
+                                                'Your store was declined after admin review. Please update your store content to match our community guidelines before requesting visibility again.',
+                                            });
+                                            setAdminStores((prev) =>
+                                              prev.map((x) =>
+                                                String(x.store_id || x.user_id) === String(row.store_id || row.user_id)
+                                                  ? (data?.store && typeof data.store === 'object'
+                                                      ? { ...x, ...data.store }
+                                                      : { ...x, moderation_status: 'declined' })
+                                                  : x
+                                              )
+                                            );
+                                          } catch (err) {
+                                            setAdminStoresError(err?.message || 'Failed to decline store');
+                                          } finally {
+                                            setAdminStoreSavingUserId(null);
+                                          }
+                                        }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                                          isDark ? 'bg-rose-500/20 text-rose-200 hover:bg-rose-500/30' : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                        }`}
+                                      >
+                                        Decline
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className={`mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                                    <p><span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Orders</span><br />{Number(row.total_orders || 0)}</p>
+                                    <p><span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Completed</span><br />{Number(row.completed_orders || 0)}</p>
+                                    <p><span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Profit</span><br />GHS {toGhs(row.completed_profit_ghs ?? row.completed_revenue_ghs)}</p>
+                                    <p><span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Updated</span><br />{updatedStr}</p>
+                                  </div>
+
+                                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    {publicLink ? (
+                                      <a
+                                        href={publicLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                                          isDark ? 'bg-amber-500/20 text-amber-200 hover:bg-amber-500/30' : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                        }`}
+                                      >
+                                        Preview store (admin)
+                                      </a>
+                                    ) : null}
+                                    {publicLink && moderationStatus === 'approved' ? (
+                                      <a
+                                        href={publicLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-200 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-800 hover:bg-violet-200'}`}
+                                      >
+                                        Open public store
+                                      </a>
+                                    ) : null}
+                                    <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                                      Theme: {String(row.theme || 'default')} · Accent: {String(row.accent_color || '#7c3aed')}
+                                    </span>
+                                    {moderationNote ? (
+                                      <span className={`text-xs ${isDark ? 'text-amber-300' : 'text-amber-800'}`}>
+                                        Admin note: {moderationNote}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {currentPage === 'admin-withdrawal-requests' && (
+              <div className="space-y-4 pb-8">
+                <p className={`text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
+                  Store vendors submit withdrawal requests from the Store Dashboard → Earnings. Each row shows the payout name and phone, requested amount, the 2% fee, and net amount after the fee.
+                </p>
+                {adminWithdrawalRequestsError && (
+                  <div className={`p-4 rounded-xl text-sm ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-100' : 'bg-amber-50 border border-amber-200 text-amber-900'}`}>
+                    {adminWithdrawalRequestsError}
+                  </div>
+                )}
+                <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-end">
+                  <button
+                    type="button"
+                    disabled={adminWithdrawalRequestsLoading}
+                    onClick={() => {
+                      setAdminWithdrawalRequestsLoading(true);
+                      setAdminWithdrawalRequestsError(null);
+                      api
+                        .getAdminWithdrawalRequests()
+                        .then((list) => setAdminWithdrawalRequests(Array.isArray(list) ? list : []))
+                        .catch((err) => {
+                          setAdminWithdrawalRequestsError(err?.message || 'Failed to load');
+                          setAdminWithdrawalRequests([]);
+                        })
+                        .finally(() => setAdminWithdrawalRequestsLoading(false));
+                    }}
+                    className={`shrink-0 px-4 py-3 rounded-xl text-sm font-semibold ${isDark ? 'bg-white/10 text-white hover:bg-white/20 disabled:opacity-50' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50'}`}
+                  >
+                    {adminWithdrawalRequestsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                <div className={`rounded-xl sm:rounded-2xl border overflow-hidden ${isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white border-slate-200'}`}>
+                  <div className={`px-4 py-3 border-b ${isDark ? 'border-white/10 bg-white/[0.02]' : 'border-slate-200 bg-slate-50'}`}>
+                    <h2 className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Requests ({(adminWithdrawalRequests || []).length})
+                    </h2>
+                  </div>
+                  {adminWithdrawalRequestsLoading && (adminWithdrawalRequests || []).length === 0 ? (
+                    <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      Loading…
+                    </div>
+                  ) : (adminWithdrawalRequests || []).length === 0 ? (
+                    <div className={`px-4 py-12 text-center text-sm ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
+                      No withdrawal requests yet.
+                    </div>
+                  ) : (
+                    <div
+                      className={`divide-y max-h-[min(75vh,900px)] overflow-y-auto ${
+                        isDark ? 'divide-white/10' : 'divide-slate-200'
+                      }`}
+                    >
+                      {(adminWithdrawalRequests || []).map((row) => {
+                        const rowStatus = String(row.status || 'pending').toLowerCase();
+                        const isSaving = String(adminWithdrawalRequestSavingId || '') === String(row.id || '');
+                        const when = row.created_at
+                          ? new Date(String(row.created_at).replace(' ', 'T'))
+                          : null;
+                        const whenStr =
+                          when && !Number.isNaN(when.getTime())
+                            ? when.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+                            : '—';
+                        const email = (row.user_email || '').toString();
+                        const acct = (row.user_account_name || '').toString();
+                        return (
+                          <div
+                            key={row.id}
+                            className={`p-4 sm:p-5 ${isDark ? 'hover:bg-white/[0.04]' : 'hover:bg-slate-50'}`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <p className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-violet-300' : 'text-violet-700'}`}>
+                                ID {row.id}
+                                {row.status ? (
+                                  <span
+                                    className={`ml-2 font-normal normal-case ${
+                                      rowStatus === 'completed'
+                                        ? isDark
+                                          ? 'text-emerald-300'
+                                          : 'text-emerald-700'
+                                        : rowStatus === 'processing'
+                                          ? isDark
+                                            ? 'text-sky-300'
+                                            : 'text-sky-700'
+                                          : rowStatus === 'failed'
+                                            ? isDark
+                                              ? 'text-rose-300'
+                                              : 'text-rose-700'
+                                            : isDark
+                                              ? 'text-amber-300'
+                                              : 'text-amber-700'
+                                    }`}
+                                  >
+                                    · {String(row.status)}
+                                  </span>
+                                ) : null}
+                              </p>
+                              <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>{whenStr}</p>
+                            </div>
+                            <p className={`text-sm font-medium mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {email || '—'}
+                              {acct ? <span className={`font-normal ${isDark ? 'text-slate-400' : 'text-slate-600'}`}> · {acct}</span> : null}
+                            </p>
+                            <p className={`text-sm mt-2 ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>
+                              <span className="font-medium">Payout to:</span> {String(row.full_name || '—').trim()}{' '}
+                              <span className="font-mono">· {String(row.phone || '—')}</span>
+                            </p>
+                            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                              <div>
+                                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Requested (GHS)</p>
+                                <p className={`font-semibold tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                  {Number.isFinite(Number(row.amount_ghs)) ? Number(row.amount_ghs).toFixed(2) : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Fee 2% (GHS)</p>
+                                <p className={`font-semibold tabular-nums ${isDark ? 'text-amber-200' : 'text-amber-800'}`}>
+                                  {Number.isFinite(Number(row.fee_ghs)) ? Number(row.fee_ghs).toFixed(2) : '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Net to user (GHS)</p>
+                                <p className={`font-semibold tabular-nums ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>
+                                  {Number.isFinite(Number(row.net_after_fee_ghs)) ? Number(row.net_after_fee_ghs).toFixed(2) : '—'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {['pending', 'processing', 'completed', 'failed'].map((statusKey) => {
+                                const active = rowStatus === statusKey;
+                                const label =
+                                  statusKey === 'pending'
+                                    ? 'Pending'
+                                    : statusKey === 'processing'
+                                      ? 'Processing'
+                                      : statusKey === 'completed'
+                                        ? 'Completed'
+                                        : 'Failed';
+                                return (
+                                  <button
+                                    key={`${row.id}-${statusKey}`}
+                                    type="button"
+                                    disabled={isSaving || active || (rowStatus === 'completed' && statusKey !== 'completed')}
+                                    onClick={async () => {
+                                      setAdminWithdrawalRequestSavingId(row.id);
+                                      setAdminWithdrawalRequestsError(null);
+                                      try {
+                                        const data = await api.patchAdminWithdrawalRequest(row.id, statusKey);
+                                        const updated = data && typeof data === 'object' ? data.request : null;
+                                        setAdminWithdrawalRequests((prev) =>
+                                          (prev || []).map((x) => (String(x.id) === String(row.id) ? { ...x, ...(updated || { status: statusKey }) } : x))
+                                        );
+                                      } catch (err) {
+                                        setAdminWithdrawalRequestsError(err?.message || 'Failed to update request status');
+                                      } finally {
+                                        setAdminWithdrawalRequestSavingId(null);
+                                      }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 ${
+                                      active
+                                        ? isDark
+                                          ? 'bg-violet-500/30 text-violet-100'
+                                          : 'bg-violet-200 text-violet-900'
+                                        : isDark
+                                          ? 'bg-white/10 text-white hover:bg-white/20'
+                                          : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    {isSaving && !active ? 'Saving…' : label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {currentPage === 'admin-applications' && (
               <div className="space-y-4 pb-8">
                 {agentApplicationsError && (
@@ -9637,7 +11691,7 @@ export default function App({ adminRoute: adminRouteProp = false }) {
               </div>
             )}
 
-            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-applications', 'admin-broadcasts', 'admin-support'].includes(currentPage) && (
+            {!['admin', 'admin-analytics', 'admin-users', 'admin-orders', 'admin-packages', 'admin-all-transactions', 'admin-wallet', 'admin-stores', 'admin-withdrawal-requests', 'admin-applications', 'admin-broadcasts', 'admin-support'].includes(currentPage) && (
               <div className={`rounded-xl sm:rounded-2xl p-8 text-center border ${isDark ? 'bg-white/5 border-white/10 text-white/70' : 'bg-white border-slate-200 text-slate-500'}`}>
                 <p className="text-base">Details for this section will be added here.</p>
               </div>
@@ -12326,8 +14380,263 @@ export default function App({ adminRoute: adminRouteProp = false }) {
           </div>
         </div>
       )}
+
+      {storeWithdrawalModalOpen &&
+        (() => {
+          const wd = storeEarningsData;
+          const withdrawableNow =
+            wd && Number.isFinite(Number(wd.withdrawableGhs)) ? Number(wd.withdrawableGhs) : dashboardBalance;
+          const amountNum = parseFloat(String(storeWithdrawalAmountStr).replace(/,/g, ''), 10);
+          const hasAmount = Number.isFinite(amountNum) && amountNum > 0;
+          const phoneDigits = String(storeWithdrawalPhone || '').replace(/\D/g, '');
+          const feeAmount = hasAmount ? Math.round(amountNum * STORE_WITHDRAWAL_FEE_RATE * 100) / 100 : 0;
+          const netAfter = hasAmount ? Math.round((amountNum - feeAmount) * 100) / 100 : 0;
+          const overBalance = hasAmount && amountNum > withdrawableNow + 1e-6;
+          const canProceedToConfirm =
+            String(storeWithdrawalName || '').trim().length > 0 &&
+            phoneDigits.length >= 8 &&
+            hasAmount &&
+            !overBalance &&
+            amountNum >= MIN_STORE_WITHDRAWAL_GHS;
+          const ghs = (n) => {
+            const v = Number(n);
+            return `GHS ${(Number.isFinite(v) ? v : 0).toFixed(2)}`;
+          };
+          return (
+            <div
+              className="fixed inset-0 z-[86] flex items-center justify-center p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="store-wd-title"
+            >
+              <div
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                onClick={() => {
+                  if (!storeWithdrawalSubmitting) setStoreWithdrawalModalOpen(false);
+                }}
+                aria-hidden="true"
+              />
+              <div
+                className={`relative w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl p-5 sm:p-6 ${
+                  isDark ? 'bg-zinc-950 border-white/10' : 'bg-white border-slate-200'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-2 mb-4">
+                  <h2 id="store-wd-title" className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Request withdrawal
+                  </h2>
+                  <button
+                    type="button"
+                    disabled={storeWithdrawalSubmitting}
+                    onClick={() => {
+                      if (!storeWithdrawalSubmitting) setStoreWithdrawalModalOpen(false);
+                    }}
+                    className={`p-2 rounded-lg shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-slate-100'}`}
+                    aria-label="Close"
+                  >
+                    <Svg.Close stroke={stroke} />
+                  </button>
+                </div>
+
+                {storeWithdrawalStep === 'form' ? (
+                  <div className="space-y-4">
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      Enter the details for your payout. Minimum {ghs(MIN_STORE_WITHDRAWAL_GHS)}. A {Math.round(STORE_WITHDRAWAL_FEE_RATE * 100)}% processing
+                      fee is deducted from the requested amount; the remainder is what is sent to you.
+                    </p>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`} htmlFor="store-wd-name">
+                        Full name
+                      </label>
+                      <input
+                        id="store-wd-name"
+                        type="text"
+                        value={storeWithdrawalName}
+                        onChange={(e) => setStoreWithdrawalName(e.target.value)}
+                        className={`w-full px-4 py-2.5 rounded-xl border text-base ${
+                          isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'
+                        }`}
+                        autoComplete="name"
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`} htmlFor="store-wd-phone">
+                        Phone number
+                      </label>
+                      <input
+                        id="store-wd-phone"
+                        type="tel"
+                        inputMode="tel"
+                        value={storeWithdrawalPhone}
+                        onChange={(e) => setStoreWithdrawalPhone(e.target.value)}
+                        className={`w-full px-4 py-2.5 rounded-xl border text-base ${
+                          isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'
+                        }`}
+                        autoComplete="tel"
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-sm font-medium mb-1.5 ${isDark ? 'text-slate-300' : 'text-slate-700'}`} htmlFor="store-wd-amt">
+                        Amount (GHS)
+                      </label>
+                      <input
+                        id="store-wd-amt"
+                        type="text"
+                        inputMode="decimal"
+                        value={storeWithdrawalAmountStr}
+                        onChange={(e) => setStoreWithdrawalAmountStr(e.target.value)}
+                        className={`w-full px-4 py-2.5 rounded-xl border text-base ${
+                          isDark ? 'bg-zinc-900 border-white/15 text-white' : 'bg-white border-slate-200 text-slate-900'
+                        }`}
+                        placeholder="0.00"
+                      />
+                      <p className={`text-xs mt-1.5 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        Available balance: {ghs(withdrawableNow)} · minimum withdrawal {ghs(MIN_STORE_WITHDRAWAL_GHS)}
+                      </p>
+                      {overBalance ? (
+                        <p className="text-sm mt-2 text-red-500" role="alert">
+                          Amount cannot exceed your available balance.
+                        </p>
+                      ) : null}
+                    </div>
+                    {hasAmount && amountNum < MIN_STORE_WITHDRAWAL_GHS ? (
+                      <p className={`text-sm ${isDark ? 'text-amber-200' : 'text-amber-800'}`} role="status">
+                        Enter at least {ghs(MIN_STORE_WITHDRAWAL_GHS)} to continue.
+                      </p>
+                    ) : null}
+                    {hasAmount && amountNum >= MIN_STORE_WITHDRAWAL_GHS && !overBalance ? (
+                      <div
+                        className={`rounded-xl border px-3 py-2.5 text-sm ${
+                          isDark ? 'bg-violet-950/40 border-violet-800/50 text-violet-200' : 'bg-violet-50 border-violet-200 text-violet-900'
+                        }`}
+                      >
+                        <p>
+                          Processing fee ({Math.round(STORE_WITHDRAWAL_FEE_RATE * 100)}%): {ghs(feeAmount)}
+                        </p>
+                        <p className="font-semibold mt-1">You receive: {ghs(netAfter)}</p>
+                      </div>
+                    ) : null}
+                    {storeWithdrawalError ? (
+                      <p className="text-sm text-red-500" role="alert">
+                        {storeWithdrawalError}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!storeWithdrawalSubmitting) setStoreWithdrawalModalOpen(false);
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl font-medium ${
+                          isDark ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+                        }`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canProceedToConfirm}
+                        onClick={() => {
+                          setStoreWithdrawalError(null);
+                          setStoreWithdrawalStep('confirm');
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl font-semibold text-white ${
+                          canProceedToConfirm ? 'bg-violet-600 hover:bg-violet-500' : 'bg-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        Review and confirm
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      A {Math.round(STORE_WITHDRAWAL_FEE_RATE * 100)}% processing fee is deducted from this withdrawal. The amount sent to you will be{' '}
+                      <span className="font-semibold tabular-nums">{ghs(netAfter)}</span> (from a requested {ghs(amountNum)}).
+                    </p>
+                    <ul className={`text-sm space-y-1.5 list-none p-0 m-0 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      <li>
+                        <span className="font-medium text-slate-500">Name:</span> {String(storeWithdrawalName || '').trim() || '—'}
+                      </li>
+                      <li>
+                        <span className="font-medium text-slate-500">Phone:</span> {String(storeWithdrawalPhone || '').trim() || '—'}
+                      </li>
+                      <li>
+                        <span className="font-medium text-slate-500">Requested:</span> {ghs(amountNum)}
+                      </li>
+                      <li>
+                        <span className="font-medium text-slate-500">Fee:</span> {ghs(feeAmount)}
+                      </li>
+                      <li>
+                        <span className="font-medium text-slate-500">You receive:</span> {ghs(netAfter)}
+                      </li>
+                    </ul>
+                    <p className={`text-sm font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      Do you want to continue and send this request to the admin?
+                    </p>
+                    {storeWithdrawalError ? (
+                      <p className="text-sm text-red-500" role="alert">
+                        {storeWithdrawalError}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-col sm:flex-row gap-2.5">
+                      <button
+                        type="button"
+                        disabled={storeWithdrawalSubmitting}
+                        onClick={() => {
+                          setStoreWithdrawalError(null);
+                          setStoreWithdrawalStep('form');
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl font-medium ${
+                          isDark ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+                        }`}
+                      >
+                        No, go back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={storeWithdrawalSubmitting}
+                        onClick={async () => {
+                          setStoreWithdrawalSubmitting(true);
+                          setStoreWithdrawalError(null);
+                          try {
+                            await api.postStoreWithdrawalRequest({
+                              fullName: String(storeWithdrawalName || '').trim(),
+                              phone: String(storeWithdrawalPhone || '').trim(),
+                              amountGhs: amountNum,
+                              storeId: Number.isFinite(Number(activeStoreId)) ? Number(activeStoreId) : undefined,
+                            });
+                            setStoreWithdrawalModalOpen(false);
+                            setStoreWithdrawalStep('form');
+                            setStoreEarningsActionMsg(
+                              'Your withdrawal request was sent to the team. We will process it after review. You can track wallet activity from your balance and history above.'
+                            );
+                            if (typeof window !== 'undefined') {
+                              window.setTimeout(() => setStoreEarningsActionMsg(null), 14000);
+                            }
+                            loadStoreEarnings();
+                            fetchWallet();
+                          } catch (err) {
+                            setStoreWithdrawalError(err?.message || 'Request failed');
+                          } finally {
+                            setStoreWithdrawalSubmitting(false);
+                          }
+                        }}
+                        className="flex-1 py-2.5 rounded-xl font-semibold text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-60"
+                      >
+                        {storeWithdrawalSubmitting ? 'Sending…' : 'Yes, send request'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         </>
       )}
+
     </div>
   );
 }

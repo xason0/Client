@@ -1,7 +1,263 @@
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Pairs with index.html viewport + script: block pinch, double-tap, iOS “fake zoom” */
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+  body,
+  #root {
+    touch-action: manipulation;
+  }
+  /* iOS: focused inputs with <16px computed size force a zoom; lock at 16px+ on touch. */
+  @supports (-webkit-touch-callout: none) {
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+@layer components {
+  /* Public storefront: primary “Buy data” CTA (caps + soft motion) */
+  .public-store-cta-outer {
+    position: relative;
+    width: 100%;
+  }
+  .public-store-cta-ambient {
+    position: absolute;
+    inset: -0.4rem;
+    z-index: 0;
+    border-radius: 9999px;
+    background: radial-gradient(ellipse 85% 65% at 50% 115%, rgba(124, 58, 237, 0.42) 0%, rgba(124, 58, 237, 0) 70%);
+    filter: blur(10px);
+    pointer-events: none;
+    animation: public-store-cta-ambient 2.6s ease-in-out infinite;
+  }
+  @keyframes public-store-cta-ambient {
+    0%,
+    100% {
+      opacity: 0.5;
+      transform: scale(0.96, 0.9);
+    }
+    50% {
+      opacity: 0.95;
+      transform: scale(1.04, 1.05);
+    }
+  }
+  .public-store-cta {
+    position: relative;
+    z-index: 1;
+    will-change: transform, filter;
+  }
+  .public-store-cta-bolt {
+    animation: public-store-cta-bolt 1.6s ease-in-out infinite;
+  }
+  @keyframes public-store-cta-bolt {
+    0%,
+    100% {
+      transform: scale(1) rotate(-3deg);
+    }
+    50% {
+      transform: scale(1.06) rotate(4deg);
+    }
+  }
+  .public-store-cta-char {
+    display: inline-block;
+    min-width: 0.1em;
+    animation: public-store-cta-char 1.6s ease-in-out infinite;
+  }
+  @keyframes public-store-cta-char {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-2.5px);
+    }
+  }
+  .public-store-hero-title-char {
+    display: inline-block;
+    min-width: 0.05em;
+    animation: public-store-hero-title-char 2.2s ease-in-out infinite;
+  }
+  @keyframes public-store-hero-title-char {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-1.5px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .public-store-cta-ambient,
+    .public-store-cta-bolt,
+    .public-store-cta-char,
+    .public-store-hero-title-char {
+      animation: none !important;
+    }
+  }
+
+  /* Dashboard: slow fire-like gradient orbiting the announcement frame — App.jsx */
+  .dashboard-ad-fire-shell {
+    position: relative;
+    isolation: isolate;
+  }
+  .dashboard-ad-fire-spin {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 0;
+    width: 220%;
+    height: 220%;
+    margin-left: -110%;
+    margin-top: -110%;
+    pointer-events: none;
+    background: conic-gradient(
+      from 45deg,
+      #fff7ed,
+      #fde68a,
+      #fbbf24,
+      #fb923c,
+      #f97316,
+      #ef4444,
+      #ea580c,
+      #fdba74,
+      #fcd34d,
+      #fde68a,
+      #fff7ed
+    );
+    animation: dashboard-ad-fire-orbit 20s linear infinite;
+  }
+  html[data-theme='dark'] .dashboard-ad-fire-spin {
+    opacity: 0.92;
+    filter: brightness(1.1) saturate(1.12);
+    background: conic-gradient(
+      from 45deg,
+      #1c1917,
+      #fde68a,
+      #fb923c,
+      #f97316,
+      #fca5a5,
+      #fdba74,
+      #fcd34d,
+      #ea580c,
+      #fde68a,
+      #1c1917
+    );
+  }
+  @keyframes dashboard-ad-fire-orbit {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dashboard-ad-fire-spin {
+      animation: none;
+      opacity: 0.35;
+      transform: rotate(33deg);
+    }
+  }
+
+  /* Dashboard: “Introducing” (unchanged) + spotlight body — App.jsx */
+  .dashboard-ad-spotlight {
+    position: relative;
+    overflow: hidden;
+  }
+  .dashboard-ad-spotlight::after {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(124, 58, 237, 0.18) 0%, transparent 55%);
+    opacity: 0.9;
+  }
+  html[data-theme='dark'] .dashboard-ad-spotlight::after {
+    background: radial-gradient(ellipse 100% 70% at 50% 0%, rgba(167, 139, 250, 0.12) 0%, transparent 50%);
+  }
+  /* Soft, editorial — avoid heavy display fonts or strong bloom */
+  .dashboard-ad-copy {
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  .dashboard-announcement-intro {
+    display: inline-block;
+    flex-shrink: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.65rem;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem 0.25rem;
+    border-radius: 0.35rem;
+    background: linear-gradient(
+      110deg,
+      #4c1d95 0%,
+      #6d28d9 20%,
+      #ea580c 45%,
+      #fbbf24 55%,
+      #ea580c 65%,
+      #5b21b6 100%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 10px rgba(234, 88, 12, 0.35));
+    animation: dashboard-announcement-intro-sheen 3.2s ease-in-out infinite;
+  }
+  @keyframes dashboard-announcement-intro-sheen {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+  .dashboard-announcement-intro--dark {
+    background: linear-gradient(
+      110deg,
+      #a78bfa 0%,
+      #c084fc 15%,
+      #fb923c 42%,
+      #fcd34d 50%,
+      #fb7185 60%,
+      #a78bfa 100%
+    );
+    background-size: 240% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 12px rgba(251, 146, 60, 0.45)) drop-shadow(0 0 2px rgba(196, 181, 253, 0.5));
+    animation: dashboard-announcement-intro-sheen 3.2s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dashboard-announcement-intro,
+    .dashboard-announcement-intro--dark {
+      animation: none;
+      -webkit-text-fill-color: #fffbeb;
+      color: #fffbeb;
+      background: #5b21b6;
+      -webkit-background-clip: initial;
+      background-clip: initial;
+      background-image: none;
+      filter: none;
+    }
+  }
+}
 
 .telesopy-chat-row {
   width: 100%;
@@ -182,17 +438,74 @@ html, body, #root {
   color: #c7d2fe; /* indigo-200 */
 }
 
+/* Same palette + sheen as `.dashboard-announcement-intro` (Introducing chip) */
 .dashboard-animated-title {
-  font-family: "Playfair Display", Georgia, "Times New Roman", serif;
-  letter-spacing: 0.01em;
-  font-weight: 700;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  line-height: 1.2;
+  background: linear-gradient(
+    110deg,
+    #4c1d95 0%,
+    #6d28d9 20%,
+    #ea580c 45%,
+    #fbbf24 55%,
+    #ea580c 65%,
+    #5b21b6 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgba(234, 88, 12, 0.28));
+  animation: dashboard-announcement-intro-sheen 3.2s ease-in-out infinite;
 }
-[data-theme="light"] .dashboard-animated-title {
-  color: #312e81;
+[data-theme="dark"] .page-title.dashboard-animated-title,
+[data-theme="light"] .page-title.dashboard-animated-title {
+  color: transparent;
 }
 [data-theme="dark"] .dashboard-animated-title {
-  color: #e0e7ff;
-  text-shadow: 0 2px 16px rgba(129, 140, 248, 0.25);
+  background: linear-gradient(
+    110deg,
+    #a78bfa 0%,
+    #c084fc 15%,
+    #fb923c 42%,
+    #fcd34d 50%,
+    #fb7185 60%,
+    #a78bfa 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 16px rgba(251, 146, 60, 0.38)) drop-shadow(0 0 2px rgba(196, 181, 253, 0.4));
+  animation: dashboard-announcement-intro-sheen 3.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-animated-title {
+    animation: none;
+  }
+  [data-theme="light"] .page-title.dashboard-animated-title,
+  [data-theme="light"] h1.page-title.dashboard-animated-title {
+    -webkit-text-fill-color: #5b21b6;
+    color: #5b21b6;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    background-clip: border-box !important;
+    filter: none;
+  }
+  [data-theme="dark"] .page-title.dashboard-animated-title,
+  [data-theme="dark"] h1.page-title.dashboard-animated-title {
+    -webkit-text-fill-color: #e9d5ff;
+    color: #e9d5ff;
+    background: none !important;
+    -webkit-background-clip: initial !important;
+    background-clip: border-box !important;
+    filter: none;
+  }
 }
 
 /* Broadcast popup / admin rich message */

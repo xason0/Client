@@ -81,6 +81,11 @@ function headers() {
   };
 }
 
+function publicStoreHeaders() {
+  const t = getAdminToken() || getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 /** Abort fetch after ms so the UI does not hang forever on unreachable/slow API. */
 function fetchWithTimeout(url, init = {}, timeoutMs = 35000) {
   const controller = new AbortController();
@@ -150,6 +155,151 @@ export const api = {
     const res = await fetch(`${API_URL}/api/public/config`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return { paystackPublicKey: '', paystackEnabled: false };
+    return data;
+  },
+
+  /**
+   * Guest /store checkout — same Paystack keys as wallet; no auth. Amount is computed on the server.
+   */
+  async initPublicStoreBundlePaystack({ storeSlug, network, bundleSize, recipientPhone }) {
+    let res;
+    try {
+      res = await fetchWithTimeout(
+        `${API_URL}/api/public/paystack/bundle/initialize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeSlug: String(storeSlug || '').trim(),
+            network: String(network || '').trim(),
+            bundleSize: String(bundleSize || '').trim(),
+            recipientPhone: String(recipientPhone || '').replace(/\D/g, ''),
+          }),
+        },
+        40000
+      );
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        throw new Error(
+          'Payment server did not respond in time. Check VPN/firewall, that the API is up, and VITE_API_URL.'
+        );
+      }
+      if (e instanceof TypeError) {
+        throw new Error('Cannot reach the API (network). Confirm VITE_API_URL and that the backend is running.');
+      }
+      throw e;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const fromApi = data && typeof data === 'object' && typeof data.error === 'string' && data.error.trim();
+      if (res.status === 404 && fromApi) {
+        throw new Error(data.error);
+      }
+      if (res.status === 404) {
+        throw new Error(
+          'Store Paystack is not on this API yet (404). Deploy the latest `vps-server.js` to the host set in VITE_API_URL (e.g. ok.ultraxas.com), then restart the Node process.'
+        );
+      }
+      throw new Error(fromApi || `Could not start Paystack checkout (${res.status})`);
+    }
+    return data;
+  },
+
+  /** Resolves Paystack return for bundle or public AFA (`kind`: `bundle` | `afa`). */
+  /**
+   * Public order tracking for a storefront. Matches the phone number the bundle was sent to (same as on the order in admin).
+   */
+  async trackPublicStoreOrders({ storeSlug, phone }) {
+    const res = await fetch(`${API_URL}/api/public/orders/track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        storeSlug: String(storeSlug || '').trim(),
+        phone: String(phone || '').replace(/\D/g, ''),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const fromApi = data && typeof data === 'object' && typeof data.error === 'string' && data.error.trim();
+      if (res.status === 404 && fromApi) throw new Error(data.error);
+      if (res.status === 404) {
+        throw new Error('This store is not on this system yet, or the link is wrong.');
+      }
+      throw new Error(fromApi || 'Could not look up that order right now. Try again shortly.');
+    }
+    return data;
+  },
+
+  async verifyPublicStorePaystack(reference) {
+    const res = await fetch(`${API_URL}/api/public/paystack/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference: String(reference || '').trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const fromApi = data && typeof data === 'object' && typeof data.error === 'string' && data.error.trim();
+      if (res.status === 404 && fromApi) {
+        throw new Error(data.error);
+      }
+      if (res.status === 404) {
+        throw new Error(
+          'Store Paystack verify is not on this API yet (404). Deploy the latest `vps-server.js` and restart the API.'
+        );
+      }
+      throw new Error(fromApi || 'Could not verify payment');
+    }
+    return data;
+  },
+
+  async verifyPublicStoreBundlePaystack(reference) {
+    return this.verifyPublicStorePaystack(reference);
+  },
+
+  /** Public AFA: fee and fields validated server-side; no wallet / no login. */
+  async initPublicStoreAfaPaystack({ storeSlug, full_name, phone, ghana_card_number, occupation, date_of_birth }) {
+    let res;
+    try {
+      res = await fetchWithTimeout(
+        `${API_URL}/api/public/paystack/afa/initialize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeSlug: String(storeSlug || '').trim(),
+            full_name: (full_name || '').trim(),
+            phone: (phone || '').trim(),
+            ghana_card_number: (ghana_card_number || '').trim(),
+            occupation: (occupation || '').trim(),
+            date_of_birth: (date_of_birth || '').trim(),
+          }),
+        },
+        40000
+      );
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        throw new Error(
+          'Payment server did not respond in time. Check VPN/firewall, that the API is up, and VITE_API_URL.'
+        );
+      }
+      if (e instanceof TypeError) {
+        throw new Error('Cannot reach the API (network). Confirm VITE_API_URL and that the backend is running.');
+      }
+      throw e;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const fromApi = data && typeof data === 'object' && typeof data.error === 'string' && data.error.trim();
+      if (res.status === 404 && fromApi) {
+        throw new Error(data.error);
+      }
+      if (res.status === 404) {
+        throw new Error(
+          'Store Paystack is not on this API yet (404). Deploy the latest `vps-server.js` to the host set in VITE_API_URL, then restart the API.'
+        );
+      }
+      throw new Error(fromApi || `Could not start AFA checkout (${res.status})`);
+    }
     return data;
   },
 
@@ -476,6 +626,28 @@ export const api = {
     if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
     if (!res.ok) throw new Error(data.error || 'Failed to load wallets');
     return Array.isArray(data) ? data : [];
+  },
+
+  async getAdminStores() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/stores`), { headers: adminHeaders(), cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to load stores');
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.stores)) return data.stores;
+    return [];
+  },
+
+  async patchAdminStore(userId, payload) {
+    const res = await fetch(`${API_URL}/api/admin/stores/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 || res.status === 403) throw new Error(data.error || 'Admin access required');
+    if (!res.ok) throw new Error(data.error || 'Failed to update store');
+    return data;
   },
 
   async getAgentApplications() {
@@ -833,7 +1005,7 @@ export const api = {
     try {
       const res = await fetch(
         withNoStoreTs(`${API_URL}/api/public/store/${encodeURIComponent(s)}`),
-        { cache: 'no-store' }
+        { cache: 'no-store', headers: publicStoreHeaders() }
       );
       if (res.status === 404) return null;
       if (!res.ok) return null;
@@ -848,9 +1020,10 @@ export const api = {
   /**
    * Signed-in vendor store (GET /api/store). Never throws — on failure you keep local-only state.
    */
-  async getMyStore() {
+  async getMyStore(storeId) {
     try {
-      const res = await fetch(withNoStoreTs(`${API_URL}/api/store`), { headers: headers(), cache: 'no-store' });
+      const qs = Number.isFinite(Number(storeId)) ? `?storeId=${encodeURIComponent(String(storeId))}` : '';
+      const res = await fetch(withNoStoreTs(`${API_URL}/api/store${qs}`), { headers: headers(), cache: 'no-store' });
       if (res.status === 401) {
         return { store: null };
       }
@@ -864,6 +1037,20 @@ export const api = {
       return data;
     } catch {
       return { store: null };
+    }
+  },
+
+  async getMyStores() {
+    try {
+      const res = await fetch(withNoStoreTs(`${API_URL}/api/stores`), { headers: headers(), cache: 'no-store' });
+      if (res.status === 401) return [];
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return [];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.stores)) return data.stores;
+      return [];
+    } catch {
+      return [];
     }
   },
 
@@ -888,6 +1075,51 @@ export const api = {
     }
   },
 
+  /** Store dashboard → request withdrawal (POST /api/store/withdrawal-request). */
+  async postStoreWithdrawalRequest({ fullName, phone, amountGhs, storeId }) {
+    const res = await fetch(`${API_URL}/api/store/withdrawal-request`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        fullName,
+        phone,
+        amountGhs,
+        ...(Number.isFinite(Number(storeId)) ? { storeId: Number(storeId) } : {}),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data && data.error) || 'Could not submit withdrawal request');
+    }
+    return data;
+  },
+
+  async getAdminWithdrawalRequests() {
+    const res = await fetch(withNoStoreTs(`${API_URL}/api/admin/withdrawal-requests`), {
+      headers: adminHeaders(),
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data && data.error) || 'Failed to load withdrawal requests');
+    }
+    if (Array.isArray(data.requests)) return data.requests;
+    if (Array.isArray(data)) return data;
+    return [];
+  },
+  async patchAdminWithdrawalRequest(id, status) {
+    const res = await fetch(`${API_URL}/api/admin/withdrawal-requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: adminHeaders(),
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data && data.error) || 'Failed to update withdrawal request');
+    }
+    return data;
+  },
+
   /** Save vendor store to the API (PUT /api/store). */
   async putMyStore(payload) {
     if (!getToken()) {
@@ -908,6 +1140,21 @@ export const api = {
     if (!res.ok) {
       throw new Error((data && data.error) || 'Failed to save store');
     }
+    return data;
+  },
+
+  async deleteMyStore(payload) {
+    if (!getToken()) {
+      return { ok: false, skipped: true };
+    }
+    const res = await fetch(`${API_URL}/api/store`, {
+      method: 'DELETE',
+      headers: headers(),
+      body: JSON.stringify(payload && typeof payload === 'object' ? payload : {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) return { ok: false, skipped: true };
+    if (!res.ok) throw new Error((data && data.error) || 'Failed to delete store');
     return data;
   },
 };
