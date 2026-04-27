@@ -380,7 +380,7 @@ function DashboardAnnouncementBar({ text, isDark, onOpenStore, showStoreCta = tr
         </div>
 
         {hasMultiline ? (
-          <div className="min-h-[4.25rem] sm:min-h-[3.5rem]">
+          <div className="min-h-[6.85rem] sm:min-h-[6.35rem]">
             <p
               className={`dashboard-ad-copy m-0 text-[1.02rem] font-normal leading-[1.55] tracking-[0.01em] sm:text-[1.08rem] sm:leading-[1.6] ${
                 isDark ? 'text-slate-100/95' : 'text-indigo-950/90'
@@ -388,19 +388,18 @@ function DashboardAnnouncementBar({ text, isDark, onOpenStore, showStoreCta = tr
             >
               {lineMain}
             </p>
-            {showSub ? (
-              <p
-                className={`dashboard-ad-copy m-0 mt-2.5 max-w-2xl text-[0.8125rem] font-normal leading-[1.55] sm:mt-2.5 sm:text-sm ${
-                  isDark ? 'text-violet-200/80' : 'text-violet-800/80'
-                }`}
-              >
-                {lineSub}
-              </p>
-            ) : null}
+            <p
+              className={`dashboard-ad-copy m-0 mt-2.5 min-h-[1.45rem] max-w-2xl text-[0.8125rem] font-normal leading-[1.55] sm:mt-2.5 sm:min-h-[1.5rem] sm:text-sm ${
+                isDark ? 'text-violet-200/80' : 'text-violet-800/80'
+              } ${!showSub ? 'text-transparent' : ''}`}
+              aria-hidden={!showSub}
+            >
+              {showSub ? lineSub : '\u00a0'}
+            </p>
           </div>
         ) : (
           <p
-            className={`dashboard-ad-copy m-0 min-h-[2.5rem] max-w-2xl text-[1.02rem] font-normal leading-[1.55] tracking-[0.01em] sm:text-[1.08rem] ${
+            className={`dashboard-ad-copy m-0 min-h-[4.75rem] max-w-2xl text-[1.02rem] font-normal leading-[1.55] tracking-[0.01em] sm:min-h-[4rem] sm:text-[1.08rem] ${
               isDark ? 'text-slate-100/95' : 'text-indigo-950/90'
             }`}
           >
@@ -408,23 +407,30 @@ function DashboardAnnouncementBar({ text, isDark, onOpenStore, showStoreCta = tr
           </p>
         )}
 
-        {canCta && ctaRevealed ? (
-          <div className="mt-4 flex flex-wrap items-center gap-2 sm:mt-5">
-            <button
-              type="button"
-              onClick={() => onOpenStore?.()}
-              className={`inline-flex min-h-[2.5rem] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm transition-[filter,box-shadow] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 focus-visible:ring-offset-2 ${
-                isDark
-                  ? 'bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500/90 text-white hover:brightness-110 focus-visible:ring-offset-zinc-950'
-                  : 'bg-gradient-to-r from-violet-700 via-violet-600 to-orange-500 text-white hover:brightness-105 focus-visible:ring-offset-white'
+        {canCta ? (
+          <div className="mt-4 flex min-h-[3rem] flex-wrap items-center gap-2 sm:mt-5 sm:min-h-[3.25rem]">
+            <div
+              className={`flex flex-wrap items-center gap-2 transition-opacity duration-300 ease-out ${
+                ctaRevealed ? 'opacity-100' : 'pointer-events-none select-none opacity-0'
               }`}
-              aria-label="Open Store Dashboard"
+              aria-hidden={!ctaRevealed}
             >
-              {ctaLabel}
-            </button>
-            <span className={`text-xs sm:text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-              Opens your vendor Store Dashboard
-            </span>
+              <button
+                type="button"
+                onClick={() => onOpenStore?.()}
+                className={`inline-flex min-h-[2.5rem] items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium shadow-sm transition-[filter,box-shadow] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 focus-visible:ring-offset-2 ${
+                  isDark
+                    ? 'bg-gradient-to-r from-violet-600 via-fuchsia-500 to-amber-500/90 text-white hover:brightness-110 focus-visible:ring-offset-zinc-950'
+                    : 'bg-gradient-to-r from-violet-700 via-violet-600 to-orange-500 text-white hover:brightness-105 focus-visible:ring-offset-white'
+                }`}
+                aria-label="Open Store Dashboard"
+              >
+                {ctaLabel}
+              </button>
+              <span className={`text-xs sm:text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                Opens your vendor Store Dashboard
+              </span>
+            </div>
           </div>
         ) : null}
       </div>
@@ -8385,9 +8391,11 @@ export default function App({ adminRoute: adminRouteProp = false }) {
         ) : currentPage === 'dashboard' ? (
           <>
             <div className="pt-14 sm:pt-20 pb-4 sm:pb-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <h1 className={`page-title dashboard-animated-title text-2xl sm:text-3xl transition-all duration-300 ${dashboardHeadlineVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-1'}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-h-[3.6rem] min-w-0 flex-1 items-center sm:min-h-[3rem]">
+                  <h1
+                    className={`page-title dashboard-animated-title block max-w-full text-2xl sm:text-3xl transition-opacity duration-300 ease-out ${dashboardHeadlineVisible ? 'opacity-100' : 'opacity-0'}`}
+                  >
                     {DASHBOARD_HEADLINES[dashboardHeadlineIndex]}
                   </h1>
                 </div>
